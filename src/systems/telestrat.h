@@ -15,6 +15,7 @@
 // - chips/ay38910psg.h
 // - chips/kbd.h
 // - chips/clk.h
+// - devices/wd1793.h
 // - devices/telestrat_fdc.h
 // - devices/mos6551acia.h
 //
@@ -22,8 +23,9 @@
 //    F. Broche, 1987, chapitre IV ; décodage d'Oricutron, machine.c)
 //
 //   $0000-$02FF  RAM
-//   $0300-$030F  VIA 1 (clavier, AY, imprimante) — comme l'Atmos
-//   $0310-$0313  WD1793 ; $0314 contrôle ; $0318 DRQ (Microdisc intégré)
+//   $0300-$030F  VIA 1 (clavier, AY, imprimante : ORA, STROBE PB4, ACK CA1)
+//   $0310-$0313  WD1793 ; $0314 contrôle ; $0318 DRQ (Microdisc intégré),
+//                disquettes au format MFM_DISK (4 lecteurs)
 //   $031C-$031F  ACIA 6551 (registres seuls au sprint 1, sans liaison)
 //   $0320-$032F  VIA 2 : PA0-PA2 = banque de $C000-$FFFF, PB = joysticks
 //   autres $03xx  reflet du VIA 1 (comme Oricutron)
@@ -108,10 +110,18 @@ typedef struct {
 #define TELESTRAT_JOY_DOWN  (1 << 3)
 #define TELESTRAT_JOY_UP    (1 << 4)
 
+// Imprimante sur le port parallèle du VIA 1 : octet = ORA au front
+// descendant de PB4 (STROBE), réponse ACK sur CA1 (comme Oricutron).
+typedef void (*telestrat_printer_t)(uint8_t data, void* user_data);
+
 typedef struct {
     chips_debug_t debug;
     chips_audio_desc_t audio;
     telestrat_bank_desc_t banks[TELESTRAT_NUM_BANKS];
+    struct {
+        telestrat_printer_t func;  // NULL : pas d'imprimante branchée
+        void* user_data;
+    } printer;
 } telestrat_desc_t;
 
 typedef struct {
@@ -135,6 +145,11 @@ typedef struct {
 
     uint8_t joy[2];  // [0] = port droit (PB7), [1] = port gauche (PB6)
 
+    telestrat_printer_t printer;
+    void* printer_user_data;
+    bool strobe;          // dernier niveau de PB4
+    int32_t printer_ack;  // cycles restants de l'impulsion ACK
+
     int blink_counter;
     uint8_t pattr;
     uint8_t fb[TELESTRAT_FRAMEBUFFER_SIZE];
@@ -154,7 +169,13 @@ void telestrat_screen_update(telestrat_t* sys);
 // Sélectionne la banque de $C000-$FFFF (0..7), comme le fait V2DRA
 void telestrat_select_bank(telestrat_t* sys, uint8_t bank);
 // État d'un joystick (0 = droit, 1 = gauche), bits TELESTRAT_JOY_*
+bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect) {
+    return wd1793_insert(&sys->fdc.wd, drive, image, size, write_protect);
+}
+
 void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state);
+// Insère une image MFM_DISK dans le lecteur 0..3 (false si invalide)
+bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect);
 // Lecture « système » (sans effet de bord sur les E/S) pour les tests
 uint8_t telestrat_peek(telestrat_t* sys, uint16_t addr);
 
@@ -168,6 +189,11 @@ uint8_t telestrat_peek(telestrat_t* sys, uint16_t addr);
 #ifndef CHIPS_ASSERT
 #include <assert.h>
 #define CHIPS_ASSERT(c) assert(c)
+#endif
+
+// Section du code exécuté à chaque cycle (le RP2040 le place en RAM)
+#ifndef TELESTRAT_HOT
+#define TELESTRAT_HOT
 #endif
 
 #define TELESTRAT_PATTR_HIRES (0x04)
@@ -242,6 +268,8 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
 
     _telestrat_init_key_map(sys);
     sys->joy[0] = sys->joy[1] = 0;
+    sys->printer = desc->printer.func;
+    sys->printer_user_data = desc->printer.user_data;
 }
 
 void telestrat_discard(telestrat_t* sys) {
@@ -356,7 +384,22 @@ static inline void _telestrat_update_joysticks(telestrat_t* sys) {
     mos6522via_set_pa(&sys->via2, 0xFF);
 }
 
-void telestrat_tick(telestrat_t* sys) {
+static inline void _telestrat_update_printer(telestrat_t* sys, uint8_t pb) {
+    if (!sys->printer) return;
+    bool strobe = (pb & sys->via.pb.ddr & 0x10) != 0;
+    if (sys->strobe && !strobe) {
+        sys->printer(sys->via.pa.outr, sys->printer_user_data);
+        sys->printer_ack = 40;
+    } else if (sys->printer_ack > 0) {
+        sys->printer_ack -= 4;
+    }
+    sys->strobe = strobe;
+    // Niveau de CA1 redonné à chaque pas : le VIA de reload ne détecte un front
+    // qu'au changement de niveau entre deux appels de mos6522via_set_ca1()
+    mos6522via_set_ca1(&sys->via, sys->printer_ack > 0);
+}
+
+TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
     MOS6502CPU_TICK(&sys->cpu);
     _telestrat_mem_rw(sys, MOS6502CPU_GET_ADDR(&sys->cpu), sys->cpu.rw);
 
@@ -379,6 +422,7 @@ void telestrat_tick(telestrat_t* sys) {
     if ((sys->system_ticks & 3) == 0) {
         bool irq = mos6522via_tick(&sys->via, 4);
         irq |= mos6522via_tick(&sys->via2, 4);
+        telestrat_fdc_tick(&sys->fdc, 4);
         irq |= telestrat_fdc_irq(&sys->fdc);
         irq |= mos6551acia_irq(&sys->acia);
         MOS6502CPU_SET_IRQ(&sys->cpu, irq);
@@ -405,6 +449,7 @@ void telestrat_tick(telestrat_t* sys) {
         }
 
         _telestrat_update_joysticks(sys);
+        _telestrat_update_printer(sys, pb);
     }
 
     sys->system_ticks++;

@@ -29,12 +29,14 @@ set(NEO_MULTIBOOT_DIR "" CACHE PATH "Neo6502firmware/multiboot (memmap_slot_N.ld
 set(NEO_SLOT_TELESTRAT "" CACHE STRING "Slot de flash multi-boot (vide = image seule)")
 
 add_subdirectory(${RELOAD_RP2040}/lib/PicoDVI/software/libdvi libdvi)
+add_subdirectory(${RELOAD_RP2040}/lib/fatfs/source fatfs)
 
 add_executable(telestrat
     ${CMAKE_CURRENT_SOURCE_DIR}/src/telestrat.c
     ${RELOAD_RP2040}/systems/oric/src/utils.S
     ${RELOAD_RP2040}/src/hid_app.c
     ${RELOAD_RP2040}/src/audio.c
+    ${RELOAD_RP2040}/src/msc_app.c
 )
 
 # Ordre : nos en-têtes, puis la plate-forme RP2040 de reload (chips/wdc65C02cpu.h),
@@ -44,6 +46,7 @@ target_include_directories(telestrat PRIVATE
     ${RELOAD_RP2040}/src
     ${RELOAD_DIR}/src
     ${RELOAD_RP2040}/lib/PicoDVI/software/include
+    ${RELOAD_RP2040}/lib/fatfs/source
 )
 
 target_compile_options(telestrat PRIVATE -Wall)
@@ -59,6 +62,7 @@ target_link_libraries(telestrat
     pico_util
     libdvi
     tinyusb_host
+    fatfs
 )
 
 pico_add_extra_outputs(telestrat)

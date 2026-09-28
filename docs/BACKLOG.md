@@ -19,14 +19,15 @@ HYPER-BASIC, TELE-ASS, TELEMATIC en serveur Minitel par le modem Wi-Fi.
 | US-05 | Firmware `telestrat.uf2` compilé, multi-boot possible | ✅ compilé, ⏳ essai sur carte |
 | US-06 | Clavier Oric (dont ESC, FUNCT, CTRL+lettre) et joysticks par manette | ✅ code, ⏳ essai sur carte |
 
-## Sprint 2 — « Disquettes »
+## Sprint 2 — v0.2.0 — « Disquettes » ✅ (2026-09-29)
 
-| US | Récit |
-|---|---|
-| US-10 | WD1793 complet (types I à IV, DRQ, INTRQ, timings) sur images `.dsk` (MFM_DISK) |
-| US-11 | Insertion d'images depuis la clé USB (comme `msc_app.c` de reload) ou intégrées au firmware |
-| US-12 | Démarrage STRATSED puis HYPER-BASIC (`BONJOUR.COM`) — besoin : une image de disquette système Telestrat |
-| US-13 | Test de référence contre Oricutron sur la même image |
+| US | Récit | État |
+|---|---|---|
+| US-10 | WD1793 complet (types I à IV, DRQ, INTRQ) sur images `.dsk` (MFM_DISK) | ✅ 24 tests unitaires FDC |
+| US-11 | Images sur clé USB, lues et écrites piste par piste ; F1 = image suivante | ✅ code, ⏳ essai sur carte |
+| US-12 | Démarrage STRATSED V2.0c puis HYPER-BASIC ; DIR, SAVE, LOAD | ✅ banc PC |
+| US-13 | Même écran qu'Oricutron sur la même disquette | ✅ (« Votre choix: ») |
+| US-14 | Imprimante sur le port parallèle (LPRINT) | ✅ banc PC (option `-P`) |
 
 ## Sprint 3 — « Télématique »
 
@@ -38,8 +39,9 @@ HYPER-BASIC, TELE-ASS, TELEMATIC en serveur Minitel par le modem Wi-Fi.
 
 ## Plus tard
 
-- Essai et réglage sur carte (temps de bus, son, DVI).
-- Imprimante (port parallèle du VIA 1) vers un fichier.
+- Essai et réglage sur carte (temps de bus, son, DVI, accès USB).
+- Images disque intégrées en flash (lecture seule), lecteurs B à D depuis la clé.
+- Imprimante vers l'UART ou la clé USB sur le Neo6502.
 - Instantanés (savestates), sélecteur de ROM au démarrage.
 - Test « golden » image contre Oricutron (PPM), ROM ORIX.
 

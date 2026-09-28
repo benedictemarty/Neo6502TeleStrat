@@ -9,4 +9,7 @@
 | [assinie/Hyper-Basic](https://github.com/assinie/Hyper-Basic) | ROM HYPER-BASIC 2.0b, source commentée |
 | [jedeoric/tele-ass](https://github.com/jedeoric/tele-ass) | ROM TELE-ASS |
 | [assinie/Telematic](https://github.com/assinie/Telematic) | ROM TELEMATIC 2.0b (8 Ko, `$E000`), source commentée |
+| [assinie/STRATSED](https://github.com/assinie/STRATSED) | STRATSED V2.0E (image de banque 0), source commentée |
+| `STRATSED.DSK` (archive locale `~/oriclib/games/dsk`) | disquette système STRATSED V2.0c, tests de démarrage |
+| Fiche technique WD1793 (Western Digital) | commandes, registre d'état, formatage `$F5`-`$F7` |
 | `~/Téléchargements/telestrat_*.pdf` (schémas de la carte mère, « Telestrat à cœur ouvert », « Système ») | à exploiter aux sprints 2-3 (FDC, ACIA) |

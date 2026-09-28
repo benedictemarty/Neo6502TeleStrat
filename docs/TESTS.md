@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (24 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (48 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -10,11 +10,18 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - commutation par V2DRA depuis la RAM (`$0400`) : écriture/relecture en banque
   RAM, écriture ignorée en ROM, `$FF` en banque vide, retour en banque 7 ;
 - DDRA partiel : les lignes en entrée gardent la banque précédente ;
-- FDC : `$0314`/INTRQ, INTENA, RESTORE/SEEK/STEP IN/STEP OUT, READ SECTOR sans
-  disque (non prêt + secteur introuvable), adresses hors FDC ;
+- FDC sans disque : `$0314`/INTRQ, INTENA, non prêt, adresses hors FDC ;
+- FDC sur une disquette MFM synthétique (CRC calculés) : en-tête refusé,
+  SEEK avec vérification, STEP OUT, lecture d'un secteur (contenu exact, fin de
+  DRQ, statut), multi-secteurs jusqu'à la fin de piste, secteur introuvable,
+  READ ADDRESS, réécriture identique = image inchangée (CRC exacts), écriture et
+  relecture, protection, FORCE INTERRUPT, lecteur vide ;
+- WRITE TRACK (formatage `$F5`/`$F7`) puis lecture ; CRC de l'ID formaté ;
+- mode flux : lecture par rappel, pas de relecture sur la même piste, piste
+  réécrite une fois après WRITE SECTOR, relue en mode mémoire, protection ;
 - ACIA : valeurs au RESET, RESET logiciel (parité gardée, IRQ interdites).
 
-## Tests de démarrage — `tests/test_boot.sh` (21 vérifications)
+## Tests de démarrage — `tests/test_boot.sh` (33 vérifications)
 
 Vraies ROM (`tools/fetch_roms.py`), 300 trames (6 s émulées), 4 configurations.
 Écran texte attendu : « TELEMON V2.4 », « (c) 1986 ORIC International »,
@@ -28,7 +35,19 @@ chaque configuration :
 | `standard` | 64 Ko RAM, 56 Ko ROM | somme des ROM de la notice (16+16+16+8) |
 | `telemon` | 64 Ko RAM, 16 Ko ROM | |
 
+### Sur disquette (12 vérifications)
+
+Image `STRATSED.DSK` (MFM_DISK, 2 faces x 80 pistes, STRATSED V2.0c,
+md5 `0c121a969a2b28e37ad831ee31ce660e`), prise dans l'archive locale
+`~/oriclib/games/dsk/` (ou `STRATSED_DSK=...`) ; tests ignorés si absente.
+Référence : écran d'Oricutron sur la même image (« STRATSED V2.0c », « HYPER
+BASIC V2.0b », « TELEASS V1.0a », menu « 1- HYPER-BASIC / 2- TELE-ASS / Votre
+choix: », « Imprimante,Drive:A-B-C-D » avec imprimante).
+Puis : « 44 Ko libres », `PRINT 6*7` → 42, `DIR` → 88 fichiers ; `SAVE` sur une
+copie puis, dans une nouvelle session, `LOAD`/`RUN` et `DIR` → 89 fichiers ;
+`LPRINT` → fichier imprimante.
+
 ## Firmware
 
 `make uf2` doit compiler sans erreur ; l'occupation RAM est relevée dans
-docs/ARCHITECTURE.md. L'essai sur carte est manuel (non fait au sprint 1).
+docs/ARCHITECTURE.md. L'essai sur carte est manuel (non fait aux sprints 1 et 2).

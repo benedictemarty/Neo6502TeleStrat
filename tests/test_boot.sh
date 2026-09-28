@@ -32,5 +32,47 @@ expect telemon   "64 Ko RAM, 16 Ko ROM"
 # État des banques laissé par le RESET : $0F = RAM (notice, chap. V-10)
 expect ram64k    "etat des banques (\$0200-\$0207) : 00 0F 0F 0F 0F"
 
+# --- Disquette système (sprint 2) : STRATSED V2.0c, HYPER-BASIC, SAVE/LOAD, LPRINT
+DSK=${STRATSED_DSK:-$HOME/oriclib/games/dsk/STRATSED.DSK}
+if [ -f "$DSK" ]; then
+    TMP=$(mktemp -d)
+    cp "$DSK" "$TMP/a.dsk"
+    run_disk() {  # motif, puis arguments du banc
+        n=$((n + 1))
+        motif=$1
+        shift
+        out=$("$BIN" -c oricutron "$@" -s)
+        if ! printf '%s\n' "$out" | grep -q -- "$motif"; then
+            fail=$((fail + 1))
+            echo "ÉCHEC [disque] : « $motif » absent de l'écran :"
+            printf '%s\n' "$out" | grep -v '^$' | sed 's/^/    /'
+        fi
+    }
+    # Écran de référence : Oricutron 1.2.0 (rev. 002279f), mêmes ROM, même disquette
+    for m in "STRATSED V2.0c" "HYPER BASIC V2.0b" "TELEASS V1.0a" "1- HYPER-BASIC" "Votre choix:"; do
+        run_disk "$m" -0 "$TMP/a.dsk" -f 600
+    done
+    run_disk "Imprimante,Drive:A-B-C-D" -0 "$TMP/a.dsk" -P /dev/null -f 600
+    run_disk "44 Ko libres" -0 "$TMP/a.dsk" -f 900 -w 500 -t '1'
+    run_disk "  42" -0 "$TMP/a.dsk" -f 1200 -w 500 -t '1~~~~~~PRINT 6*7\n'
+    run_disk "secteurs libres, 88 fichiers" -0 "$TMP/a.dsk" -f 1500 -w 500 -t '1~~~~~~DIR\n'
+    # Écriture : SAVE sur une copie, relecture dans une nouvelle session
+    "$BIN" -c oricutron -0 "$TMP/a.dsk" -W "$TMP/b.dsk" -f 1600 -w 500 \
+        -t '1~~~~~~10 PRINT "NEO6502"\nSAVE "ESSAI"\n' >/dev/null
+    run_disk " NEO6502" -0 "$TMP/b.dsk" -f 1500 -w 500 -t '1~~~~~~LOAD "ESSAI"\nRUN\n'
+    run_disk "secteurs libres, 89 fichiers" -0 "$TMP/b.dsk" -f 1500 -w 500 -t '1~~~~~~DIR\n'
+    # Imprimante
+    "$BIN" -c oricutron -0 "$TMP/a.dsk" -P "$TMP/lpr.txt" -f 1300 -w 500 \
+        -t '1~~~~~~LPRINT "BONJOUR TELESTRAT"\n' >/dev/null
+    n=$((n + 1))
+    if ! grep -q "BONJOUR TELESTRAT" "$TMP/lpr.txt"; then
+        fail=$((fail + 1))
+        echo "ÉCHEC [imprimante] : sortie = $(od -c "$TMP/lpr.txt" | head -3)"
+    fi
+    rm -rf "$TMP"
+else
+    echo "test_boot : disquette système absente ($DSK), tests disque ignorés"
+fi
+
 echo "test_boot : $((n - fail))/$n vérifications réussies"
 [ "$fail" -eq 0 ]

@@ -4,8 +4,13 @@
 // émule VIA 1 et 2, AY-3-8912, Microdisc intégré, ACIA et vidéo ULA (DVI).
 // Dérivé de platforms/rp2040/systems/oric/src/oric.c de reload-emulator.
 //
-// Touches : F11 = NMI, F12 = RESET, Windows gauche = FUNCT, Pause = retour
-// au firmware Neo6502 (multi-boot). Manette USB = joystick droit.
+// Disquettes : fichiers .dsk (MFM_DISK) à la racine d'une clé USB (FAT),
+// lus et écrits piste par piste (wd1793_insert_streamed) ; la première image
+// est insérée dans le lecteur A dès que la clé est montée.
+//
+// Touches : F1 = image suivante dans le lecteur A, F11 = NMI, F12 = RESET,
+// Windows gauche = FUNCT, Pause = retour au firmware Neo6502 (multi-boot).
+// Manette USB = joystick droit (la 2e : joystick gauche).
 //
 // ## Licence zlib/libpng
 //
@@ -40,6 +45,11 @@
 
 #include "roms/telestrat_roms.h"
 
+// Code exécuté à chaque cycle en RAM : depuis la flash (XIP), il déborderait
+// le cache de 16 Ko (même choix que le BBC de reload-emulator)
+#define TELESTRAT_HOT __attribute__((section(".time_critical.telestrat")))
+#define CHIPS_HOT     __attribute__((section(".time_critical.telestrat")))
+#define WDC65C02_HOT  __attribute__((section(".time_critical.telestrat")))
 #include "chips/chips_common.h"
 #ifdef OLIMEX_NEO6502
 #include "chips/wdc65C02cpu.h"
@@ -50,6 +60,7 @@
 #include "chips/ay38910psg.h"
 #include "chips/kbd.h"
 #include "chips/clk.h"
+#include "devices/wd1793.h"
 #include "devices/telestrat_fdc.h"
 #include "devices/mos6551acia.h"
 #include "systems/telestrat.h"
@@ -73,6 +84,7 @@
 
 #include "tusb.h"
 #include "neo_multiboot.h"
+#include "ff.h"
 
 typedef struct {
     telestrat_t telestrat;
@@ -101,6 +113,95 @@ static telestrat_desc_t telestrat_desc(void) {
     d.banks[6] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_hyperbas};
     d.banks[7] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_telemon24};
     return d;
+}
+
+/*-- Disquettes sur clé USB -------------------------------------------------*/
+
+#define USB_MAX_FILES 32
+static char usb_files[USB_MAX_FILES][13];  // noms 8.3 des .dsk de la racine
+static int usb_num_files = 0;
+static bool usb_scanned = false;
+static FIL usb_fil;
+static bool usb_fil_open = false;
+static int current_image = -1;
+
+extern bool msc_inquiry_complete;
+
+static bool has_ext(const char *name, const char *ext) {
+    size_t n = strlen(name), e = strlen(ext);
+    if (n < e) return false;
+    for (size_t i = 0; i < e; i++) {
+        char c = name[n - e + i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        if (c != ext[i]) return false;
+    }
+    return true;
+}
+
+static bool usb_read(void *ctx, uint32_t offset, uint8_t *buf, uint32_t len) {
+    (void)ctx;
+    UINT n = 0;
+    if (!usb_fil_open || f_lseek(&usb_fil, offset) != FR_OK) return false;
+    if (f_read(&usb_fil, buf, len, &n) != FR_OK) return false;
+    return n == len;
+}
+
+static bool usb_write(void *ctx, uint32_t offset, uint8_t *buf, uint32_t len) {
+    (void)ctx;
+    UINT n = 0;
+    if (!usb_fil_open || f_lseek(&usb_fil, offset) != FR_OK) return false;
+    if (f_write(&usb_fil, buf, len, &n) != FR_OK || n != len) return false;
+    return f_sync(&usb_fil) == FR_OK;
+}
+
+static void usb_scan(void) {
+    DIR dir;
+    FILINFO fno;
+    usb_num_files = 0;
+    if (f_opendir(&dir, "/") != FR_OK) return;
+    while (usb_num_files < USB_MAX_FILES && f_readdir(&dir, &fno) == FR_OK && fno.fname[0]) {
+        if (fno.fattrib & AM_DIR) continue;
+        if (has_ext(fno.fname, ".dsk")) {
+            strncpy(usb_files[usb_num_files], fno.fname, 12);
+            usb_files[usb_num_files][12] = 0;
+            usb_num_files++;
+        }
+    }
+    f_closedir(&dir);
+    printf("USB : %d image(s) .dsk\n", usb_num_files);
+}
+
+// Insère l'image `index` de la clé dans le lecteur A
+static void insert_image(int index) {
+    if (index < 0 || index >= usb_num_files) return;
+    wd1793_eject(&state.telestrat.fdc.wd, 0);  // réécrit la piste en attente
+    if (usb_fil_open) {
+        f_close(&usb_fil);
+        usb_fil_open = false;
+    }
+    const char *name = usb_files[index];
+    bool rw = f_open(&usb_fil, name, FA_READ | FA_WRITE) == FR_OK;
+    if (!rw && f_open(&usb_fil, name, FA_READ) != FR_OK) {
+        printf("USB : %s illisible\n", name);
+        return;
+    }
+    usb_fil_open = true;
+    if (!wd1793_insert_streamed(&state.telestrat.fdc.wd, 0, f_size(&usb_fil), usb_read, rw ? usb_write : NULL, NULL)) {
+        printf("USB : %s n'est pas une image MFM_DISK\n", name);
+        f_close(&usb_fil);
+        usb_fil_open = false;
+        return;
+    }
+    current_image = index;
+    printf("Lecteur A : %s%s\n", name, rw ? "" : " (protégée)");
+}
+
+// À chaque trame : à la première apparition de la clé, liste et insère la première image
+static void usb_poll(void) {
+    if (usb_scanned || !msc_inquiry_complete) return;
+    usb_scanned = true;
+    usb_scan();
+    if (usb_num_files > 0) insert_image(0);
 }
 
 void app_init(void) {
@@ -150,6 +251,9 @@ void kbd_raw_key_down(int code) {
     if (code == (NEO_MULTIBOOT_RETURN_KEY | 0x100)) neo_multiboot_return();
     telestrat_t *sys = &state.telestrat;
     switch (code) {
+        case 0x13A:  // F1 : image suivante dans le lecteur A
+            if (usb_num_files > 0) insert_image((current_image + 1) % usb_num_files);
+            break;
         case 0x144:  // F11
             telestrat_nmi(sys);
             break;
@@ -281,6 +385,7 @@ int main() {
         telestrat_screen_update(&state.telestrat);
         kbd_update(&state.telestrat.kbd, num_ticks);
         tuh_task();
+        usb_poll();
 
         uint32_t execution_time = time_us_32() - start_time_in_micros;
         int sleep_time = (int)num_ticks - (int)execution_time;

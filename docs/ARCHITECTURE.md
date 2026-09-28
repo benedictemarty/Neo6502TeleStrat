@@ -11,7 +11,8 @@ les tests de Klaus Dormann) : c'est le banc de test.
 
 ```
 src/systems/telestrat.h     système (format header-only de reload)
-src/devices/telestrat_fdc.h Microdisc intégré (WD1793 + contrôle $0314/$0318)
+src/devices/wd1793.h        WD1793 sur images MFM_DISK (mémoire ou flux)
+src/devices/telestrat_fdc.h Microdisc intégré (contrôle $0314/$0318 autour du WD1793)
 src/devices/mos6551acia.h   ACIA 6551
 src/roms/telestrat_roms.h   généré par tools/fetch_roms.py (non versionné)
 platforms/pc/               banc sans écran (tests)
@@ -27,7 +28,7 @@ Dépendances reprises de reload-emulator sans copie : `mos6522via.h`,
 | Adresses | Contenu | Source |
 |---|---|---|
 | `$0000-$02FF` | RAM | |
-| `$0300-$030F` | VIA 1 : clavier (PB0-2, PB3), AY (PA, CA2, CB2), imprimante | comme l'Atmos |
+| `$0300-$030F` | VIA 1 : clavier (PB0-2, PB3), AY (PA, CA2, CB2), imprimante (ORA, STROBE PB4, ACK CA1) | comme l'Atmos ; imprimante : Oricutron `via.c` |
 | `$0310-$0313` | WD1793 | Oricutron `disk.c` |
 | `$0314` | écriture : INTENA (b0), face (b4), lecteur (b5-6) ; lecture : /INTRQ (b7) | Oricutron `disk.h` |
 | `$0318` | lecture : /DRQ (b7) | Oricutron |
@@ -64,8 +65,11 @@ Dépendances reprises de reload-emulator sans copie : `mos6522via.h`,
 | Sujet | Choix | Raison |
 |---|---|---|
 | Accès aux banques | pointeurs directs, sans `mem.h` | ROM sans pointeur d'écriture ; plus rapide ; économise la RAM du RP2040 |
-| RAM du RP2040 | variante `standard` (1 banque RAM, 4 ROM) : 178 Ko ; `ram64k` (5 RAM, 2 ROM) : 210 Ko | les ROM restent en RAM (`__not_in_flash`) comme dans reload, pour tenir le temps de bus |
-| FDC | sprint 1 : aucun disque, « non prêt » et INTRQ en fin de commande | suffisant pour TELEMON ; la lecture `.dsk` est au sprint 2 |
+| RAM du RP2040 | variante `standard` (1 banque RAM, 4 ROM) : 200 Ko ; `ram64k` (5 RAM, 2 ROM) : 232 Ko (sur 256) | les ROM restent en RAM (`__not_in_flash`) comme dans reload, pour tenir le temps de bus |
+| FDC | WD1793 écrit d'après la fiche technique (Oricutron, GPL, n'est qu'un oracle de comportement) ; délais d'Oricutron (32 cycles/octet) ; fin de multi-secteurs sans erreur comme Oricutron ; le registre de piste doit correspondre à l'ID (fiche) | STRATSED démarre, lit et écrit comme sous Oricutron |
+| Images disque | PC : image entière en mémoire ; Neo6502 : clé USB, piste courante (6400 o) en tampon, réécrite à la fin de chaque commande d'écriture | 1 Mo ne tient pas dans les 264 Ko du RP2040 ; le 65C02 attend pendant l'accès USB (le RP2040 fournit son horloge) |
+| Imprimante | option : octet sur front descendant de STROBE, ACK de 40 cycles sur CA1 ; niveau de CA1 redonné à chaque pas | le VIA de reload ne détecte un front qu'entre deux appels de `set_ca1` ; TELEMON n'affiche « Imprimante » que si l'ACK répond (désactivée sur le Neo6502) |
+| Code chaud | `telestrat_tick`, VIA et cœur 65C02 en RAM (`.time_critical`) | comme le BBC de reload : depuis la flash, le cache XIP de 16 Ko déborde |
 | ACIA | registres et effets de bord d'Oricutron, sans liaison | TELEMON teste l'ACIA au démarrage (avec `$FF` il part dans une routine RAM non installée) |
 | FUNCT | touche Windows gauche | `hid_app.c` de reload ne remonte pas Alt en mode ASCII |
 | Vidéo | reprise de `oric_screen_update` ; redessin forcé toutes les 32 trames | clignotement même sans écriture en mémoire écran |
@@ -73,3 +77,10 @@ Dépendances reprises de reload-emulator sans copie : `mos6522via.h`,
 Écart constaté avec Oricutron : sans disquette, Oricutron reste sur
 « Drive:A-B-C-D » (son WD simule un disque présent, `MICRODISC_FUDGE`), alors que
 ce portage affiche « Inserez une disquette ». À confronter au matériel réel.
+
+## Démarrage sur disquette (observé au banc)
+
+TELEMON fait un RESTORE sur les lecteurs 3 à 0 (`$0314` = `$E4`, `$C4`, `$A4`,
+`$84`), copie un chargeur en `$B800`, puis lit la piste 0 secteur 1 (en boucle
+tant qu'il n'y a pas de disquette : « Inserez une disquette »). Ce secteur
+charge STRATSED en banque 0, qui charge ensuite le menu des langages.

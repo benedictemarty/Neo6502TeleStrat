@@ -4,6 +4,7 @@
 // cycle à cycle de reload-emulator à la place du vrai 65C02 du Neo6502).
 //
 //   telestrat_headless [-c config] [-f N] [-w N] [-t TEXTE] [-s] [-b] [-p f.ppm] [-r f.bin]
+//                      [-0 disque.dsk] [-1 ...] [-2 ...] [-3 ...] [-W f.dsk] [-P f.txt]
 //
 //   -c CONFIG  standard (défaut) : 0 RAM, 2 TELE-ASS, 3 TELEMATIC, 6 HYPER-BASIC, 7 TELEMON
 //              ram64k : cartouche RAM 64 Ko à droite (1-4 RAM), 6 HYPER-BASIC, 7 TELEMON
@@ -17,6 +18,9 @@
 //   -b         affiche la banque courante et l'état des banques ($0200-$0207)
 //   -p FICHIER écrit l'image 240 x 224 (PPM binaire)
 //   -r FICHIER écrit les 48 Ko de RAM de base
+//   -0..-3 F   insère l'image MFM_DISK F dans le lecteur A..D (copie en mémoire)
+//   -W FICHIER écrit l'image du lecteur A (éventuellement modifiée) en fin d'exécution
+//   -P FICHIER branche une imprimante dont la sortie va dans FICHIER
 //
 // ## Licence zlib/libpng
 //
@@ -54,6 +58,7 @@
 #include "chips/kbd.h"
 #include "chips/mem.h"
 #include "chips/clk.h"
+#include "devices/wd1793.h"
 #include "devices/telestrat_fdc.h"
 #include "devices/mos6551acia.h"
 #include "systems/telestrat.h"
@@ -82,6 +87,27 @@ static int config_banks(const char* name, telestrat_desc_t* d) {
     else return 0;
     memcpy(d->banks, src, sizeof(d->banks));
     return 1;
+}
+
+static void printer_out(uint8_t data, void* user_data) { fputc(data, (FILE*)user_data); }
+
+static uint8_t* load_file(const char* path, size_t* size) {
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        perror(path);
+        exit(1);
+    }
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t* buf = malloc((size_t)n);
+    if (!buf || fread(buf, 1, (size_t)n, f) != (size_t)n) {
+        fprintf(stderr, "%s : lecture impossible\n", path);
+        exit(1);
+    }
+    fclose(f);
+    *size = (size_t)n;
+    return buf;
 }
 
 static void print_screen(void) {
@@ -122,9 +148,12 @@ int main(int argc, char** argv) {
     const char* text = NULL;
     const char* ppm = NULL;
     const char* ramfile = NULL;
+    const char* disks[4] = {NULL, NULL, NULL, NULL};
+    const char* write_disk = NULL;
+    const char* printer_file = NULL;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -134,6 +163,9 @@ int main(int argc, char** argv) {
             case 'b': show_banks = 1; break;
             case 'p': ppm = optarg; break;
             case 'r': ramfile = optarg; break;
+            case '0': case '1': case '2': case '3': disks[opt - '0'] = optarg; break;
+            case 'W': write_disk = optarg; break;
+            case 'P': printer_file = optarg; break;
             default:
                 fprintf(stderr, "usage : %s [-c config] [-f N] [-w N] [-t texte] [-s] [-b] [-p f.ppm] [-r f.bin]\n",
                         argv[0]);
@@ -146,7 +178,27 @@ int main(int argc, char** argv) {
         fprintf(stderr, "configuration inconnue : %s\n", config);
         return 2;
     }
+    FILE* printer = NULL;
+    if (printer_file) {
+        printer = fopen(printer_file, "wb");
+        if (!printer) {
+            perror(printer_file);
+            return 1;
+        }
+        desc.printer.func = printer_out;
+        desc.printer.user_data = printer;
+    }
     telestrat_init(&sys, &desc);
+    uint8_t* images[4] = {NULL, NULL, NULL, NULL};
+    size_t image_sizes[4] = {0, 0, 0, 0};
+    for (int i = 0; i < 4; i++) {
+        if (!disks[i]) continue;
+        images[i] = load_file(disks[i], &image_sizes[i]);
+        if (!telestrat_insert_disk(&sys, i, images[i], image_sizes[i], false)) {
+            fprintf(stderr, "%s : image MFM_DISK invalide\n", disks[i]);
+            return 1;
+        }
+    }
     telestrat_reset(&sys);
 
     size_t pos = 0, len = text ? strlen(text) : 0;
@@ -180,6 +232,15 @@ int main(int argc, char** argv) {
         printf("\n");
     }
     if (ppm) write_ppm(ppm);
+    if (write_disk && images[0]) {
+        FILE* f = fopen(write_disk, "wb");
+        if (!f || fwrite(images[0], 1, image_sizes[0], f) != image_sizes[0]) {
+            perror(write_disk);
+            return 1;
+        }
+        fclose(f);
+    }
+    if (printer) fclose(printer);
     if (ramfile) {
         FILE* f = fopen(ramfile, "wb");
         if (!f) {

@@ -18,6 +18,7 @@
 #include "chips/ay38910psg.h"
 #include "chips/kbd.h"
 #include "chips/clk.h"
+#include "devices/wd1793.h"
 #include "devices/telestrat_fdc.h"
 #include "devices/mos6551acia.h"
 #include "systems/telestrat.h"
@@ -129,30 +130,308 @@ static void test_bank_ddr_keeps_inputs(void) {
     CHECK(sys.bank == 6, "DDRA partiel : banque %d (attendu 6)", sys.bank);
 }
 
-static void test_fdc(void) {
-    telestrat_fdc_t f;
+// Fabrique une piste MFM de `nsec` secteurs de 256 octets (N = 1), numérotés
+// 1..nsec, avec les CRC calculés comme le WD1793 ; data[i] = f(piste, face, secteur, i)
+static uint8_t fdc_pattern(int trk, int side, int sec, int i) { return (uint8_t)(trk * 7 + side * 13 + sec * 31 + i); }
+
+static uint8_t* make_disk(int sides, int tracks, int nsec, size_t* size) {
+    *size = WD1793_HEADER_SIZE + (size_t)sides * tracks * WD1793_TRACK_SIZE;
+    uint8_t* img = calloc(1, *size);
+    memcpy(img, "MFM_DISK", 8);
+    img[8] = (uint8_t)sides;
+    img[12] = (uint8_t)tracks;
+    img[16] = 1;
+    for (int sd = 0; sd < sides; sd++) {
+        for (int tr = 0; tr < tracks; tr++) {
+            uint8_t* t = img + WD1793_HEADER_SIZE + ((size_t)sd * tracks + tr) * WD1793_TRACK_SIZE;
+            memset(t, 0x4E, WD1793_TRACK_SIZE);
+            int o = 40;
+            for (int sec = 1; sec <= nsec; sec++) {
+                memset(t + o, 0x00, 12); o += 12;
+                uint16_t crc = 0xFFFF;
+                for (int k = 0; k < 3; k++) { t[o++] = 0xA1; crc = wd1793_crc(crc, 0xA1); }
+                uint8_t id[5] = {0xFE, (uint8_t)tr, (uint8_t)sd, (uint8_t)sec, 1};
+                for (int k = 0; k < 5; k++) { t[o++] = id[k]; crc = wd1793_crc(crc, id[k]); }
+                t[o++] = (uint8_t)(crc >> 8); t[o++] = (uint8_t)crc;
+                o += 22;
+                memset(t + o, 0x00, 12); o += 12;
+                crc = 0xFFFF;
+                for (int k = 0; k < 3; k++) { t[o++] = 0xA1; crc = wd1793_crc(crc, 0xA1); }
+                t[o++] = 0xFB; crc = wd1793_crc(crc, 0xFB);
+                for (int i = 0; i < 256; i++) { t[o] = fdc_pattern(tr, sd, sec, i); crc = wd1793_crc(crc, t[o++]); }
+                t[o++] = (uint8_t)(crc >> 8); t[o++] = (uint8_t)crc;
+                o += 24;
+            }
+        }
+    }
+    return img;
+}
+
+// Attend DRQ ou INTRQ (au plus `max` cycles)
+static void fdc_wait(telestrat_fdc_t* f, int max) {
+    for (int i = 0; i < max && !f->wd.drq && !f->wd.intrq; i++) telestrat_fdc_tick(f, 1);
+}
+
+static int fdc_read_bytes(telestrat_fdc_t* f, uint8_t* buf, int max) {
+    int n = 0;
+    for (;;) {
+        fdc_wait(f, 2000);
+        if (!f->wd.drq) break;
+        uint8_t v;
+        telestrat_fdc_read(f, 3, &v);
+        if (n < max) buf[n] = v;
+        n++;
+    }
+    return n;
+}
+
+static void test_fdc_no_disk(void) {
+    telestrat_fdc_t f = {0};
     uint8_t v;
     telestrat_fdc_reset(&f);
     CHECK(telestrat_fdc_read(&f, 4, &v) && v == 0xFF, "$0314 au repos = %02X (attendu FF)", v);
     telestrat_fdc_write(&f, 4, TELESTRAT_FDC_CTRL_INTENA);
     telestrat_fdc_write(&f, 0, 0x08);  // RESTORE
-    CHECK(f.intrq, "INTRQ après RESTORE");
+    fdc_wait(&f, 100);
+    CHECK(f.wd.intrq, "INTRQ après RESTORE");
     CHECK(telestrat_fdc_irq(&f), "IRQ si INTENA");
     CHECK(telestrat_fdc_read(&f, 4, &v) && v == 0x7F, "$0314 avec INTRQ = %02X (attendu 7F)", v);
     CHECK(telestrat_fdc_read(&f, 0, &v) && (v & WD1793_ST_NOT_READY) && (v & WD1793_ST_TRACK0),
-          "statut type I = %02X", v);
-    CHECK(!f.intrq, "lecture du statut efface INTRQ");
-    f.data = 12;
-    telestrat_fdc_write(&f, 0, 0x18);  // SEEK
-    CHECK(f.track == 12, "SEEK piste %d", f.track);
-    telestrat_fdc_write(&f, 0, 0x48);  // STEP IN
-    CHECK(f.track == 13, "STEP IN piste %d", f.track);
-    telestrat_fdc_write(&f, 0, 0x68);  // STEP OUT
-    CHECK(f.track == 12, "STEP OUT piste %d", f.track);
+          "statut type I sans disque = %02X", v);
+    CHECK(!f.wd.intrq, "la lecture du statut efface INTRQ");
     telestrat_fdc_write(&f, 0, 0x80);  // READ SECTOR sans disquette
     telestrat_fdc_read(&f, 0, &v);
-    CHECK(v == (WD1793_ST_NOT_READY | WD1793_ST_RNF), "READ SECTOR sans disque = %02X", v);
+    CHECK(v & WD1793_ST_NOT_READY, "READ SECTOR sans disque : non prêt (%02X)", v);
     CHECK(!telestrat_fdc_read(&f, 5, &v), "$0315 n'appartient pas au FDC");
+}
+
+static void test_fdc_disk(void) {
+    telestrat_fdc_t f = {0};
+    size_t size;
+    uint8_t* img = make_disk(2, 4, 16, &size);
+    uint8_t v, buf[1024];
+    telestrat_fdc_reset(&f);
+    CHECK(!wd1793_insert(&f.wd, 0, img + 1, size - 1, false), "en-tête invalide refusé");
+    CHECK(wd1793_insert(&f.wd, 0, img, size, false), "insertion d'une image MFM_DISK");
+
+    // Type I : SEEK 3, STEP OUT (u), RESTORE
+    telestrat_fdc_write(&f, 3, 3);
+    telestrat_fdc_write(&f, 0, 0x1C);  // SEEK avec vérification
+    fdc_wait(&f, 100);
+    telestrat_fdc_read(&f, 0, &v);
+    CHECK(f.wd.track == 3 && f.wd.disk[0].head == 3, "SEEK piste 3 (TR=%d tête=%d)", f.wd.track, f.wd.disk[0].head);
+    CHECK(!(v & (WD1793_ST_SEEK_ERR | WD1793_ST_NOT_READY | WD1793_ST_TRACK0)), "statut SEEK = %02X", v);
+    telestrat_fdc_write(&f, 0, 0x70);  // STEP OUT avec mise à jour de TR
+    fdc_wait(&f, 100);
+    CHECK(f.wd.track == 2 && f.wd.disk[0].head == 2, "STEP OUT : TR=%d", f.wd.track);
+
+    // READ SECTOR piste 2, face 1, secteur 5
+    telestrat_fdc_write(&f, 4, TELESTRAT_FDC_CTRL_SIDE);
+    telestrat_fdc_write(&f, 2, 5);
+    telestrat_fdc_write(&f, 0, 0x80);
+    int n = fdc_read_bytes(&f, buf, sizeof(buf));
+    int ok = n == 256;
+    for (int i = 0; ok && i < 256; i++) ok = buf[i] == fdc_pattern(2, 1, 5, i);
+    CHECK(ok, "READ SECTOR : %d octets, contenu %s", n, ok ? "exact" : "faux");
+    CHECK(telestrat_fdc_read(&f, 8, &v) && v == 0xFF, "$0318 : plus de DRQ (%02X)", v);
+    fdc_wait(&f, 200);
+    telestrat_fdc_read(&f, 0, &v);
+    CHECK(v == 0x00, "statut fin de lecture = %02X", v);
+
+    // Multi-secteurs depuis le 15 : 15 et 16 puis fin de piste
+    telestrat_fdc_write(&f, 2, 15);
+    telestrat_fdc_write(&f, 0, 0x90);
+    n = fdc_read_bytes(&f, buf, sizeof(buf));
+    CHECK(n == 512 && buf[256] == fdc_pattern(2, 1, 16, 0), "lecture multi-secteurs : %d octets", n);
+
+    // Secteur absent
+    telestrat_fdc_write(&f, 2, 40);
+    telestrat_fdc_write(&f, 0, 0x80);
+    fdc_wait(&f, 100);
+    telestrat_fdc_read(&f, 0, &v);
+    CHECK(v & WD1793_ST_RNF, "secteur 40 introuvable : statut %02X", v);
+
+    // READ ADDRESS : 6 octets (piste, face, secteur, taille, CRC)
+    telestrat_fdc_write(&f, 0, 0xC0);
+    n = fdc_read_bytes(&f, buf, sizeof(buf));
+    CHECK(n == 6 && buf[0] == 2 && buf[1] == 1 && buf[3] == 1, "READ ADDRESS : %d octets, piste %d face %d", n,
+          buf[0], buf[1]);
+    CHECK(f.wd.sector == 2, "READ ADDRESS : piste dans le registre de secteur (%d)", f.wd.sector);
+
+    // WRITE SECTOR : réécrire le contenu identique ne change pas l'image (CRC exacts)
+    uint8_t* copy = malloc(size);
+    memcpy(copy, img, size);
+    telestrat_fdc_write(&f, 2, 7);
+    telestrat_fdc_write(&f, 0, 0xA0);
+    for (int i = 0; i < 256; i++) {
+        fdc_wait(&f, 2000);
+        telestrat_fdc_write(&f, 3, fdc_pattern(2, 1, 7, i));
+    }
+    fdc_wait(&f, 200);
+    CHECK(memcmp(copy, img, size) == 0, "réécriture identique : image inchangée (CRC exacts)");
+    CHECK(f.wd.disk[0].modified, "image marquée modifiée");
+
+    // WRITE SECTOR avec d'autres données, relues ensuite
+    telestrat_fdc_write(&f, 2, 7);
+    telestrat_fdc_write(&f, 0, 0xA0);
+    for (int i = 0; i < 256; i++) {
+        fdc_wait(&f, 2000);
+        telestrat_fdc_write(&f, 3, (uint8_t)(255 - i));
+    }
+    fdc_wait(&f, 200);
+    telestrat_fdc_read(&f, 0, &v);
+    telestrat_fdc_write(&f, 2, 7);
+    telestrat_fdc_write(&f, 0, 0x80);
+    n = fdc_read_bytes(&f, buf, sizeof(buf));
+    CHECK(n == 256 && buf[0] == 255 && buf[255] == 0, "relecture après écriture");
+
+    // Protection en écriture
+    f.wd.disk[0].write_protect = true;
+    telestrat_fdc_write(&f, 0, 0xA0);
+    fdc_wait(&f, 100);
+    telestrat_fdc_read(&f, 0, &v);
+    CHECK((v & WD1793_ST_WPROT) && !f.wd.drq, "écriture refusée sur disque protégé (%02X)", v);
+    f.wd.disk[0].write_protect = false;
+
+    // Interruption forcée pendant une lecture
+    telestrat_fdc_write(&f, 2, 1);
+    telestrat_fdc_write(&f, 0, 0x80);
+    fdc_wait(&f, 200);
+    telestrat_fdc_write(&f, 0, 0xD8);
+    CHECK(!f.wd.drq && f.wd.intrq && !(f.wd.status & WD1793_ST_BUSY), "FORCE INTERRUPT arrête la lecture");
+
+    // Lecteur B vide : non prêt
+    telestrat_fdc_write(&f, 4, 0x20);
+    telestrat_fdc_write(&f, 0, 0x80);
+    telestrat_fdc_read(&f, 0, &v);
+    CHECK(v & WD1793_ST_NOT_READY, "lecteur B vide : non prêt (%02X)", v);
+    free(copy);
+    free(img);
+}
+
+static void test_fdc_write_track(void) {
+    // Formate la piste 1 face 0 comme le ferait un DOS, puis relit un secteur
+    telestrat_fdc_t f = {0};
+    size_t size;
+    uint8_t* img = make_disk(1, 2, 16, &size);
+    uint8_t buf[512];
+    telestrat_fdc_reset(&f);
+    wd1793_insert(&f.wd, 0, img, size, false);
+    telestrat_fdc_write(&f, 3, 1);
+    telestrat_fdc_write(&f, 0, 0x10);
+    fdc_wait(&f, 100);
+    uint8_t stream[WD1793_TRACK_SIZE];
+    int o = 0;
+    for (int k = 0; k < 40; k++) stream[o++] = 0x4E;
+    for (int sec = 1; sec <= 3; sec++) {
+        for (int k = 0; k < 12; k++) stream[o++] = 0x00;
+        for (int k = 0; k < 3; k++) stream[o++] = 0xF5;
+        stream[o++] = 0xFE; stream[o++] = 1; stream[o++] = 0; stream[o++] = (uint8_t)(10 + sec); stream[o++] = 1;
+        stream[o++] = 0xF7;
+        for (int k = 0; k < 22; k++) stream[o++] = 0x4E;
+        for (int k = 0; k < 12; k++) stream[o++] = 0x00;
+        for (int k = 0; k < 3; k++) stream[o++] = 0xF5;
+        stream[o++] = 0xFB;
+        for (int i = 0; i < 256; i++) stream[o++] = 0xE5;
+        stream[o++] = 0xF7;
+        for (int k = 0; k < 24; k++) stream[o++] = 0x4E;
+    }
+    while (o < WD1793_TRACK_SIZE) stream[o++] = 0x4E;
+    telestrat_fdc_write(&f, 0, 0xF0);
+    int written = 0;
+    for (int i = 0; i < WD1793_TRACK_SIZE; i++) {
+        fdc_wait(&f, 2000);
+        if (!f.wd.drq) break;
+        telestrat_fdc_write(&f, 3, stream[i]);
+        written++;
+    }
+    fdc_wait(&f, 200);
+    CHECK(f.wd.intrq, "WRITE TRACK terminé (%d octets envoyés)", written);
+    telestrat_fdc_write(&f, 2, 12);
+    telestrat_fdc_write(&f, 0, 0x80);
+    int n = fdc_read_bytes(&f, buf, sizeof(buf));
+    CHECK(n == 256 && buf[0] == 0xE5 && buf[255] == 0xE5, "secteur formaté relu (%d octets)", n);
+    // CRC de l'ID écrit par $F7 = CRC calculé sur A1 A1 A1 FE 01 00 0C 01
+    uint16_t crc = 0xFFFF;
+    const uint8_t idb[8] = {0xA1, 0xA1, 0xA1, 0xFE, 1, 0, 12, 1};
+    for (int k = 0; k < 8; k++) crc = wd1793_crc(crc, idb[k]);
+    uint8_t* id = f.wd.sec_id[f.wd.sec_index];
+    CHECK(id[5] == (crc >> 8) && id[6] == (crc & 0xFF), "CRC de l'ID formaté = %02X%02X (attendu %04X)", id[5], id[6],
+          crc);
+    free(img);
+}
+
+// Mode flux : l'image est lue et écrite par rappels, piste par piste
+typedef struct {
+    uint8_t* img;
+    size_t size;
+    int reads, writes;
+} stream_ctx_t;
+
+static bool stream_read(void* ctx, uint32_t off, uint8_t* buf, uint32_t len) {
+    stream_ctx_t* c = ctx;
+    if (off + len > c->size) return false;
+    memcpy(buf, c->img + off, len);
+    c->reads++;
+    return true;
+}
+
+static bool stream_write(void* ctx, uint32_t off, uint8_t* buf, uint32_t len) {
+    stream_ctx_t* c = ctx;
+    if (off + len > c->size) return false;
+    memcpy(c->img + off, buf, len);
+    c->writes++;
+    return true;
+}
+
+static void test_fdc_streamed(void) {
+    telestrat_fdc_t f = {0};
+    size_t size;
+    uint8_t* img = make_disk(2, 4, 16, &size);
+    stream_ctx_t c = {img, size, 0, 0};
+    uint8_t buf[512], v;
+    telestrat_fdc_reset(&f);
+    CHECK(wd1793_insert_streamed(&f.wd, 0, size, stream_read, stream_write, &c), "insertion en flux");
+    telestrat_fdc_write(&f, 3, 3);
+    telestrat_fdc_write(&f, 0, 0x10);
+    fdc_wait(&f, 100);
+    telestrat_fdc_write(&f, 2, 9);
+    telestrat_fdc_write(&f, 0, 0x80);
+    int n = fdc_read_bytes(&f, buf, sizeof(buf));
+    CHECK(n == 256 && buf[10] == fdc_pattern(3, 0, 9, 10), "lecture en flux (%d octets)", n);
+    int reads = c.reads;
+    telestrat_fdc_write(&f, 2, 10);
+    telestrat_fdc_write(&f, 0, 0x80);
+    fdc_read_bytes(&f, buf, sizeof(buf));
+    CHECK(c.reads == reads, "même piste : pas de relecture (%d lectures)", c.reads);
+    // Écriture : réécrite dans le fichier à la fin de la commande
+    telestrat_fdc_write(&f, 2, 4);
+    telestrat_fdc_write(&f, 0, 0xA0);
+    for (int i = 0; i < 256; i++) {
+        fdc_wait(&f, 2000);
+        telestrat_fdc_write(&f, 3, 0x5A);
+    }
+    fdc_wait(&f, 200);
+    telestrat_fdc_read(&f, 0, &v);
+    CHECK(c.writes == 1, "piste réécrite une fois (%d)", c.writes);
+    // Relue par un contrôleur neuf en mode mémoire
+    telestrat_fdc_t g = {0};
+    telestrat_fdc_reset(&g);
+    wd1793_insert(&g.wd, 0, img, size, true);
+    telestrat_fdc_write(&g, 3, 3);
+    telestrat_fdc_write(&g, 0, 0x10);
+    fdc_wait(&g, 100);
+    telestrat_fdc_write(&g, 2, 4);
+    telestrat_fdc_write(&g, 0, 0x80);
+    n = fdc_read_bytes(&g, buf, sizeof(buf));
+    CHECK(n == 256 && buf[0] == 0x5A && buf[255] == 0x5A, "écriture en flux relue en mémoire");
+    // Protection : sans rappel d'écriture
+    wd1793_insert_streamed(&f.wd, 1, size, stream_read, NULL, &c);
+    telestrat_fdc_write(&f, 4, 0x20);
+    telestrat_fdc_write(&f, 0, 0xA0);
+    telestrat_fdc_read(&f, 0, &v);
+    CHECK(v & WD1793_ST_WPROT, "flux sans écriture : protégé (%02X)", v);
+    free(img);
 }
 
 static void test_acia(void) {
@@ -170,7 +449,10 @@ int main(void) {
     test_reset_bank();
     test_bank_switch_and_ram();
     test_bank_ddr_keeps_inputs();
-    test_fdc();
+    test_fdc_no_disk();
+    test_fdc_disk();
+    test_fdc_write_track();
+    test_fdc_streamed();
     test_acia();
     printf("test_telestrat : %d/%d vérifications réussies\n", checks - failures, checks);
     return failures ? 1 : 0;
