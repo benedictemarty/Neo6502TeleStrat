@@ -109,11 +109,21 @@ bit 7 de l'état levé à l'arrivée d'un octet **même IRQ de réception interd
 (hypothèse : pendant le service, TELEMON met la commande à `$63`/`$67` et ne lit
 les touches du correspondant que par sa routine série appelée par le timer).
 
-**Prise Minitel** (`minitel_port.h`) : filtre les séquences PRO1/PRO2/PRO3,
-traite connexion, déconnexion, opposition ; répond `$13 $53` quand la porteuse
-est établie et `$13 $54` quand elle est perdue (**hypothèse**) ; porteuse
-établie 1,5 s après la connexion (**hypothèse**, indispensable vu l'attente de
-`$EF47`) ; sonnerie à la cadence française 1,5 s / 3,5 s (**hypothèse**).
+**Prise Minitel** (`minitel_port.h`) : filtre les séquences PRO1/PRO2/PRO3 et
+envoie vers la prise les séquences de la **STUM 1B** (partie 1, modem ;
+récapitulatif des SEP) :
+
+| Événement | Vers la prise |
+|---|---|
+| PRO1 OPPO | `SEP $50` |
+| PRO1 CONNEXION (bascule de ligne) | `SEP $59` |
+| porteuse établie (mode opposé : ≥ 3 s de 390 Hz ; standard : 1,7 s de 1300 Hz ; + 80 ms) | `SEP $53` (aussi vers le modem) |
+| pas de porteuse en 40 s | second `SEP $59` |
+| PRO1 DECONNEXION, perte de porteuse | `SEP $59`, `SEP $53` |
+
+Le délai de porteuse sert aussi TELEMON (attente `$EF47` : vide le tampon puis
+patiente 0,1 s). Reste une **hypothèse** : la cadence de sonnerie française
+1,5 s / 3,5 s (absente de la STUM, qui ne traite pas l'appel entrant).
 
 **Lignes** : banc PC sur TCP (`listen:` = appels entrants, `connect:` = appels
 sortants) ; Neo6502 : modem Hayes en USB CDC (`hayes_line.h` : `ATE0V1`,

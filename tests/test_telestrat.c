@@ -571,38 +571,73 @@ static void test_minitel_port(void) {
     CHECK(edges >= 70 && edges <= 76 && silent_edges == 0, "sonnerie : %d fronts en 1,5 s, %d dans le silence", edges,
           silent_edges);
 
-    // XLIGNE : ESC 9 o puis ESC 9 h -> décroche, puis $13 $53 après la négociation
+    // XLIGNE (STUM 1B) : OPPO -> SEP $50 ; CONNEXION -> SEP $59, décroche ;
+    // porteuse après 3 s de 390 Hz (mode opposé) -> SEP $53 vers prise et modem
     const uint8_t xligne[] = {0x1B, 0x39, 0x6F, 0x1B, 0x39, 0x68};
     minitel_send_str(&p, xligne, 6);
     CHECK(fl.answered && p.opposition && p.state == MINITEL_CONNECTING, "XLIGNE : appel décroché (état %d)", p.state);
-    CHECK(minitel_port_to_telestrat(&p) == -1, "pas de réponse avant la porteuse");
-    CHECK(!minitel_port_tick(&p, 1000), "plus de sonnerie une fois décroché");
-    for (int ms = 0; ms < 1500; ms++) minitel_port_tick(&p, 1000);
     int r1 = minitel_port_to_telestrat(&p), r2 = minitel_port_to_telestrat(&p);
+    int r3 = minitel_port_to_telestrat(&p), r4 = minitel_port_to_telestrat(&p);
+    CHECK(r1 == 0x13 && r2 == 0x50 && r3 == 0x13 && r4 == 0x59, "OPPO puis CONNEXION : %02X %02X %02X %02X", r1, r2,
+          r3, r4);
+    CHECK(minitel_port_to_telestrat(&p) == -1, "pas de SEP $53 avant la porteuse");
+    CHECK(!minitel_port_tick(&p, 1000), "plus de sonnerie une fois décroché");
+    for (int ms = 0; ms < 2900; ms++) minitel_port_tick(&p, 1000);
+    CHECK(p.state == MINITEL_CONNECTING, "mode opposé : pas connecté avant 3 s de 390 Hz");
+    for (int ms = 0; ms < 200; ms++) minitel_port_tick(&p, 1000);
+    r1 = minitel_port_to_telestrat(&p);
+    r2 = minitel_port_to_telestrat(&p);
     CHECK(r1 == 0x13 && r2 == 0x53 && p.state == MINITEL_ONLINE, "connexion signalée : %02X %02X", r1, r2);
+    CHECK(fl.n_sent == 2 && fl.sent[0] == 0x13 && fl.sent[1] == 0x53, "SEP $53 aussi vers le modem");
 
     // En ligne : les données passent, les séquences Videotex ESC aussi, pas les PRO
     const uint8_t page[] = {0x0C, 'A', 0x1B, 0x42, 'B', 0x1B, 0x3A, 0x69, 0x43, 'C'};
     minitel_send_str(&p, page, sizeof(page));
-    CHECK(fl.n_sent == 6 && fl.sent[2] == 0x1B && fl.sent[3] == 0x42 && fl.sent[5] == 'C',
+    CHECK(fl.n_sent == 8 && fl.sent[4] == 0x1B && fl.sent[5] == 0x42 && fl.sent[7] == 'C',
           "données transmises (%d octets), PRO2 filtrée", fl.n_sent);
     fl.rx[fl.rx_n++] = 0x13;
     fl.rx[fl.rx_n++] = 0x41;
     CHECK(minitel_port_to_telestrat(&p) == 0x13 && minitel_port_to_telestrat(&p) == 0x41, "ENVOI du correspondant reçu");
 
-    // Le correspondant raccroche : $13 $54
+    // Le correspondant raccroche : SEP $59 puis SEP $53
     fl.online = false;
     minitel_port_tick(&p, 1000);
     r1 = minitel_port_to_telestrat(&p);
     r2 = minitel_port_to_telestrat(&p);
-    CHECK(r1 == 0x13 && r2 == 0x54 && p.state == MINITEL_IDLE, "déconnexion signalée : %02X %02X", r1, r2);
+    r3 = minitel_port_to_telestrat(&p);
+    r4 = minitel_port_to_telestrat(&p);
+    CHECK(r1 == 0x13 && r2 == 0x59 && r3 == 0x13 && r4 == 0x53 && p.state == MINITEL_IDLE && !p.opposition,
+          "déconnexion signalée : %02X %02X %02X %02X", r1, r2, r3, r4);
 
-    // Minitel en terminal : CONNEXION sans appel entrant -> appel sortant ; ESC 9 g raccroche
+    // Minitel en terminal : CONNEXION sans appel entrant -> SEP $59, appel sortant ;
+    // porteuse en mode standard après 1,7 s ; PRO1 DECONNEXION -> SEP $59 $53
     minitel_send_str(&p, xligne + 3, 3);
-    CHECK(fl.dialed && p.state == MINITEL_CONNECTING, "CONNEXION sans appel entrant : appel sortant");
+    CHECK(fl.dialed && p.state == MINITEL_CONNECTING && minitel_port_to_telestrat(&p) == 0x13 &&
+              minitel_port_to_telestrat(&p) == 0x59,
+          "CONNEXION sans appel entrant : SEP $59, appel sortant");
+    for (int ms = 0; ms < 1800; ms++) minitel_port_tick(&p, 1000);
+    CHECK(p.state == MINITEL_ONLINE, "mode standard : connecté après 1,7 s");
+    while (minitel_port_to_telestrat(&p) >= 0) {
+    }
     const uint8_t decon[] = {0x1B, 0x39, 0x67};
     minitel_send_str(&p, decon, 3);
-    CHECK(fl.hung_up && p.state == MINITEL_IDLE, "XDECON : raccroché");
+    r1 = minitel_port_to_telestrat(&p);
+    r2 = minitel_port_to_telestrat(&p);
+    r3 = minitel_port_to_telestrat(&p);
+    r4 = minitel_port_to_telestrat(&p);
+    CHECK(fl.hung_up && p.state == MINITEL_IDLE && r2 == 0x59 && r4 == 0x53, "XDECON : raccroché, SEP $59 $53");
+
+    // Échec : pas de porteuse en 40 s -> second SEP $59
+    fl.online = false;
+    fl.dialed = false;
+    minitel_send_str(&p, xligne + 3, 3);
+    fl.online = false;
+    minitel_port_to_telestrat(&p);
+    minitel_port_to_telestrat(&p);
+    for (int s40 = 0; s40 < 41; s40++) minitel_port_tick(&p, 1000000);
+    r1 = minitel_port_to_telestrat(&p);
+    r2 = minitel_port_to_telestrat(&p);
+    CHECK(p.state == MINITEL_IDLE && r1 == 0x13 && r2 == 0x59, "échec de connexion : second SEP $59");
 }
 
 // --- Modem Hayes (faux modem) --------------------------------------------------

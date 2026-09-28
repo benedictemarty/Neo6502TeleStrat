@@ -22,6 +22,8 @@ PID=$!
 python3 "$(dirname "$0")/minitel_client.py" "$PORT" "$TMP/recu.bin" 60 1.0 '\E' '\X' > /dev/null
 wait $PID
 awk '{print $2 $3}' "$TMP/serie.txt" | tr '\n' ' ' > "$TMP/seq.txt"
+awk '$2=="TX"{print $3}' "$TMP/serie.txt" | tr '\n' ' ' > "$TMP/tx.txt"
+awk '$2=="RX"{print $3}' "$TMP/serie.txt" | tr '\n' ' ' > "$TMP/rx.txt"
 
 fail=0
 n=0
@@ -32,11 +34,11 @@ check() {  # description, commande
         echo "ÉCHEC [telematic] : $1"
     fi
 }
-check "XLIGNE : ESC 9 o puis ESC 9 h vers le Minitel" "grep -q 'TX1B TX39 TX6F TX1B TX39 TX68' '$TMP/seq.txt'"
-check "réponse du Minitel : connexion \$13 \$53" "grep -q 'RX13 RX53' '$TMP/seq.txt'"
+check "XLIGNE : ESC 9 o puis ESC 9 h vers le Minitel" "grep -q '1B 39 6F 1B 39 68' '$TMP/tx.txt'"
+check "Minitel (STUM 1B) : SEP \$50, SEP \$59 puis SEP \$53 à la connexion" "grep -q '^13 50 13 59 13 53 ' '$TMP/rx.txt'"
 check "page d'accueil de DEMO reçue" "grep -q 'SERVEUR REALISE ENTIEREMENT' '$TMP/recu.bin'"
 check "le serveur réagit à ENVOI" "grep -q 'taper quelque chose avant ENVOI' '$TMP/recu.bin'"
-check "raccrochage du correspondant signalé (\$13 \$54)" "grep -q 'RX13 RX54' '$TMP/seq.txt'"
+check "raccrochage du correspondant : SEP \$59 puis SEP \$53" "grep -q '13 59 13 53 \$' '$TMP/rx.txt'"
 check "retour en attente d'appel" "grep -q 'Attente de communication' '$TMP/ecran.txt'"
 if [ "$fail" -ne 0 ]; then
     echo "--- trace série :"; head -c 400 "$TMP/seq.txt"; echo

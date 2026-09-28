@@ -13,11 +13,22 @@
 //   - l'attente de connexion ($EF47) guette la réponse $13 $53 du Minitel ;
 //   - XRING ($EEA5) reconnaît la sonnerie : rafales d'impulsions à 50 Hz sur
 //     CB1 (périodes de 19 à 21 ms mesurées au timer 2), séparées de silences.
-// Hypothèses (non vérifiées sur matériel) : cadence de sonnerie française
-// 1,5 s / 3,5 s ; à la perte de la porteuse, le Minitel signale $13 $54 ;
-// la porteuse s'établit MINITEL_CONNECT_US après CONNEXION (négociation du
-// modem). Ce délai est nécessaire : l'attente de TELEMON ($EF47) vide le
+//
+// Séquences du Minitel vers la prise, d'après la STUM 1B (« Spécifications
+// Techniques d'Utilisation du Minitel 1B », PTT 1986, transcription de
+// jbellue ; partie 1, modem : connexion, mode opposé, déconnexion ; et
+// récapitulatif des séquences SEP) :
+//   PRO1 OPPO        -> SEP $50 (passage dans l'état opposé)
+//   PRO1 CONNEXION   -> SEP $59 (bascule de la ligne vers le modem)
+//   connexion établie -> SEP $53 vers la prise et le modem (80 ms après) ;
+//                       en mode opposé, après au moins 3 s de 390 Hz
+//                       (standard : 1,7 s de 1300 Hz) ; échec (40 s) : SEP $59
+//   déconnexion (PRO1 DECONNEXION, perte de porteuse > 440 ms)
+//                    -> SEP $59 puis SEP $53
+// Le délai de connexion sert aussi TELEMON : son attente ($EF47) vide le
 // tampon de réception puis patiente 0,1 s avant de guetter $13 $53.
+// Hypothèse restante (non vérifiée sur matériel) : cadence de sonnerie
+// française 1,5 s / 3,5 s.
 //
 // La ligne elle-même est fournie par la plate-forme (minitel_line_t) : TCP
 // sur PC, modem Hayes (PicoWiFiModemUSB) sur le Neo6502.
@@ -51,13 +62,16 @@
 #define MINITEL_DECONNEX  0x67
 #define MINITEL_OPPOSITION 0x6F
 #define MINITEL_SEP       0x13
-#define MINITEL_SEP_CONNECTED    0x53
-#define MINITEL_SEP_DISCONNECTED 0x54  // hypothèse
+#define MINITEL_SEP_CONNECTED    0x53  // connexion (et fin de déconnexion)
+#define MINITEL_SEP_LINE         0x59  // bascule de ligne / échec / déconnexion
+#define MINITEL_SEP_OPPOSITION   0x50
 
 #define MINITEL_RING_ON_US     1500000
 #define MINITEL_RING_PERIOD_US 5000000
 #define MINITEL_RING_HALF_US   10000  // 50 Hz
-#define MINITEL_CONNECT_US     1500000
+#define MINITEL_CONNECT_OPPO_US 3080000   // 3 s de 390 Hz + 80 ms
+#define MINITEL_CONNECT_STD_US  1780000   // 1,7 s de 1300 Hz + 80 ms
+#define MINITEL_CONNECT_MAX_US  40000000  // recherche de porteuse : 40 s
 
 // La ligne téléphonique (ou son équivalent réseau)
 typedef struct {
@@ -111,26 +125,48 @@ static inline void _minitel_push(minitel_port_t* p, uint8_t b) {
     p->q_count++;
 }
 
+static inline void _minitel_sep(minitel_port_t* p, uint8_t code) {
+    _minitel_push(p, MINITEL_SEP);
+    _minitel_push(p, code);
+}
+
+// Retour à l'état local après une connexion : SEP $59, SEP $53
+static inline void _minitel_disconnected(minitel_port_t* p) {
+    _minitel_sep(p, MINITEL_SEP_LINE);
+    _minitel_sep(p, MINITEL_SEP_CONNECTED);
+    p->state = MINITEL_IDLE;
+    p->opposition = false;
+}
+
 static inline void _minitel_pro1(minitel_port_t* p, uint8_t code) {
     p->pro1_count++;
     p->last_pro1 = code;
     switch (code) {
         case MINITEL_CONNEXION:
             if (p->state != MINITEL_IDLE) break;
+            _minitel_sep(p, MINITEL_SEP_LINE);  // bascule de la ligne
+            p->connect_us = 0;
             if (p->line.incoming && p->line.incoming(p->line.ctx)) {
                 if (p->line.answer) p->line.answer(p->line.ctx);
                 p->state = MINITEL_CONNECTING;
             } else if (p->line.dial && p->line.dial(p->line.ctx)) {
                 p->state = MINITEL_CONNECTING;
+            } else {
+                _minitel_sep(p, MINITEL_SEP_LINE);  // échec immédiat
+                p->opposition = false;
             }
-            p->connect_us = 0;
             break;
         case MINITEL_DECONNEX:
-            if (p->state != MINITEL_IDLE && p->line.hangup) p->line.hangup(p->line.ctx);
-            p->state = MINITEL_IDLE;
-            p->opposition = false;
+            if (p->state == MINITEL_IDLE) break;
+            if (p->line.hangup) p->line.hangup(p->line.ctx);
+            _minitel_disconnected(p);
             break;
-        case MINITEL_OPPOSITION: p->opposition = true; break;
+        case MINITEL_OPPOSITION:
+            if (p->state == MINITEL_IDLE) {
+                p->opposition = true;
+                _minitel_sep(p, MINITEL_SEP_OPPOSITION);
+            }
+            break;
         default: break;  // autres commandes PRO1 : sans effet ici
     }
 }
@@ -190,18 +226,24 @@ static inline bool minitel_port_tick(minitel_port_t* p, uint32_t us) {
     switch (p->state) {
         case MINITEL_CONNECTING:
             p->connect_us += us;
-            if (carrier && p->connect_us >= MINITEL_CONNECT_US) {
-                _minitel_push(p, MINITEL_SEP);
-                _minitel_push(p, MINITEL_SEP_CONNECTED);
+            if (carrier && p->connect_us >= (p->opposition ? MINITEL_CONNECT_OPPO_US : MINITEL_CONNECT_STD_US)) {
+                // SEP $53 vers la prise et vers le modem (le correspondant)
+                _minitel_sep(p, MINITEL_SEP_CONNECTED);
+                if (p->line.send) {
+                    p->line.send(p->line.ctx, MINITEL_SEP);
+                    p->line.send(p->line.ctx, MINITEL_SEP_CONNECTED);
+                }
                 p->state = MINITEL_ONLINE;
+            } else if (p->connect_us >= MINITEL_CONNECT_MAX_US) {
+                // Pas de porteuse en 40 s : échec, second SEP $59
+                if (p->line.hangup) p->line.hangup(p->line.ctx);
+                _minitel_sep(p, MINITEL_SEP_LINE);
+                p->state = MINITEL_IDLE;
+                p->opposition = false;
             }
             break;
         case MINITEL_ONLINE:
-            if (!carrier) {
-                _minitel_push(p, MINITEL_SEP);
-                _minitel_push(p, MINITEL_SEP_DISCONNECTED);
-                p->state = MINITEL_IDLE;
-            }
+            if (!carrier) _minitel_disconnected(p);
             break;
         default: break;
     }

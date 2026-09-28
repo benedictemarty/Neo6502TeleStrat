@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (89 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (94 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -24,10 +24,12 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   la commande, effacée par l'état, double tampon, émission sur 7 bits au bon
   rythme, bit 7 levé à la réception avec IRQ de réception interdite, broche
   IRQ avec `$65` jusqu'à la lecture de la donnée, DTR inactif ;
-- prise Minitel (fausse ligne) : sonnerie (fronts à 50 Hz pendant 1,5 s puis
-  silence), XLIGNE décroche, pas de réponse avant la porteuse, `$13 $53`,
+- prise Minitel (fausse ligne), séquences de la STUM 1B : sonnerie (fronts à
+  50 Hz pendant 1,5 s puis silence), XLIGNE décroche, SEP `$50` puis `$59`,
+  pas de `$53` avant 3 s en mode opposé, SEP `$53` vers la prise et le modem,
   données et séquences Videotex transmises, PRO2 filtrée, touches reçues,
-  `$13 $54` au raccrochage, appel sortant, XDECON ;
+  SEP `$59 $53` au raccrochage, appel sortant (1,7 s en standard), XDECON,
+  échec après 40 s sans porteuse ;
 - modem Hayes (faux modem) : initialisation (`AT$SP`), RING et sa fin, ATA,
   CONNECT (sans `\n` parasite), données, NO CARRIER en ligne, ATD, `+++`/ATH
   avec gardes, BUSY, pas d'appel sortant sans numéro ;
@@ -64,9 +66,10 @@ copie puis, dans une nouvelle session, `LOAD`/`RUN` et `DIR` → 89 fichiers ;
 Configuration standard (TELEMATIC en banque 3), `STRATSED.DSK`, arborescence
 `DEMO` chargée, serveur lancé ; ligne `-L listen:PORT` (port libre) ; le
 correspondant `tests/minitel_client.py` appelle, attend la page, envoie ENVOI,
-raccroche. Vérifié : `ESC 9 o ESC 9 h` émis, `$13 $53` reçu, page d'accueil
-(« SERVEUR REALISE ENTIEREMENT… »), réponse à ENVOI (« taper quelque chose
-avant ENVOI »), `$13 $54` au raccrochage, retour à « Attente de communication ».
+raccroche. Vérifié : `ESC 9 o ESC 9 h` émis, `SEP $50 $59 $53` reçus, page
+d'accueil (« SERVEUR REALISE ENTIEREMENT… »), réponse à ENVOI (« taper quelque
+chose avant ENVOI »), `SEP $59 $53` au raccrochage, retour à « Attente de
+communication ».
 
 ## Firmware
 
