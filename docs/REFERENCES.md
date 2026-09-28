@@ -1,0 +1,12 @@
+# Références
+
+| Source | Usage |
+|---|---|
+| [Oricutron](https://github.com/pete-gordon/oricutron) (rev. 002279f) — `machine.c`, `via.c`, `disk.c`, `6551.c`, `joystick.c`, `8912.c` | décodage `$03xx`, banques, Microdisc, ACIA, joysticks, matrice clavier ; oracle de démarrage |
+| [reload-emulator](https://github.com/benedictemarty/reload-emulator) (fork de vsladkov) | base du portage : puces, `oric.h`, `oric.c`, plate-forme RP2040 |
+| Notice « Extension RAM 64 Ko pour Oric Telestrat », F. Broche, ORIC International, 1987 ([PDF, ceo.oric.org](https://ceo.oric.org/wp-content/uploads/wpforo/default_attachments/1773852840-Extensiontelestrat64K.pdf)) | carte des banques, V2DRA `$0321`, état des banques `$0200-$0207`, EXBNK |
+| [jedeoric/telemon](https://github.com/jedeoric/telemon) | ROM TELEMON 2.4 (`original/telemon.rom`) |
+| [assinie/Hyper-Basic](https://github.com/assinie/Hyper-Basic) | ROM HYPER-BASIC 2.0b, source commentée |
+| [jedeoric/tele-ass](https://github.com/jedeoric/tele-ass) | ROM TELE-ASS |
+| [assinie/Telematic](https://github.com/assinie/Telematic) | ROM TELEMATIC 2.0b (8 Ko, `$E000`), source commentée |
+| `~/Téléchargements/telestrat_*.pdf` (schémas de la carte mère, « Telestrat à cœur ouvert », « Système ») | à exploiter aux sprints 2-3 (FDC, ACIA) |

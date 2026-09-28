@@ -1,0 +1,8 @@
+build/
+src/roms/*.h
+compile_flags.txt
+# tenus en local uniquement
+CHANGELOG.md
+ROADMAP.md
+changelog.md
+roadmap.md

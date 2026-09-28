@@ -1,0 +1,75 @@
+cmake_minimum_required(VERSION 3.12)
+
+# Firmware telestrat.uf2 pour Olimex Neo6502. Réutilise le SDK Pico, PicoDVI,
+# tinyusb et les sources de plate-forme de reload-emulator (RELOAD_DIR).
+#
+#   cmake -S platforms/rp2040 -B build/rp2040 -DRELOAD_DIR=~/reload-emulator
+#         [-DTELESTRAT_RAM64K=ON] [-DNEO_MULTIBOOT_DIR=... -DNEO_SLOT_TELESTRAT=n]
+
+set(RELOAD_DIR "$ENV{HOME}/reload-emulator" CACHE PATH "reload-emulator (puces, SDK Pico, PicoDVI, tinyusb)")
+set(RELOAD_RP2040 ${RELOAD_DIR}/platforms/rp2040)
+
+set(PICO_SDK_PATH ${RELOAD_RP2040}/lib/pico-sdk)
+set(PICO_TINYUSB_PATH ${RELOAD_RP2040}/lib/tinyusb)
+set(PICO_BOARD olimex_neo6502)
+
+include(${RELOAD_RP2040}/pico_sdk_import.cmake)
+
+project(neo6502telestrat C CXX ASM)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
+
+pico_sdk_init()
+
+option(TELESTRAT_RAM64K "Cartouche RAM 64 Ko (banques 1-4) à la place de TELE-ASS/TELEMATIC" OFF)
+
+# Multi-boot Neo6502 (Neo6502firmware/multiboot), comme reload-emulator
+set(NEO_MULTIBOOT_DIR "" CACHE PATH "Neo6502firmware/multiboot (memmap_slot_N.ld)")
+set(NEO_SLOT_TELESTRAT "" CACHE STRING "Slot de flash multi-boot (vide = image seule)")
+
+add_subdirectory(${RELOAD_RP2040}/lib/PicoDVI/software/libdvi libdvi)
+
+add_executable(telestrat
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/telestrat.c
+    ${RELOAD_RP2040}/systems/oric/src/utils.S
+    ${RELOAD_RP2040}/src/hid_app.c
+    ${RELOAD_RP2040}/src/audio.c
+)
+
+# Ordre : nos en-têtes, puis la plate-forme RP2040 de reload (chips/wdc65C02cpu.h),
+# puis les puces communes de reload.
+target_include_directories(telestrat PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src
+    ${RELOAD_RP2040}/src
+    ${RELOAD_DIR}/src
+    ${RELOAD_RP2040}/lib/PicoDVI/software/include
+)
+
+target_compile_options(telestrat PRIVATE -Wall)
+target_compile_definitions(telestrat PRIVATE
+    DVI_DEFAULT_SERIAL_CONFIG=olimex_neo6502_cfg
+    $<$<BOOL:${TELESTRAT_RAM64K}>:TELESTRAT_RAM64K>
+    $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:TELESTRAT_MAX_RAM_BANKS=1>
+)
+
+target_link_libraries(telestrat
+    pico_stdlib
+    pico_multicore
+    pico_util
+    libdvi
+    tinyusb_host
+)
+
+pico_add_extra_outputs(telestrat)
+pico_enable_stdio_usb(telestrat 0)
+pico_enable_stdio_uart(telestrat 1)
+
+if (NOT "${NEO_SLOT_TELESTRAT}" STREQUAL "")
+    if ("${NEO_MULTIBOOT_DIR}" STREQUAL "")
+        message(FATAL_ERROR "NEO_MULTIBOOT_DIR doit pointer sur Neo6502firmware/multiboot")
+    endif()
+    pico_set_linker_script(telestrat ${NEO_MULTIBOOT_DIR}/memmap_slot_${NEO_SLOT_TELESTRAT}.ld)
+    target_compile_definitions(telestrat PRIVATE NEO_MULTIBOOT_SLOT=${NEO_SLOT_TELESTRAT})
+    message(STATUS "telestrat lié pour le slot multi-boot ${NEO_SLOT_TELESTRAT}")
+endif()
