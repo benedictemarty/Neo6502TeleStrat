@@ -79,3 +79,22 @@ if (NOT "${NEO_SLOT_TELESTRAT}" STREQUAL "")
     target_compile_definitions(telestrat PRIVATE NEO_MULTIBOOT_SLOT=${NEO_SLOT_TELESTRAT})
     message(STATUS "telestrat lié pour le slot multi-boot ${NEO_SLOT_TELESTRAT}")
 endif()
+
+# Mesure de charge sans carte (tools/rp2040_load.py) : jamais flashé, exécuté
+# dans un émulateur Cortex-M0+ ; flottants et mem* du compilateur (pas de ROM
+# de démarrage dans l'émulateur), diviseur matériel conservé.
+add_executable(telestrat_bench EXCLUDE_FROM_ALL ${CMAKE_CURRENT_SOURCE_DIR}/bench/telestrat_bench.c)
+# BENCH_CHIPS_DIR : puces (chips/*.h) d'une version figée de reload, pour
+# mesurer indépendamment des modifications en cours dans RELOAD_DIR
+set(BENCH_CHIPS_DIR "" CACHE PATH "répertoire contenant chips/ (vide : RELOAD_DIR/src)")
+target_include_directories(telestrat_bench PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src
+    ${BENCH_CHIPS_DIR}
+    ${RELOAD_DIR}/src
+)
+target_compile_options(telestrat_bench PRIVATE -Wall -g)
+target_link_libraries(telestrat_bench pico_stdlib)
+pico_set_float_implementation(telestrat_bench compiler)
+pico_set_double_implementation(telestrat_bench compiler)
+pico_set_mem_ops_implementation(telestrat_bench compiler)
+pico_enable_stdio_uart(telestrat_bench 0)

@@ -3,6 +3,7 @@
 #   make          ROM -> en-têtes, banc PC sans écran, tests
 #   make test     tests unitaires + tests de démarrage
 #   make uf2      firmware telestrat.uf2 pour le Neo6502 (arm-none-eabi-gcc)
+#   make charge   charge du RP2040 sans carte (docs/PERFORMANCE.md)
 #   make clean
 #
 # Dépend de reload-emulator (puces 6502/6522/AY, clavier, mémoire ; SDK Pico) :
@@ -47,3 +48,19 @@ clean:
 	rm -rf $(BUILD)
 
 .PHONY: all headless test uf2 clean
+
+# Charge du RP2040 sans carte (docs/PERFORMANCE.md) : trace du banc PC rejouée
+# par la cible ARM telestrat_bench dans un émulateur Cortex-M0+ (python3 +
+# unicorn + capstone : PYTHON=chemin/vers/python d'un venv qui les a).
+PYTHON ?= python3
+CHARGE_DSK ?= $(HOME)/oriclib/games/dsk/STRATSED.DSK
+charge: $(BUILD)/telestrat_headless uf2
+	$(MAKE) -C $(BUILD)/rp2040 telestrat_bench
+	cp $(CHARGE_DSK) $(BUILD)/charge.dsk
+	$(BUILD)/telestrat_headless -c oricutron -0 $(BUILD)/charge.dsk -f 1500 -w 500 \
+	    -t '1~~~~~~DIR\n' -B $(BUILD)/charge > /dev/null
+	cp $(CHARGE_DSK) $(BUILD)/charge.dsk
+	$(PYTHON) tools/rp2040_load.py $(BUILD)/rp2040/telestrat_bench.elf $(BUILD)/rp2040/telestrat.elf \
+	    $(BUILD)/charge --disk $(BUILD)/charge.dsk --every 10
+
+.PHONY: charge

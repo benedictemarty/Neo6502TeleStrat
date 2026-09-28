@@ -41,6 +41,19 @@ HYPER-BASIC, TELE-ASS, TELEMATIC en serveur Minitel par le modem Wi-Fi.
 | US-25 | Banques vides = bus flottant (TELEMATIC démarre, banques `$10`) | ✅ |
 | US-26 | Émulation Minitel (APLIC 1) en appel sortant | ⏳ ligne prête (`connect:`), scénario non testé |
 
+## Sprint 4 (proposé) — « Tenir 1 MHz sur le RP2040 »
+
+Mesure sans carte (docs/PERFORMANCE.md) : ~367 cycles M0+ par cycle 6502 pour
+un budget de 295, rendu d'écran jusqu'à 23 % d'une trame : le cœur 0 serait
+chargé à 127 % (150 % au pire). Objectif : ≤ 260 cycles, vérifié par `make charge`.
+
+| US | Récit |
+|---|---|
+| US-30 | Rendu de l'écran sur le cœur 1 |
+| US-31 | VIA 2 (joysticks, sonnerie) mis à jour sur changement ; ACIA interrogée tous les 64 cycles |
+| US-32 | Chemin rapide RAM/ROM en tête de `telestrat_tick` |
+| US-33 | Reprendre les optimisations de reload (VIA inactif, bus 65C02 intégré) une fois commitées |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

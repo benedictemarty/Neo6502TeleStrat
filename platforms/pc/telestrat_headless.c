@@ -25,6 +25,8 @@
 //   -L LIGNE   branche un Minitel sur l'ACIA et sa ligne sur TCP :
 //              listen:PORT (appel entrant = client TCP) ou connect:HOTE:PORT
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
+//   -B PRÉFIXE enregistre la trace de bus (PRÉFIXE.trace : un mot par cycle, adresse |
+//              R/W << 16 | donnée << 24) et le clavier (PRÉFIXE.ev) pour tools/rp2040_load.py
 //
 // ## Licence zlib/libpng
 //
@@ -98,6 +100,17 @@ static int config_banks(const char* name, telestrat_desc_t* d) {
 }
 
 static void printer_out(uint8_t data, void* user_data) { fputc(data, (FILE*)user_data); }
+
+// Trace de bus pour la mesure de charge du RP2040
+static FILE* bench_trace = NULL;
+static uint32_t bench_events[4096];
+static uint32_t bench_event_count = 0;
+
+static void bench_key(int frame, int down, int code) {
+    if (bench_trace && bench_event_count < 4096) {
+        bench_events[bench_event_count++] = ((uint32_t)frame << 16) | (down ? 0x8000u : 0) | (uint32_t)(code & 0x7FFF);
+    }
+}
 
 static FILE* serial_trace = NULL;
 static int current_frame = 0;
@@ -180,10 +193,11 @@ int main(int argc, char** argv) {
     const char* printer_file = NULL;
     const char* line_spec = NULL;
     int realtime = 0;
+    const char* bench_prefix = NULL;
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:R")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:RB:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -198,6 +212,7 @@ int main(int argc, char** argv) {
             case 'P': printer_file = optarg; break;
             case 'L': line_spec = optarg; break;
             case 'R': realtime = 1; break;
+            case 'B': bench_prefix = optarg; break;
             case 'T':
                 serial_trace = fopen(optarg, "w");
                 if (!serial_trace) {
@@ -226,6 +241,15 @@ int main(int argc, char** argv) {
         }
         desc.printer.func = printer_out;
         desc.printer.user_data = printer;
+    }
+    if (bench_prefix) {
+        char path[512];
+        snprintf(path, sizeof(path), "%s.trace", bench_prefix);
+        bench_trace = fopen(path, "wb");
+        if (!bench_trace) {
+            perror(path);
+            return 1;
+        }
     }
     if (line_spec) {
         if (!line_tcp_open(&line, line_spec)) {
@@ -265,10 +289,12 @@ int main(int argc, char** argv) {
                 c = 0x0D;
             }
             kbd_key_down(&sys.kbd, c);
+            bench_key(frame, 1, c);
             key_down = c;
             pos++;
         } else if (key_down && ((frame - wait) % 4) == 2) {
             kbd_key_up(&sys.kbd, key_down);
+            bench_key(frame, 0, key_down);
             key_down = 0;
         }
         current_frame = frame;
@@ -276,7 +302,13 @@ int main(int argc, char** argv) {
         clock_gettime(CLOCK_MONOTONIC, &t0);
         // Trame de 20 ms par tranches de 1 ms (sonnerie à 50 Hz)
         for (int ms = 0; ms < 20; ms++) {
-            for (int i = 0; i < 1000; i++) telestrat_tick(&sys);
+            for (int i = 0; i < 1000; i++) {
+                telestrat_tick(&sys);
+                if (bench_trace) {
+                    uint32_t e = sys.cpu.addr | ((uint32_t)sys.cpu.rw << 16) | ((uint32_t)sys.cpu.data << 24);
+                    fwrite(&e, 4, 1, bench_trace);
+                }
+            }
             if (minitel_on) telestrat_set_ring(&sys, minitel_port_tick(&minitel, 1000));
         }
         kbd_update(&sys.kbd, 20000);
@@ -309,6 +341,17 @@ int main(int argc, char** argv) {
         fclose(f);
     }
     if (printer) fclose(printer);
+    if (bench_trace) {
+        fclose(bench_trace);
+        char path[512];
+        snprintf(path, sizeof(path), "%s.ev", bench_prefix);
+        FILE* f = fopen(path, "wb");
+        if (f) {
+            fwrite(&bench_event_count, 4, 1, f);
+            fwrite(bench_events, 4, bench_event_count, f);
+            fclose(f);
+        }
+    }
     if (ramfile) {
         FILE* f = fopen(ramfile, "wb");
         if (!f) {

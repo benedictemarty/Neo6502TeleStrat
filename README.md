@@ -104,6 +104,7 @@ Configurations : `standard` (notice), `ram64k` (cartouche RAM 64 Ko),
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — matériel émulé, carte mémoire, choix
 - [docs/BACKLOG.md](docs/BACKLOG.md) — backlog produit, sprints
 - [docs/TESTS.md](docs/TESTS.md) — stratégie et inventaire des tests
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — charge du RP2040 mesurée sans carte (`make charge`)
 - [docs/REFERENCES.md](docs/REFERENCES.md) — sources consultées
 
 ## Licence
