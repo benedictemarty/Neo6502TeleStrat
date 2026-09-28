@@ -21,6 +21,8 @@
 #include "devices/wd1793.h"
 #include "devices/telestrat_fdc.h"
 #include "devices/mos6551acia.h"
+#include "devices/minitel_port.h"
+#include "devices/hayes_line.h"
 #include "systems/telestrat.h"
 
 static int failures = 0, checks = 0;
@@ -107,7 +109,18 @@ static void test_bank_switch_and_ram(void) {
     run(5000);
     CHECK(sys.ram[0x1000] == 0x5A, "banque 1 RAM relue = %02X (attendu 5A)", sys.ram[0x1000]);
     CHECK(sys.ram[0x1001] == 0x66, "ROM banque 6 après écriture = %02X (attendu 66)", sys.ram[0x1001]);
-    CHECK(sys.ram[0x1002] == 0xFF, "banque vide = %02X (attendu FF)", sys.ram[0x1002]);
+    // Banque vide : bus flottant, instable d'une lecture à l'autre (TELEMON la
+    // classe alors « invalide », $10)
+    telestrat_select_bank(&sys, 3);
+    int diff = 0;
+    for (int i = 0; i < 16; i++) {
+        uint8_t v1 = telestrat_peek(&sys, 0xFF00 + i);
+        sys.system_ticks += 57;
+        uint8_t v2 = telestrat_peek(&sys, 0xFF00 + i);
+        diff += v1 != v2;
+    }
+    telestrat_select_bank(&sys, 7);
+    CHECK(diff >= 12, "banque vide instable : %d lectures différentes sur 16", diff);
     CHECK(sys.bank == 7, "banque finale = %d (attendu 7)", sys.bank);
     CHECK(sys.bank_ram[1][0x0123] == 0x5A, "RAM de la banque 1 = %02X", sys.bank_ram[1][0x0123]);
     CHECK(rom6[0] == 0x66, "la ROM n'a pas été modifiée");
@@ -434,6 +447,225 @@ static void test_fdc_streamed(void) {
     free(img);
 }
 
+// --- ACIA : émission, réception, interruptions -------------------------------
+static uint8_t acia_out[64];
+static int acia_out_n;
+static uint8_t acia_in[64];
+static int acia_in_n, acia_in_pos;
+
+static void acia_tx(uint8_t d, void* u) {
+    (void)u;
+    if (acia_out_n < 64) acia_out[acia_out_n++] = d;
+}
+
+static int acia_rx(void* u) {
+    (void)u;
+    return acia_in_pos < acia_in_n ? acia_in[acia_in_pos++] : -1;
+}
+
+static void test_acia_serial(void) {
+    mos6551acia_t a = {0};
+    a.tx_cb = acia_tx;
+    a.rx_cb = acia_rx;
+    a.cpu_freq = 1000000;
+    mos6551acia_reset(&a);
+    acia_out_n = acia_in_n = acia_in_pos = 0;
+    // Prise Minitel de TELEMON : 1200 bauds, 7 bits, parité paire, 1 stop
+    mos6551acia_write(&a, 3, 0x38);
+    mos6551acia_write(&a, 2, 0x67);
+    CHECK(mos6551acia_char_cycles(&a) == 8333, "1200 bauds 7E1 : %d cycles par caractère",
+          (int)mos6551acia_char_cycles(&a));
+    CHECK(mos6551acia_irq(&a), "IRQ d'émission à l'écriture de la commande, registre vide");
+    uint8_t st = mos6551acia_read(&a, 1);
+    CHECK((st & 0x90) == 0x90 && !mos6551acia_irq(&a), "état $%02X, IRQ effacée par la lecture", st);
+    // Double tampon : le premier octet passe aussitôt dans le registre à décalage
+    mos6551acia_write(&a, 0, 0xC1);
+    CHECK((a.status & MOS6551_ST_TXEMPTY) && mos6551acia_irq(&a), "1er octet : registre de nouveau vide, IRQ");
+    mos6551acia_read(&a, 1);
+    mos6551acia_write(&a, 0, 0x42);
+    CHECK(!(a.status & MOS6551_ST_TXEMPTY) && !mos6551acia_irq(&a), "2e octet en attente");
+    for (int i = 0; i < 8333 / 4 + 1; i++) mos6551acia_tick(&a, 4);
+    CHECK(acia_out_n == 1 && acia_out[0] == 0x41, "1er octet émis sur 7 bits ($%02X) après 8,3 ms",
+          acia_out_n ? acia_out[0] : 0);
+    CHECK((a.status & MOS6551_ST_TXEMPTY) && mos6551acia_irq(&a), "2e octet chargé : IRQ d'émission");
+    for (int i = 0; i < 8333 / 4 + 1; i++) mos6551acia_tick(&a, 4);
+    CHECK(acia_out_n == 2 && acia_out[1] == 0x42, "2e octet émis");
+    // Réception : IRQ de réception interdite ($67), bit 7 de l'état levé quand même
+    acia_in[acia_in_n++] = 0x13;
+    acia_in[acia_in_n++] = 0x53;
+    mos6551acia_read(&a, 1);
+    mos6551acia_tick(&a, 4);
+    st = mos6551acia_read(&a, 1);
+    CHECK((st & 0x88) == 0x88 && !mos6551acia_irq(&a), "octet reçu : état $%02X, broche IRQ inactive", st);
+    CHECK(mos6551acia_read(&a, 0) == 0x13, "donnée reçue $13");
+    mos6551acia_tick(&a, 4);
+    CHECK(!(a.status & MOS6551_ST_RXFULL), "octet suivant retenu jusqu'à la fin du caractère");
+    for (int i = 0; i < 8333 / 4 + 1; i++) mos6551acia_tick(&a, 4);
+    CHECK((a.status & MOS6551_ST_RXFULL) && a.rx == 0x53, "2e octet reçu au rythme du débit");
+    // IRQ de réception autorisée ($65) : broche active jusqu'à la lecture de la donnée
+    mos6551acia_write(&a, 2, 0x65);
+    CHECK(mos6551acia_irq(&a), "IRQ de réception (commande $65)");
+    mos6551acia_read(&a, 1);
+    CHECK(mos6551acia_irq(&a), "la lecture de l'état ne suffit pas : donnée non lue");
+    mos6551acia_read(&a, 0);
+    CHECK(!mos6551acia_irq(&a), "IRQ tombée après lecture de la donnée");
+    // Récepteur inactif (DTR = 0) : rien n'entre
+    mos6551acia_write(&a, 2, 0x62);
+    acia_in[acia_in_n++] = 0x55;
+    for (int i = 0; i < 3000; i++) mos6551acia_tick(&a, 4);
+    CHECK(!(a.status & MOS6551_ST_RXFULL), "DTR inactif : pas de réception");
+}
+
+// --- Prise Minitel ------------------------------------------------------------
+typedef struct {
+    bool ringing, answered, dialed, online, hung_up;
+    uint8_t sent[64];
+    int n_sent;
+    int rx[8], rx_n, rx_pos;
+} fake_line_t;
+
+static bool fl_dial(void* c) { ((fake_line_t*)c)->dialed = ((fake_line_t*)c)->online = true; return true; }
+static void fl_answer(void* c) {
+    fake_line_t* l = c;
+    l->answered = l->online = true;
+    l->ringing = false;
+}
+static void fl_hangup(void* c) {
+    fake_line_t* l = c;
+    l->hung_up = true;
+    l->online = false;
+}
+static bool fl_incoming(void* c) { return ((fake_line_t*)c)->ringing; }
+static bool fl_carrier(void* c) { return ((fake_line_t*)c)->online; }
+static int fl_recv(void* c) {
+    fake_line_t* l = c;
+    return l->rx_pos < l->rx_n ? l->rx[l->rx_pos++] : -1;
+}
+static void fl_send(void* c, uint8_t d) {
+    fake_line_t* l = c;
+    if (l->n_sent < 64) l->sent[l->n_sent++] = d;
+}
+
+static void minitel_send_str(minitel_port_t* p, const uint8_t* b, int n) {
+    for (int i = 0; i < n; i++) minitel_port_from_telestrat(p, b[i]);
+}
+
+static void test_minitel_port(void) {
+    fake_line_t fl = {0};
+    minitel_line_t line = {fl_dial, fl_answer, fl_hangup, fl_incoming, fl_carrier, fl_recv, fl_send, &fl};
+    minitel_port_t p;
+    minitel_port_init(&p, &line);
+
+    // Sonnerie : rafales à 50 Hz pendant 1,5 s, silence ensuite (période 5 s)
+    fl.ringing = true;
+    int edges = 0, silent_edges = 0;
+    bool prev = false;
+    for (int ms = 0; ms < 5000; ms++) {
+        bool lvl = minitel_port_tick(&p, 1000);
+        if (prev && !lvl) {
+            if (ms < 1500) edges++;
+            else silent_edges++;
+        }
+        prev = lvl;
+    }
+    CHECK(edges >= 70 && edges <= 76 && silent_edges == 0, "sonnerie : %d fronts en 1,5 s, %d dans le silence", edges,
+          silent_edges);
+
+    // XLIGNE : ESC 9 o puis ESC 9 h -> décroche, puis $13 $53 après la négociation
+    const uint8_t xligne[] = {0x1B, 0x39, 0x6F, 0x1B, 0x39, 0x68};
+    minitel_send_str(&p, xligne, 6);
+    CHECK(fl.answered && p.opposition && p.state == MINITEL_CONNECTING, "XLIGNE : appel décroché (état %d)", p.state);
+    CHECK(minitel_port_to_telestrat(&p) == -1, "pas de réponse avant la porteuse");
+    CHECK(!minitel_port_tick(&p, 1000), "plus de sonnerie une fois décroché");
+    for (int ms = 0; ms < 1500; ms++) minitel_port_tick(&p, 1000);
+    int r1 = minitel_port_to_telestrat(&p), r2 = minitel_port_to_telestrat(&p);
+    CHECK(r1 == 0x13 && r2 == 0x53 && p.state == MINITEL_ONLINE, "connexion signalée : %02X %02X", r1, r2);
+
+    // En ligne : les données passent, les séquences Videotex ESC aussi, pas les PRO
+    const uint8_t page[] = {0x0C, 'A', 0x1B, 0x42, 'B', 0x1B, 0x3A, 0x69, 0x43, 'C'};
+    minitel_send_str(&p, page, sizeof(page));
+    CHECK(fl.n_sent == 6 && fl.sent[2] == 0x1B && fl.sent[3] == 0x42 && fl.sent[5] == 'C',
+          "données transmises (%d octets), PRO2 filtrée", fl.n_sent);
+    fl.rx[fl.rx_n++] = 0x13;
+    fl.rx[fl.rx_n++] = 0x41;
+    CHECK(minitel_port_to_telestrat(&p) == 0x13 && minitel_port_to_telestrat(&p) == 0x41, "ENVOI du correspondant reçu");
+
+    // Le correspondant raccroche : $13 $54
+    fl.online = false;
+    minitel_port_tick(&p, 1000);
+    r1 = minitel_port_to_telestrat(&p);
+    r2 = minitel_port_to_telestrat(&p);
+    CHECK(r1 == 0x13 && r2 == 0x54 && p.state == MINITEL_IDLE, "déconnexion signalée : %02X %02X", r1, r2);
+
+    // Minitel en terminal : CONNEXION sans appel entrant -> appel sortant ; ESC 9 g raccroche
+    minitel_send_str(&p, xligne + 3, 3);
+    CHECK(fl.dialed && p.state == MINITEL_CONNECTING, "CONNEXION sans appel entrant : appel sortant");
+    const uint8_t decon[] = {0x1B, 0x39, 0x67};
+    minitel_send_str(&p, decon, 3);
+    CHECK(fl.hung_up && p.state == MINITEL_IDLE, "XDECON : raccroché");
+}
+
+// --- Modem Hayes (faux modem) --------------------------------------------------
+static char modem_out[512];
+static int modem_out_n;
+
+static void modem_write(void* ctx, const uint8_t* d, uint32_t n) {
+    (void)ctx;
+    for (uint32_t i = 0; i < n && modem_out_n < 511; i++) modem_out[modem_out_n++] = (char)d[i];
+    modem_out[modem_out_n] = 0;
+}
+
+static void modem_says(hayes_line_t* h, const char* s) {
+    while (*s) hayes_line_feed(h, (uint8_t)*s++);
+}
+
+static void test_hayes_line(void) {
+    hayes_line_t h;
+    modem_out_n = 0;
+    hayes_line_init(&h, modem_write, NULL, "go.minipavi.fr:516", 3615);
+    minitel_line_t l = hayes_line_line(&h);
+    CHECK(strcmp(modem_out, "ATE0V1\rATS0=0\rAT$SP=3615\r") == 0, "initialisation : %s", modem_out);
+    modem_says(&h, "\r\nOK\r\n\r\nOK\r\n\r\nRING\r\n");
+    CHECK(l.incoming(l.ctx), "RING : appel entrant");
+    hayes_line_tick(&h, 9000000);
+    CHECK(!l.incoming(l.ctx), "plus de RING depuis 9 s : l'appel a cessé");
+    modem_says(&h, "RING\r\n");
+    modem_out_n = 0;
+    l.answer(l.ctx);
+    CHECK(strcmp(modem_out, "ATA\r") == 0 && !l.carrier(l.ctx), "décroché : ATA");
+    modem_says(&h, "\r\nCONNECT 1200\r\n");
+    CHECK(l.carrier(l.ctx), "CONNECT : en ligne");
+    modem_says(&h, "\x13\x41");
+    CHECK(l.recv(l.ctx) == 0x13 && l.recv(l.ctx) == 0x41 && l.recv(l.ctx) == -1, "données du correspondant");
+    modem_out_n = 0;
+    l.send(l.ctx, 'X');
+    CHECK(modem_out_n == 1 && modem_out[0] == 'X', "données vers le correspondant");
+    modem_says(&h, "\r\nNO CARRIER\r\n");
+    CHECK(!l.carrier(l.ctx), "NO CARRIER en ligne : porteuse perdue");
+    // Appel sortant puis raccrochage par +++ / ATH avec gardes d'une seconde
+    modem_out_n = 0;
+    CHECK(l.dial(l.ctx) && strcmp(modem_out, "ATDgo.minipavi.fr:516\r") == 0, "appel sortant : %s", modem_out);
+    modem_says(&h, "CONNECT\r\n");
+    CHECK(l.carrier(l.ctx), "appel sortant établi");
+    modem_out_n = 0;
+    l.hangup(l.ctx);
+    hayes_line_tick(&h, 500000);
+    CHECK(modem_out_n == 0, "garde avant +++");
+    hayes_line_tick(&h, 700000);
+    CHECK(strcmp(modem_out, "+++") == 0, "+++ après la garde");
+    hayes_line_tick(&h, 1200000);
+    CHECK(strcmp(modem_out, "+++ATH\r") == 0 && !l.carrier(l.ctx), "ATH après la garde : %s", modem_out);
+    // Appel sortant refusé
+    modem_says(&h, "OK\r\n");
+    l.dial(l.ctx);
+    modem_says(&h, "\r\nBUSY\r\n");
+    CHECK(!l.carrier(l.ctx) && h.state == HAYES_COMMAND, "BUSY : retour en mode commande");
+    hayes_line_t h2;
+    hayes_line_init(&h2, modem_write, NULL, "", 0);
+    minitel_line_t l2 = hayes_line_line(&h2);
+    CHECK(!l2.dial(l2.ctx), "sans numéro : pas d'appel sortant");
+}
+
 static void test_acia(void) {
     mos6551acia_t a = {0};
     mos6551acia_reset(&a);
@@ -454,6 +686,9 @@ int main(void) {
     test_fdc_write_track();
     test_fdc_streamed();
     test_acia();
+    test_acia_serial();
+    test_minitel_port();
+    test_hayes_line();
     printf("test_telestrat : %d/%d vérifications réussies\n", checks - failures, checks);
     return failures ? 1 : 0;
 }

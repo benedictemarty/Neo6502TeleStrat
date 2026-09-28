@@ -8,6 +8,12 @@
 // lus et écrits piste par piste (wd1793_insert_streamed) ; la première image
 // est insérée dans le lecteur A dès que la clé est montée.
 //
+// Télématique : un PicoWiFiModemUSB (modem Hayes en USB CDC) sert de ligne au
+// Minitel émulé sur la prise de l'ACIA (devices/minitel_port.h) : appels
+// entrants (RING -> sonnerie sur CB1 du VIA 2, TELEMATIC en serveur) et
+// sortants (ATD, émulation Minitel). Réglages facultatifs dans TELESTRA.CFG à
+// la racine de la clé : « dial=hôte:port » et « listen=port ».
+//
 // Touches : F1 = image suivante dans le lecteur A, F11 = NMI, F12 = RESET,
 // Windows gauche = FUNCT, Pause = retour au firmware Neo6502 (multi-boot).
 // Manette USB = joystick droit (la 2e : joystick gauche).
@@ -63,6 +69,8 @@
 #include "devices/wd1793.h"
 #include "devices/telestrat_fdc.h"
 #include "devices/mos6551acia.h"
+#include "devices/minitel_port.h"
+#include "devices/hayes_line.h"
 #include "systems/telestrat.h"
 
 #include "hardware/clocks.h"
@@ -92,6 +100,52 @@ typedef struct {
 
 state_t __not_in_flash() state;
 
+/*-- Télématique : Minitel sur l'ACIA, ligne sur le modem USB ---------------*/
+
+static minitel_port_t minitel;
+static hayes_line_t modem;
+static int modem_idx = -1;  // interface CDC du modem (-1 : absent)
+static char cfg_dial[64] = "";
+static int cfg_listen = 0;
+
+static void modem_write(void *ctx, const uint8_t *data, uint32_t len) {
+    (void)ctx;
+    if (modem_idx < 0) return;
+    tuh_cdc_write((uint8_t)modem_idx, data, len);
+    tuh_cdc_write_flush((uint8_t)modem_idx);
+}
+
+void tuh_cdc_mount_cb(uint8_t idx) {
+    modem_idx = idx;
+    hayes_line_init(&modem, modem_write, NULL, cfg_dial, cfg_listen);
+    printf("Modem USB CDC %u branché\n", idx);
+}
+
+void tuh_cdc_umount_cb(uint8_t idx) {
+    if ((int)idx == modem_idx) modem_idx = -1;
+}
+
+static void modem_poll(void) {
+    if (modem_idx < 0) return;
+    uint8_t buf[64];
+    uint32_t n;
+    while ((n = tuh_cdc_read((uint8_t)modem_idx, buf, sizeof(buf))) > 0) {
+        for (uint32_t i = 0; i < n; i++) hayes_line_feed(&modem, buf[i]);
+    }
+}
+
+static void read_config(void);
+
+static void minitel_tx(uint8_t data, void *user_data) {
+    (void)user_data;
+    minitel_port_from_telestrat(&minitel, data);
+}
+
+static int minitel_rx(void *user_data) {
+    (void)user_data;
+    return minitel_port_to_telestrat(&minitel);
+}
+
 static void audio_callback(const uint8_t sample, void *user_data) {
     (void)user_data;
     audio_push_sample(sample);
@@ -101,6 +155,7 @@ static void audio_callback(const uint8_t sample, void *user_data) {
 static telestrat_desc_t telestrat_desc(void) {
     telestrat_desc_t d = {
         .audio = {.callback = {.func = audio_callback}, .sample_rate = 22050},
+        .minitel = {.tx = minitel_tx, .rx = minitel_rx},
     };
     d.banks[0].type = TELESTRAT_BANK_RAM;
 #ifdef TELESTRAT_RAM64K
@@ -200,11 +255,33 @@ static void insert_image(int index) {
 static void usb_poll(void) {
     if (usb_scanned || !msc_inquiry_complete) return;
     usb_scanned = true;
+    read_config();
     usb_scan();
     if (usb_num_files > 0) insert_image(0);
 }
 
+// TELESTRA.CFG : « dial=hôte:port », « listen=port » (une clé par ligne)
+static void read_config(void) {
+    FIL f;
+    if (f_open(&f, "TELESTRA.CFG", FA_READ) != FR_OK) return;
+    char line[96];
+    while (f_gets(line, sizeof(line), &f)) {
+        char *e = line + strlen(line);
+        while (e > line && (e[-1] == '\r' || e[-1] == '\n' || e[-1] == ' ')) *--e = 0;
+        if (!strncmp(line, "dial=", 5)) {
+            snprintf(cfg_dial, sizeof(cfg_dial), "%.63s", line + 5);
+        } else if (!strncmp(line, "listen=", 7)) {
+            cfg_listen = atoi(line + 7);
+        }
+    }
+    f_close(&f);
+    printf("TELESTRA.CFG : dial=%s listen=%d\n", cfg_dial, cfg_listen);
+    if (modem_idx >= 0) hayes_line_init(&modem, modem_write, NULL, cfg_dial, cfg_listen);
+}
+
 void app_init(void) {
+    minitel_line_t line = hayes_line_line(&modem);
+    minitel_port_init(&minitel, &line);
     telestrat_desc_t desc = telestrat_desc();
     telestrat_init(&state.telestrat, &desc);
     telestrat_reset(&state.telestrat);
@@ -376,10 +453,17 @@ int main() {
     while (1) {
         uint32_t start_time_in_micros = time_us_32();
 
-        // Une trame PAL de l'ULA : 312 lignes x 64 cycles
+        // Une trame PAL de l'ULA : 312 lignes x 64 cycles, par tranches de
+        // 1 ms (sonnerie à 50 Hz sur CB1)
         const uint32_t num_ticks = 19968;
-        for (uint32_t ticks = 0; ticks < num_ticks; ticks++) {
-            telestrat_tick(&state.telestrat);
+        for (uint32_t slice = 0; slice < 20; slice++) {
+            const uint32_t n = slice < 19 ? 998 : num_ticks - 19 * 998;
+            for (uint32_t ticks = 0; ticks < n; ticks++) {
+                telestrat_tick(&state.telestrat);
+            }
+            modem_poll();
+            hayes_line_tick(&modem, 1000);
+            telestrat_set_ring(&state.telestrat, minitel_port_tick(&minitel, 1000));
         }
 
         telestrat_screen_update(&state.telestrat);

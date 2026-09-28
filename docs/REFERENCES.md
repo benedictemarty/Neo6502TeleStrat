@@ -12,4 +12,8 @@
 | [assinie/STRATSED](https://github.com/assinie/STRATSED) | STRATSED V2.0E (image de banque 0), source commentée |
 | `STRATSED.DSK` (archive locale `~/oriclib/games/dsk`) | disquette système STRATSED V2.0c, tests de démarrage |
 | Fiche technique WD1793 (Western Digital) | commandes, registre d'état, formatage `$F5`-`$F7` |
+| Fiche technique 6551 (ACIA) | registres, débits, trames, interruptions |
+| TELEMON 2.4 désassemblé (da65 + `roms/telmon24.sym` d'Oricutron) | XRING `$EEA5`, XLIGNE `$EF20`, XDECON `$EF3F`, routine série `$C8C0`, détection des banques `$C2F4`, prises `$DB3A`/`$DB5D` |
+| `~/picowifi/PicoWiFiModemUSB/README.md` | commandes AT du modem (`ATA`, `ATS0`, `AT$SP`, RING) |
+| `~/Neo6502NeoTel` | branchement du PicoWiFiModemUSB (USB CDC) sur le Neo6502 |
 | `~/Téléchargements/telestrat_*.pdf` (schémas de la carte mère, « Telestrat à cœur ouvert », « Système ») | à exploiter aux sprints 2-3 (FDC, ACIA) |

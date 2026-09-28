@@ -39,9 +39,11 @@ add_executable(telestrat
     ${RELOAD_RP2040}/src/msc_app.c
 )
 
-# Ordre : nos en-têtes, puis la plate-forme RP2040 de reload (chips/wdc65C02cpu.h),
+# Ordre : nos en-têtes (dont tusb_config.h avec le CDC hôte), puis la plate-forme
+# RP2040 de reload (chips/wdc65C02cpu.h),
 # puis les puces communes de reload.
 target_include_directories(telestrat PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src
     ${RELOAD_RP2040}/src
     ${RELOAD_DIR}/src

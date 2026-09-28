@@ -26,7 +26,7 @@
 //   $0300-$030F  VIA 1 (clavier, AY, imprimante : ORA, STROBE PB4, ACK CA1)
 //   $0310-$0313  WD1793 ; $0314 contrôle ; $0318 DRQ (Microdisc intégré),
 //                disquettes au format MFM_DISK (4 lecteurs)
-//   $031C-$031F  ACIA 6551 (registres seuls au sprint 1, sans liaison)
+//   $031C-$031F  ACIA 6551 (prise Minitel ; liaison fournie par la plate-forme)
 //   $0320-$032F  VIA 2 : PA0-PA2 = banque de $C000-$FFFF, PB = joysticks
 //   autres $03xx  reflet du VIA 1 (comme Oricutron)
 //   $0400-$BFFF  RAM
@@ -93,7 +93,7 @@ static const uint32_t telestrat_palette[TELESTRAT_PALETTE_SIZE] = {
 };
 
 typedef enum {
-    TELESTRAT_BANK_EMPTY = 0,  // pas de cartouche : lit $FF, écritures ignorées
+    TELESTRAT_BANK_EMPTY = 0,  // pas de cartouche : bus flottant, écritures ignorées
     TELESTRAT_BANK_RAM,
     TELESTRAT_BANK_ROM,
 } telestrat_bank_type_t;
@@ -122,6 +122,14 @@ typedef struct {
         telestrat_printer_t func;  // NULL : pas d'imprimante branchée
         void* user_data;
     } printer;
+    // Liaisons de l'ACIA, aiguillées par PA4 du VIA 2 (TELEMON $DB3A/$DB5D :
+    // PA4 = 0 prise Minitel, 1200 bauds 7E1 ; PA4 = 1 prise RS232) ;
+    // NULL = rien de branché
+    struct {
+        mos6551acia_tx_t tx;
+        mos6551acia_rx_t rx;
+        void* user_data;
+    } minitel, rs232;
 } telestrat_desc_t;
 
 typedef struct {
@@ -150,6 +158,11 @@ typedef struct {
     bool strobe;          // dernier niveau de PB4
     int32_t printer_ack;  // cycles restants de l'impulsion ACK
 
+    bool ring;  // détecteur de sonnerie de la ligne -> CB1 du VIA 2
+    mos6551acia_tx_t minitel_tx, rs232_tx;
+    mos6551acia_rx_t minitel_rx, rs232_rx;
+    void *minitel_user_data, *rs232_user_data;
+
     int blink_counter;
     uint8_t pattr;
     uint8_t fb[TELESTRAT_FRAMEBUFFER_SIZE];
@@ -173,7 +186,14 @@ bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t s
     return wd1793_insert(&sys->fdc.wd, drive, image, size, write_protect);
 }
 
+void telestrat_set_ring(telestrat_t* sys, bool level) { sys->ring = level; }
+
 void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state);
+// Niveau du détecteur de sonnerie (CB1 du VIA 2 ; TELEMON XRING attend des
+// impulsions à 50 Hz en rafales)
+void telestrat_set_ring(telestrat_t* sys, bool level);
+// Prise sélectionnée pour l'ACIA (PA4 du VIA 2)
+bool telestrat_serial_is_rs232(telestrat_t* sys);
 // Insère une image MFM_DISK dans le lecteur 0..3 (false si invalide)
 bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect);
 // Lecture « système » (sans effet de bord sur les E/S) pour les tests
@@ -218,6 +238,24 @@ static uint8_t _telestrat_psg_in(int port_id, void* user_data) {
 }
 
 void telestrat_select_bank(telestrat_t* sys, uint8_t bank) { sys->bank = bank & 7; }
+
+// PA4 du VIA 2 : prise RS232 (1) ou Minitel (0)
+bool telestrat_serial_is_rs232(telestrat_t* sys) { return (mos6522via_get_pa(&sys->via2) & 0x10) != 0; }
+
+static void _telestrat_serial_tx(uint8_t data, void* user_data) {
+    telestrat_t* sys = (telestrat_t*)user_data;
+    if (telestrat_serial_is_rs232(sys)) {
+        if (sys->rs232_tx) sys->rs232_tx(data, sys->rs232_user_data);
+    } else if (sys->minitel_tx) {
+        sys->minitel_tx(data, sys->minitel_user_data);
+    }
+}
+
+static int _telestrat_serial_rx(void* user_data) {
+    telestrat_t* sys = (telestrat_t*)user_data;
+    if (telestrat_serial_is_rs232(sys)) return sys->rs232_rx ? sys->rs232_rx(sys->rs232_user_data) : -1;
+    return sys->minitel_rx ? sys->minitel_rx(sys->minitel_user_data) : -1;
+}
 
 void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     CHIPS_ASSERT(sys && desc);
@@ -270,6 +308,16 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     sys->joy[0] = sys->joy[1] = 0;
     sys->printer = desc->printer.func;
     sys->printer_user_data = desc->printer.user_data;
+    sys->minitel_tx = desc->minitel.tx;
+    sys->minitel_rx = desc->minitel.rx;
+    sys->minitel_user_data = desc->minitel.user_data;
+    sys->rs232_tx = desc->rs232.tx;
+    sys->rs232_rx = desc->rs232.rx;
+    sys->rs232_user_data = desc->rs232.user_data;
+    sys->acia.tx_cb = _telestrat_serial_tx;
+    sys->acia.rx_cb = _telestrat_serial_rx;
+    sys->acia.user_data = sys;
+    sys->acia.cpu_freq = TELESTRAT_FREQUENCY;
 }
 
 void telestrat_discard(telestrat_t* sys) {
@@ -304,9 +352,18 @@ static inline void _telestrat_update_bank(telestrat_t* sys) {
     }
 }
 
+// Port cartouche vide : bus flottant. TELEMON (2.4, $C2F4) lit deux fois la
+// page $FF00-$FFFF de chaque banque et déclare « invalide » ($10) une banque
+// dont les valeurs changent ; une valeur fixe la ferait passer pour une ROM.
+// Valeur pseudo-aléatoire, déterministe (compteur de cycles et adresse).
+static inline uint8_t _telestrat_floating_bus(telestrat_t* sys, uint16_t addr) {
+    uint32_t x = sys->system_ticks * 2654435761u ^ addr;
+    return (uint8_t)(x >> 24);
+}
+
 static inline uint8_t _telestrat_bank_read(telestrat_t* sys, uint16_t addr) {
     const uint8_t* p = sys->bank_rd[sys->bank];
-    return p ? p[addr - 0xC000] : 0xFF;
+    return p ? p[addr - 0xC000] : _telestrat_floating_bus(sys, addr);
 }
 
 uint8_t telestrat_peek(telestrat_t* sys, uint16_t addr) {
@@ -333,6 +390,9 @@ static inline void _telestrat_io_rw(telestrat_t* sys, uint16_t addr, bool rw) {
             } else {
                 mos6551acia_write(&sys->acia, reg, MOS6502CPU_GET_DATA(&sys->cpu));
             }
+#ifdef TELESTRAT_TRACE_ACIA
+            TELESTRAT_TRACE_ACIA(sys, reg & 3, rw, MOS6502CPU_GET_DATA(&sys->cpu));
+#endif
             return;
         }
         if (rw) {
@@ -423,6 +483,9 @@ TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
         bool irq = mos6522via_tick(&sys->via, 4);
         irq |= mos6522via_tick(&sys->via2, 4);
         telestrat_fdc_tick(&sys->fdc, 4);
+        mos6551acia_tick(&sys->acia, 4);
+        // Niveau redonné à chaque pas (le VIA de reload détecte le front entre deux appels)
+        mos6522via_set_cb1(&sys->via2, sys->ring);
         irq |= telestrat_fdc_irq(&sys->fdc);
         irq |= mos6551acia_irq(&sys->acia);
         MOS6502CPU_SET_IRQ(&sys->cpu, irq);
@@ -546,7 +609,7 @@ static void _telestrat_init_key_map(telestrat_t* sys) {
         "JTRF  QD"   // ligne 1
         "M6B4 Z2C"   // ligne 2
         "K9;-  \\'"  // ligne 3
-        " <>     "   // ligne 4
+        " ,.     "   // ligne 4 (oric.h de reload inverse , . et < > : table qwktab d'Oricutron)
         "UIOP  ]["   // ligne 5
         "YHGE ASW"   // ligne 6
         "8L0/   ="   // ligne 7
@@ -556,7 +619,7 @@ static void _telestrat_init_key_map(telestrat_t* sys) {
         "jtrf  qd"
         "m^b$ z@c"
         "k(:_  |\""
-        " ,.     "
+        " <>     "
         "uiop  }{"
         "yhge asw"
         "*l)?   +";

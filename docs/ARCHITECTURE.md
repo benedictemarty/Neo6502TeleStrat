@@ -13,7 +13,10 @@ les tests de Klaus Dormann) : c'est le banc de test.
 src/systems/telestrat.h     système (format header-only de reload)
 src/devices/wd1793.h        WD1793 sur images MFM_DISK (mémoire ou flux)
 src/devices/telestrat_fdc.h Microdisc intégré (contrôle $0314/$0318 autour du WD1793)
-src/devices/mos6551acia.h   ACIA 6551
+src/devices/mos6551acia.h   ACIA 6551 (débit, trame, double tampon, interruptions)
+src/devices/minitel_port.h  Minitel sur la prise de l'ACIA + sonnerie de la ligne
+src/devices/hayes_line.h    ligne sur modem Hayes (PicoWiFiModemUSB, USB CDC)
+platforms/pc/line_tcp.h     ligne du banc sur TCP
 src/roms/telestrat_roms.h   généré par tools/fetch_roms.py (non versionné)
 platforms/pc/               banc sans écran (tests)
 platforms/rp2040/           firmware telestrat.uf2
@@ -32,8 +35,8 @@ Dépendances reprises de reload-emulator sans copie : `mos6522via.h`,
 | `$0310-$0313` | WD1793 | Oricutron `disk.c` |
 | `$0314` | écriture : INTENA (b0), face (b4), lecteur (b5-6) ; lecture : /INTRQ (b7) | Oricutron `disk.h` |
 | `$0318` | lecture : /DRQ (b7) | Oricutron |
-| `$031C-$031F` | ACIA 6551 | Oricutron `machine.c` |
-| `$0320-$032F` | VIA 2 : PA0-2 = banque (V2DRA `$0321`), PB = joysticks | notice Extension RAM 64 Ko, IV-2 ; Oricutron `via.c`, `joystick.c` |
+| `$031C-$031F` | ACIA 6551 | Oricutron `machine.c` ; fiche 6551 |
+| `$0320-$032F` | VIA 2 : PA0-2 = banque (V2DRA `$0321`), PA4 = prise série (0 Minitel, 1 RS232), PB = joysticks, CB1 = sonnerie de la ligne | notice Extension RAM 64 Ko, IV-2 ; TELEMON `$DB3A`, `$DB5D`, `$EEA5` ; Oricutron `joystick.c` |
 | autres `$03xx` | reflet du VIA 1 | Oricutron |
 | `$0400-$BFFF` | RAM (écran texte `$BB80`, HIRES `$A000`) | |
 | `$C000-$FFFF` | banque 0..7 | |
@@ -54,7 +57,11 @@ Dépendances reprises de reload-emulator sans copie : `mos6522via.h`,
 - Sélection : `(banque & ~DDRA) | (ORA & DDRA)` sur les bits 0-2 ; une ligne en
   entrée garde sa valeur (comme `via_tele_w_iora` d'Oricutron). Au RESET : banque 7.
 - Écriture en ROM ou en banque vide : ignorée. Lecture d'une banque vide :
-  `$FF` (**hypothèse** : bus flottant non modélisé).
+  **bus flottant**, valeur changeante (pseudo-aléatoire, déterministe). TELEMON
+  (`$C2F4`) lit deux fois la page `$FF00-$FFFF` de chaque banque : instable =
+  « invalide » (`$10`, valeur que la notice donne pour une banque invalide) ;
+  une valeur fixe (`$FF`) la faisait passer pour une ROM, avec un nom parasite
+  affiché et un démarrage bloqué dès que TELEMATIC est présent.
 - TELEMATIC (8 Ko) : répétée dans les deux moitiés de sa banque (**hypothèse** :
   A13 non décodée) ; TELEMON la compte bien pour 8 Ko (« 56 Ko ROM »).
 - TELEMON écrit l'état des banques en `$0200-$0207` (`$0F` = RAM), ce que
@@ -65,18 +72,54 @@ Dépendances reprises de reload-emulator sans copie : `mos6522via.h`,
 | Sujet | Choix | Raison |
 |---|---|---|
 | Accès aux banques | pointeurs directs, sans `mem.h` | ROM sans pointeur d'écriture ; plus rapide ; économise la RAM du RP2040 |
-| RAM du RP2040 | variante `standard` (1 banque RAM, 4 ROM) : 200 Ko ; `ram64k` (5 RAM, 2 ROM) : 232 Ko (sur 256) | les ROM restent en RAM (`__not_in_flash`) comme dans reload, pour tenir le temps de bus |
+| RAM du RP2040 | variante `standard` (1 banque RAM, 4 ROM) : 204 Ko ; `ram64k` (5 RAM, 2 ROM) : 236 Ko (sur 256) | les ROM restent en RAM (`__not_in_flash`) comme dans reload, pour tenir le temps de bus |
 | FDC | WD1793 écrit d'après la fiche technique (Oricutron, GPL, n'est qu'un oracle de comportement) ; délais d'Oricutron (32 cycles/octet) ; fin de multi-secteurs sans erreur comme Oricutron ; le registre de piste doit correspondre à l'ID (fiche) | STRATSED démarre, lit et écrit comme sous Oricutron |
 | Images disque | PC : image entière en mémoire ; Neo6502 : clé USB, piste courante (6400 o) en tampon, réécrite à la fin de chaque commande d'écriture | 1 Mo ne tient pas dans les 264 Ko du RP2040 ; le 65C02 attend pendant l'accès USB (le RP2040 fournit son horloge) |
 | Imprimante | option : octet sur front descendant de STROBE, ACK de 40 cycles sur CA1 ; niveau de CA1 redonné à chaque pas | le VIA de reload ne détecte un front qu'entre deux appels de `set_ca1` ; TELEMON n'affiche « Imprimante » que si l'ACK répond (désactivée sur le Neo6502) |
 | Code chaud | `telestrat_tick`, VIA et cœur 65C02 en RAM (`.time_critical`) | comme le BBC de reload : depuis la flash, le cache XIP de 16 Ko déborde |
 | ACIA | registres et effets de bord d'Oricutron, sans liaison | TELEMON teste l'ACIA au démarrage (avec `$FF` il part dans une routine RAM non installée) |
 | FUNCT | touche Windows gauche | `hid_app.c` de reload ne remonte pas Alt en mode ASCII |
+| Ligne 4 du clavier | `,` et `.` sans SHIFT, `<` et `>` avec (table `qwktab` d'Oricutron) | `oric.h` de reload les inverse (à corriger aussi dans reload) |
 | Vidéo | reprise de `oric_screen_update` ; redessin forcé toutes les 32 trames | clignotement même sans écriture en mémoire écran |
 
 Écart constaté avec Oricutron : sans disquette, Oricutron reste sur
 « Drive:A-B-C-D » (son WD simule un disque présent, `MICRODISC_FUDGE`), alors que
 ce portage affiche « Inserez une disquette ». À confronter au matériel réel.
+
+## Télématique (sprint 3)
+
+Sur le Telestrat, l'ACIA ne parle pas directement à la ligne : il est relié à
+un **Minitel** dont le modem donne la ligne, et la sonnerie arrive sur CB1 du
+VIA 2. Relevé dans TELEMON 2.4 :
+
+| Routine | Adresse | Effet |
+|---|---|---|
+| XRING | `$EEA5` | attend des rafales d'impulsions sur CB1 dont la période (timer 2) est de 19 à 21 ms (50 Hz), une rafale, un silence, une seconde rafale |
+| XLIGNE | `$EF20` | envoie au Minitel `ESC 9 $6F` puis `ESC 9 $68` (PRO1 : opposition, connexion) |
+| attente de connexion | `$EF47` | vide le tampon de réception, patiente 0,1 s, guette `$13 $53` pendant ~25 s |
+| XDECON | `$EF3F` | envoie `ESC 9 $67` (déconnexion) |
+| routine série | `$C8C0` | appelée sur IRQ (ACIA ou timer) si le bit 7 de l'état est levé : lit l'octet reçu, émet le suivant si /DCD est bas |
+| sélection de prise | `$DB3A`, `$DB5D` | PA4 = 0 : Minitel, commande `$65`, contrôle `$38` (1200 bauds 7E1) ; PA4 = 1 : RS232, contrôle `$1E` (9600 8N1) |
+
+**Modèle de l'ACIA** (fiche 6551 + comportement exigé par TELEMON) : double
+tampon d'émission ; IRQ d'émission par **événement** (registre vidé, ou écriture
+de la commande avec l'IRQ d'émission autorisée et le registre vide), effacée
+par la lecture de l'état — une IRQ de niveau étouffe TELEMON (14 s par octet) ;
+bit 7 de l'état levé à l'arrivée d'un octet **même IRQ de réception interdite**
+(hypothèse : pendant le service, TELEMON met la commande à `$63`/`$67` et ne lit
+les touches du correspondant que par sa routine série appelée par le timer).
+
+**Prise Minitel** (`minitel_port.h`) : filtre les séquences PRO1/PRO2/PRO3,
+traite connexion, déconnexion, opposition ; répond `$13 $53` quand la porteuse
+est établie et `$13 $54` quand elle est perdue (**hypothèse**) ; porteuse
+établie 1,5 s après la connexion (**hypothèse**, indispensable vu l'attente de
+`$EF47`) ; sonnerie à la cadence française 1,5 s / 3,5 s (**hypothèse**).
+
+**Lignes** : banc PC sur TCP (`listen:` = appels entrants, `connect:` = appels
+sortants) ; Neo6502 : modem Hayes en USB CDC (`hayes_line.h` : `ATE0V1`,
+`ATS0=0`, `AT$SP=port`, `RING`, `ATA`, `ATD`, `+++`/`ATH` avec gardes de 1,1 s,
+`NO CARRIER`). La trame de 20 ms est découpée en tranches de 1 ms pour la
+sonnerie.
 
 ## Démarrage sur disquette (observé au banc)
 

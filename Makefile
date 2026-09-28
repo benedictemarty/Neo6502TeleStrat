@@ -15,7 +15,7 @@ CPPFLAGS += -Isrc -I$(RELOAD_DIR)/src
 
 BUILD := build
 ROMS_H := src/roms/telestrat_roms.h
-HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H)
+HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h src/devices/hayes_line.h
 
 all: test
 
@@ -36,6 +36,7 @@ headless: $(BUILD)/telestrat_headless
 test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless
 	$(BUILD)/test_telestrat
 	sh tests/test_boot.sh $(BUILD)/telestrat_headless
+	sh tests/test_telematic.sh $(BUILD)/telestrat_headless
 
 uf2: $(ROMS_H)
 	cmake -S platforms/rp2040 -B $(BUILD)/rp2040 -DRELOAD_DIR=$(RELOAD_DIR) $(if $(NEO_SLOT_TELESTRAT),-DNEO_MULTIBOOT_DIR=$(NEO_MULTIBOOT_DIR) -DNEO_SLOT_TELESTRAT=$(NEO_SLOT_TELESTRAT))

@@ -9,12 +9,13 @@ le **vrai W65C02S** du Neo6502 exécute TELEMON, le **RP2040** sert la mémoire
 AY-3-8912, Microdisc intégré, ACIA 6551, vidéo ULA en DVI). Livré en
 `telestrat.uf2`, compatible avec le multi-boot du firmware Neo6502.
 
-**Version : 0.2.0 (sprint 2).** Le Telestrat démarre sur disquette : TELEMON 2.4,
-STRATSED V2.0c, HYPER-BASIC V2.0b et TELE-ASS, menu « Votre choix » identique à
-Oricutron ; HYPER-BASIC calcule, liste le disque (`DIR`), sauvegarde et recharge
-(`SAVE`/`LOAD`), imprime (`LPRINT`). Contrôleur WD1793 complet sur images
-`MFM_DISK`, lues et écrites sur la clé USB du Neo6502. Firmware **compilé, non
-encore essayé sur carte**.
+**Version : 0.3.0 (sprint 3).** Le Telestrat démarre sur disquette (TELEMON 2.4,
+STRATSED V2.0c, HYPER-BASIC V2.0b, TELE-ASS, TELEMATIC V2.0b) ; HYPER-BASIC
+calcule, liste le disque, sauvegarde et recharge, imprime. **TELEMATIC fonctionne
+en serveur Minitel** : un correspondant qui appelle fait sonner la ligne,
+TELEMATIC décroche, envoie les pages Videotex du serveur DEMO et répond aux
+touches (ENVOI, choix, SOMMAIRE) ; sur le Neo6502 la ligne est un modem Wi-Fi
+**PicoWiFiModemUSB**. Firmware **compilé, non encore essayé sur carte**.
 
 ## Construire
 
@@ -55,6 +56,20 @@ Copier des images `.dsk` (format `MFM_DISK`, comme pour Oricutron) à la racine
 d'une clé USB (FAT) : la première est insérée dans le lecteur A dès le montage,
 et les écritures (`SAVE`…) sont réécrites dans le fichier, piste par piste.
 
+**Télématique** : brancher un PicoWiFiModemUSB (modem Hayes USB, Wi-Fi) sur le
+port USB hôte — avec un concentrateur s'il faut aussi le clavier et la clé. Un
+fichier `TELESTRA.CFG` facultatif à la racine de la clé règle la ligne :
+
+```
+listen=3615            # port TCP où le modem attend les appels (AT$SP) : serveur TELEMATIC
+dial=hôte:port         # composé par ATD quand le Minitel émulé se connecte
+```
+
+Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour
+charger l'arborescence (`DEMO` sur la disquette STRATSED), ESC, « 2 Lancer le
+serveur » : « Attente de communication ». Un client Minitel TCP (émulateur ou
+passerelle) qui se connecte au port du modem est alors servi.
+
 | Touche | Effet |
 |---|---|
 | F1 | image suivante de la clé dans le lecteur A |
@@ -71,7 +86,12 @@ build/telestrat_headless -c standard -f 300 -s -b     # écran texte + état des
 build/telestrat_headless -c ram64k -p boot.ppm        # image 240x224
 build/telestrat_headless -c oricutron -0 STRATSED.DSK -f 1200 -w 500 -t '1~~~~~~DIR\n' -s
 build/telestrat_headless -0 a.dsk -W a2.dsk -P imprimante.txt ...   # disque réécrit, imprimante
+build/telestrat_headless -c standard -0 a.dsk -L listen:3615 -R ...  # ligne Minitel sur TCP, temps réel
 ```
+
+`-L listen:PORT` : un client TCP (par ex. `tests/minitel_client.py`) qui se
+connecte « appelle » le Telestrat ; `-L connect:HÔTE:PORT` : la connexion du
+Minitel émulé ouvre une connexion TCP ; `-T` trace les octets de l'ACIA.
 
 Dans `-t`, `\n` tape RETURN et `~` fait une pause de 50 trames. Les tests disque
 utilisent `STRATSED.DSK` (`STRATSED_DSK=...`, voir [docs/TESTS.md](docs/TESTS.md)).

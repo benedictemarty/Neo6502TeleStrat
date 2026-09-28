@@ -21,6 +21,10 @@
 //   -0..-3 F   insère l'image MFM_DISK F dans le lecteur A..D (copie en mémoire)
 //   -W FICHIER écrit l'image du lecteur A (éventuellement modifiée) en fin d'exécution
 //   -P FICHIER branche une imprimante dont la sortie va dans FICHIER
+//   -T FICHIER trace les octets émis par l'ACIA (hexadécimal, avec le numéro de trame)
+//   -L LIGNE   branche un Minitel sur l'ACIA et sa ligne sur TCP :
+//              listen:PORT (appel entrant = client TCP) ou connect:HOTE:PORT
+//   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
 //
 // ## Licence zlib/libpng
 //
@@ -40,6 +44,7 @@
 //     3. This notice may not be removed or altered from any source
 //     distribution.
 
+#define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #define CHIPS_IMPL
 #define RGBA8(r, g, b) (0xFF000000 | ((r) << 16) | ((g) << 8) | (b))
@@ -61,7 +66,10 @@
 #include "devices/wd1793.h"
 #include "devices/telestrat_fdc.h"
 #include "devices/mos6551acia.h"
+#include "devices/minitel_port.h"
 #include "systems/telestrat.h"
+#include "line_tcp.h"
+#include <time.h>
 
 static telestrat_t sys;
 
@@ -90,6 +98,25 @@ static int config_banks(const char* name, telestrat_desc_t* d) {
 }
 
 static void printer_out(uint8_t data, void* user_data) { fputc(data, (FILE*)user_data); }
+
+static FILE* serial_trace = NULL;
+static int current_frame = 0;
+static minitel_port_t minitel;
+static bool minitel_on = false;
+
+static void serial_tx(uint8_t data, void* user_data) {
+    (void)user_data;
+    if (serial_trace) fprintf(serial_trace, "%d TX %02X\n", current_frame, data);
+    if (minitel_on) minitel_port_from_telestrat(&minitel, data);
+}
+
+static int serial_rx(void* user_data) {
+    (void)user_data;
+    if (!minitel_on) return -1;
+    int c = minitel_port_to_telestrat(&minitel);
+    if (c >= 0 && serial_trace) fprintf(serial_trace, "%d RX %02X\n", current_frame, c);
+    return c;
+}
 
 static uint8_t* load_file(const char* path, size_t* size) {
     FILE* f = fopen(path, "rb");
@@ -151,9 +178,12 @@ int main(int argc, char** argv) {
     const char* disks[4] = {NULL, NULL, NULL, NULL};
     const char* write_disk = NULL;
     const char* printer_file = NULL;
+    const char* line_spec = NULL;
+    int realtime = 0;
+    static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:R")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -166,6 +196,15 @@ int main(int argc, char** argv) {
             case '0': case '1': case '2': case '3': disks[opt - '0'] = optarg; break;
             case 'W': write_disk = optarg; break;
             case 'P': printer_file = optarg; break;
+            case 'L': line_spec = optarg; break;
+            case 'R': realtime = 1; break;
+            case 'T':
+                serial_trace = fopen(optarg, "w");
+                if (!serial_trace) {
+                    perror(optarg);
+                    return 1;
+                }
+                break;
             default:
                 fprintf(stderr, "usage : %s [-c config] [-f N] [-w N] [-t texte] [-s] [-b] [-p f.ppm] [-r f.bin]\n",
                         argv[0]);
@@ -187,6 +226,19 @@ int main(int argc, char** argv) {
         }
         desc.printer.func = printer_out;
         desc.printer.user_data = printer;
+    }
+    if (line_spec) {
+        if (!line_tcp_open(&line, line_spec)) {
+            fprintf(stderr, "ligne invalide : %s\n", line_spec);
+            return 2;
+        }
+        minitel_line_t l = line_tcp_line(&line);
+        minitel_port_init(&minitel, &l);
+        minitel_on = true;
+    }
+    if (serial_trace || minitel_on) {
+        desc.minitel.tx = serial_tx;
+        desc.minitel.rx = serial_rx;
     }
     telestrat_init(&sys, &desc);
     uint8_t* images[4] = {NULL, NULL, NULL, NULL};
@@ -219,7 +271,23 @@ int main(int argc, char** argv) {
             kbd_key_up(&sys.kbd, key_down);
             key_down = 0;
         }
-        telestrat_exec(&sys, 20000);
+        current_frame = frame;
+        struct timespec t0;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        // Trame de 20 ms par tranches de 1 ms (sonnerie à 50 Hz)
+        for (int ms = 0; ms < 20; ms++) {
+            for (int i = 0; i < 1000; i++) telestrat_tick(&sys);
+            if (minitel_on) telestrat_set_ring(&sys, minitel_port_tick(&minitel, 1000));
+        }
+        kbd_update(&sys.kbd, 20000);
+        telestrat_screen_update(&sys);
+        if (serial_trace) fflush(serial_trace);
+        if (realtime) {
+            struct timespec t1;
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            long used = (t1.tv_sec - t0.tv_sec) * 1000000L + (t1.tv_nsec - t0.tv_nsec) / 1000;
+            if (used < 20000) usleep((useconds_t)(20000 - used));
+        }
     }
     sys.screen_dirty = true;
     telestrat_screen_update(&sys);

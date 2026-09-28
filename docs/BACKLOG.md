@@ -29,17 +29,24 @@ HYPER-BASIC, TELE-ASS, TELEMATIC en serveur Minitel par le modem Wi-Fi.
 | US-13 | Même écran qu'Oricutron sur la même disquette | ✅ (« Votre choix: ») |
 | US-14 | Imprimante sur le port parallèle (LPRINT) | ✅ banc PC (option `-P`) |
 
-## Sprint 3 — « Télématique »
+## Sprint 3 — v0.3.0 — « Télématique » ✅ (2026-09-29)
 
-| US | Récit |
-|---|---|
-| US-20 | ACIA 6551 : horloge interne, IRQ émission/réception |
-| US-21 | Liaison vers l'UART de l'UEXT ou le PicoWiFiModemUSB (commandes AT) |
-| US-22 | TELEMATIC en serveur Minitel ; sortie Videotex |
+| US | Récit | État |
+|---|---|---|
+| US-20 | ACIA 6551 : débit, trame, double tampon, IRQ émission/réception | ✅ 15 tests unitaires |
+| US-21 | Minitel sur la prise de l'ACIA : PRO1, `$13 $53`, sonnerie sur CB1 | ✅ 11 tests unitaires |
+| US-22 | TELEMATIC en serveur : appel, décroché, pages Videotex, touches, raccrochage | ✅ banc PC (test de bout en bout) |
+| US-23 | Ligne sur PicoWiFiModemUSB (Hayes, USB CDC), réglée par TELESTRA.CFG | ✅ code + 15 tests (faux modem), ⏳ essai sur carte |
+| US-24 | Aiguillage Minitel / RS232 par PA4 du VIA 2 | ✅ |
+| US-25 | Banques vides = bus flottant (TELEMATIC démarre, banques `$10`) | ✅ |
+| US-26 | Émulation Minitel (APLIC 1) en appel sortant | ⏳ ligne prête (`connect:`), scénario non testé |
 
 ## Plus tard
 
-- Essai et réglage sur carte (temps de bus, son, DVI, accès USB).
+- Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
+- Émulation Minitel (APLIC 1) : test de bout en bout en appel sortant.
+- Modem sur l'UART de l'UEXT ; prise RS232 (PA4 = 1) vers une liaison réelle.
+- Vérifier sur matériel les hypothèses Minitel ($13 $54, délai de porteuse, cadence de sonnerie).
 - Images disque intégrées en flash (lecture seule), lecteurs B à D depuis la clé.
 - Imprimante vers l'UART ou la clé USB sur le Neo6502.
 - Instantanés (savestates), sélecteur de ROM au démarrage.
