@@ -29,11 +29,6 @@ static const rom_builtin_t rom_builtins[] = {
      {{6, "@atmos"}, {5, "@basic10"}}},
     {"@atmos", "ORIC BASIC 1.1 (Atmos)", "ORIC BASIC 1.1", telestrat_atmos, {{0, NULL}, {0, NULL}}},
     {"@basic10", "ORIC BASIC 1.0 (Oric-1)", "ORIC BASIC 1.0", telestrat_basic10, {{0, NULL}, {0, NULL}}},
-    // ORIX 1.0 (Oricutron, roms/orixbank7, 6, 5) : noyau, BASIC, shell
-    {"@orix", "ORIX 1.0 (+ BASIC en 6, shell en 5)", "ORIX 1.0", telestrat_orix_kernel,
-     {{6, "@orixbasic"}, {5, "@orixshell"}}},
-    {"@orixbasic", "BASIC d'ORIX", "BASIC ORIX", telestrat_orix_basic, {{0, NULL}, {0, NULL}}},
-    {"@orixshell", "Shell d'ORIX", "SHELL ORIX", telestrat_orix_shell, {{0, NULL}, {0, NULL}}},
 };
 #define ROM_BUILTINS ((int)(sizeof(rom_builtins) / sizeof(rom_builtins[0])))
 
@@ -57,7 +52,6 @@ static const rom_profile_t rom_profiles[] = {
     {"telestrat", "Telestrat : TELEMON 2.4, HYPER-BASIC, TELE-ASS, TELEMATIC", ""},
     {"stratoric", "STRATORIC : mode Atmos, disquettes SEDORIC, cassettes", "@stratoric"},
     {"atmos", "ORIC BASIC 1.1 : mode Atmos simple, cassettes", "@atmos"},
-    {"orix", "ORIX 1.0 (fichiers de la clé : CH376 pas encore émulé)", "@orix"},
 };
 #define ROM_PROFILES ((int)(sizeof(rom_profiles) / sizeof(rom_profiles[0])))
 

@@ -164,19 +164,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-142 | Menu : ligne Instantanés (enregistrer, reprendre) | ✅ banc |
 | US-143 | Banc : `-X T:FICHIER`, `-J FICHIER` | ✅ |
 
-## Sprint 15 — v0.15.0 — « Choix des ROM au démarrage, ORIX » ✅ au banc (2026-09-29)
+## Sprint 15 — v0.15.0 — « Choix des ROM au démarrage » ✅ au banc (2026-09-29)
 
 | US | Récit | État |
 |---|---|---|
-| US-150 | Profils de démarrage (Telestrat, STRATORIC, Atmos, ORIX), page « Démarrer sur… » (`demarrage=choix`) ou profil direct | ✅ banc (`test_profiles`), ⏳ carte |
-| US-151 | ROM ORIX 1.0 intégrées (`@orix` : noyau, BASIC, shell) | ✅ démarre au shell ; ⏳ fichiers (CH376) |
-
-## Sprint 16 (prévu) — « CH376 : ORIX sur la clé USB »
-
-| US | Récit | État |
-|---|---|---|
-| US-160 | Émulation du CH376 en `$0340`/`$0341` (d'après la fiche technique WCH, sans code d'Oricutron) sur les fichiers de la clé (FatFs), banc sur un répertoire | à faire |
-| US-161 | ORIX : `ls`, `cd`, `cat`, lancement de programmes depuis la clé | à faire |
+| US-150 | Profils de démarrage (Telestrat, STRATORIC, Atmos), page « Démarrer sur… » (`demarrage=choix`) ou profil direct | ✅ banc (`test_profiles`), ⏳ carte |
+| US-151 | ROM ORIX 1.0 | ❌ abandonné (v0.15.1) : fichiers par un CH376, extension absente d'un Telestrat d'origine |
 
 ## Plus tard
 

@@ -168,7 +168,7 @@ static void test_rom_builtin(void) {
     boot();
     CHECK(!rom_pool_load_builtin(&q, &sys, 7, s, &err) && strstr(err, "plus de place"), "deux emplacements : plus de place");
     telestrat_select_bank(&sys, 7);
-    // Profils de démarrage : ORIX (banques 7, 6, 5), puis retour au Telestrat
+    // Profils de démarrage : STRATORIC (banques 7, 6, 5), puis retour au Telestrat
     {
         static uint8_t slots2[5][OSD_BANK_BYTES];
         rom_pool_t pp;
@@ -179,11 +179,11 @@ static void test_rom_builtin(void) {
         d.banks[6] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom_pool_builtin(&pp, 6, telestrat_hyperbas)};
         telestrat_init(&sys, &d);
         const char* err = "";
-        CHECK(rom_profile_find("orix") == 3 && rom_profile_find("amiga") < 0, "profils par identifiant");
-        CHECK(rom_profile_apply(&pp, &sys, rom_profile_find("orix"), &err) && !strcmp(pp.name[7], "@orix") &&
-                  !strcmp(pp.name[6], "@orixbasic") && !strcmp(pp.name[5], "@orixshell") &&
-                  sys.bank_rd[7][0x3FFC] == telestrat_orix_kernel[0x3FFC],
-              "profil ORIX : noyau en 7, BASIC en 6, shell en 5 (%s)", err);
+        CHECK(rom_profile_find("stratoric") == 1 && rom_profile_find("orix") < 0, "profils par identifiant");
+        CHECK(rom_profile_apply(&pp, &sys, rom_profile_find("stratoric"), &err) && !strcmp(pp.name[7], "@stratoric") &&
+                  !strcmp(pp.name[6], "@atmos") && !strcmp(pp.name[5], "@basic10") &&
+                  sys.bank_rd[7][0x3FFC] == telestrat_stratoric[0x3FFC],
+              "profil STRATORIC : SEDORIC en 7, BASIC 1.1 en 6, 1.0 en 5 (%s)", err);
         CHECK(rom_profile_apply(&pp, &sys, rom_profile_find("telestrat"), &err) && !pp.name[7][0] && !pp.name[5][0] &&
                   sys.bank_rd[7][0x3FFC] == telestrat_telemon24[0x3FFC] && sys.bank_type[5] == TELESTRAT_BANK_EMPTY,
               "profil Telestrat : TELEMON en 7, banque 5 vide");

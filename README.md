@@ -112,14 +112,8 @@ L'émulation est en pause tant qu'il est ouvert. Flèches, Entrée, Suppr
 **Démarrage** : `demarrage=choix` dans `TELESTRA.CFG` ouvre, dès le montage
 de la clé, la page « Démarrer sur… » : configuration de la clé, Telestrat
 (TELEMON 2.4, HYPER-BASIC, TELE-ASS, TELEMATIC), STRATORIC (mode Atmos,
-disquettes SEDORIC), ORIC BASIC 1.1 (mode Atmos simple, cassettes), ORIX
-1.0. `demarrage=telestrat|stratoric|atmos|orix` applique directement un
-profil. **ORIX 1.0** (ROM distribuées avec Oricutron : noyau en banque 7,
-BASIC en 6, shell en 5 ; aussi « ORIX 1.0 » dans le choix d'une cartouche)
-démarre jusqu'à son shell, mais ses commandes passent par le contrôleur USB
-CH376 de la carte Twilighte, pas encore émulé : elles répondent « Usb drive
-controller not found ! ». Variante RAM 64 Ko : pas de place pour ORIX (trois
-banques de ROM).
+disquettes SEDORIC), ORIC BASIC 1.1 (mode Atmos simple, cassettes).
+`demarrage=telestrat|stratoric|atmos` applique directement un profil.
 
 **Instantanés** : « Instantanés » dans le menu (Entrée) enregistre la
 machine entière dans `ETAT0001.STA`, `ETAT0002.STA`… à la racine de la clé
@@ -228,7 +222,7 @@ listen=3615            # port TCP où le modem attend les appels (AT$SP) : serve
 dial=hôte:port         # composé par ATD quand le Minitel émulé se connecte
 rs232=usb              # prise RS232 : modem USB (défaut) ou uext
 a=STRATSED.DSK         # lecteurs A à D (a= … d=), écrits par le menu
-bank5=orix.rom         # cartouches de la clé (bank1= … bank7=), écrites par le menu
+bank5=jeu.rom          # cartouches de la clé (bank1= … bank7=), écrites par le menu
 bank7=@stratoric       # ROM intégrée : STRATORIC (banques 7, 6, 5) ; @atmos : BASIC 1.1 seul
 imprimante=IMPRIM.TXT  # imprimante Texte : sortie ajoutée à ce fichier (vide : pas d'impression)
 impression=oui         # imprimante activée (non : coupée) ; écrit par le menu
@@ -236,7 +230,7 @@ imprimante_type=fx80   # texte, fx80 (pages PNG) ou mcp40 (tracés SVG) ; écrit
 modem=oui              # modem activé (non : ligne coupée) ; écrit par le menu
 cassette_rapide=oui    # CLOAD du BASIC 1.1 immédiat (non : vitesse réelle) ; écrit par le menu
 cassette_moteur=relais # toujours : bande défilant sans relais moteur ; écrit par le menu
-demarrage=choix        # page « Démarrer sur… » au montage de la clé ; ou telestrat, stratoric, atmos, orix
+demarrage=choix        # page « Démarrer sur… » au montage de la clé ; ou telestrat, stratoric, atmos
 ```
 
 Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour

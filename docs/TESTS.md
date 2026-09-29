@@ -83,8 +83,8 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - menu : périphériques (imprimante sous la banque 1, modem à droite, Entrée :
   actions, panneau : état) ; `TELESTRA.CFG` : `impression=`, `modem=`,
   valeurs oui / non ;
-- profils de démarrage : par identifiant, ORIX (noyau, BASIC, shell en 7, 6,
-  5), retour au Telestrat (banque 5 vide) ; page « Démarrer sur… » :
+- profils de démarrage : par identifiant, STRATORIC (SEDORIC, BASIC 1.1, 1.0
+  en 7, 6, 5), retour au Telestrat (banque 5 vide) ; page « Démarrer sur… » :
   configuration de la clé, deuxième profil, titre, Échap ;
 - instantanés : capture des registres par NMI (A, X, Y, S, P comparés au
   65C02 émulé, reprise à la bonne adresse, moins de 60 cycles), le programme
@@ -213,13 +213,12 @@ Instantanés avec le dernier fichier (`-O menu.txt`). Fichier abîmé refusé
 (« pas un instantané »). Essai manuel : « L'Aigle d'Or » repris donne la
 même image que la suite d'origine.
 
-## Démarrage — `tests/test_profiles.sh` (5 vérifications)
+## Démarrage — `tests/test_profiles.sh` (6 vérifications)
 
-`demarrage=choix` : page « Démarrer sur… » (`-O page.txt` : titre, profils) ;
-STRATORIC choisie → « STRATORIC V4.0 » ; Échap → Telestrat de la clé.
-`demarrage=atmos` → ORIC EXTENDED BASIC V1.1. `demarrage=orix` → shell « # »,
-`help` → « Usb drive controller not found ! » (CH376 absent : à changer au
-sprint 16).
+`demarrage=choix` : page « Démarrer sur… » (`-O page.txt` : titre, profils,
+plus d'ORIX) ; STRATORIC choisie → « STRATORIC V4.0 » ; Échap → Telestrat de
+la clé. `demarrage=atmos` → ORIC EXTENDED BASIC V1.1 ; `demarrage=stratoric`
+→ STRATORIC V4.0 ; `demarrage=orix` (profil retiré) → Telestrat de la clé.
 
 ## Imprimantes — `tests/test_printer.sh` (12 vérifications)
 
