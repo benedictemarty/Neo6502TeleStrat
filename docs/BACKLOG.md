@@ -135,6 +135,9 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
   cassette et bandeau.
 - Cassette : chargement accéléré (BASIC 1.1, au niveau du bus sur le
   Neo6502) ; `STORE`/`RECALL` (tableaux) non essayés.
+- Cassette sans relais moteur (câble DIN 3 broches : la bande défile sans
+  PB6) : option « moteur toujours en marche » ; la démonstration « prise K7 »
+  de « Telestrat à cœur ouvert » (p. 101, fréquence sur CB1) en dépend.
 - STRATSED avec la variante RAM 64 Ko (banque 5 vide) : « Logiciel ecrit par
   Fabrice BROCHE » au lieu du menu (banc) ; Oricutron ne simule pas de banque
   vide. À vérifier : notice de la cartouche, vrai Telestrat. (Sans TELE-ASS,
