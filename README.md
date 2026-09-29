@@ -75,6 +75,9 @@ tools/carte.py ecran capture.png    # écran texte, et image 240x224
 tools/carte.py taper '1'            # clavier du Telestrat (file de touches)
 tools/carte.py taper 'PRINT 6*7\n'
 tools/carte.py mesure               # MHz réels, µs par trame et par ligne, retards DVI
+tools/carte.py ligne appel          # ligne de recette SWD à la place du modem : un correspondant appelle
+tools/carte.py ligne lire 500       # ce que le Telestrat lui envoie
+tools/carte.py ligne envoyer '1\E'  # ses touches (\E = ENVOI) ; ligne raccrocher, ligne etat
 ```
 
 `-DTELESTRAT_FLASH_DISK=image.dsk` intègre une disquette en flash (lecture

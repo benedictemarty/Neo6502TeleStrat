@@ -5,6 +5,11 @@
   carte.py taper "1\\nDIR\\n"   frappe au clavier du Telestrat (file de touches du firmware)
   carte.py ecran [image.png]   écran texte (28 x 40 en $BB80) ; image 240x224 si un fichier est donné
   carte.py mesure [secondes]   vitesse réelle du 65C02, µs par trame (cœur 0), µs par ligne (cœur 1)
+  carte.py ligne appel         ligne de recette SWD à la place du modem ; un correspondant appelle
+  carte.py ligne lire [n]      octets émis par le Telestrat vers le correspondant (les n derniers)
+  carte.py ligne envoyer TEXTE touches du correspondant (\\E = ENVOI, \\S = SOMMAIRE, \\R = RETOUR)
+  carte.py ligne raccrocher    le correspondant raccroche
+  carte.py ligne etat          sonnerie, porteuse, octets émis
 
 Sur le modèle de ~/Neo6502bbc/tools/carte/carte.py (session BBC). Pièges connus :
 OpenOCD du système ne connaît pas la flash Puya P25Q16 de la carte (utiliser
@@ -142,6 +147,47 @@ def mesure(secondes=10):
     print(f"cœur 1 : {lsum / max(ln, 1):.1f} µs par ligne (max {lmax}) ; lignes DVI en retard : {retard}")
 
 
+def lire_u8(s, nom):
+    return lire_octets(s[nom], 1)[0]
+
+
+def ligne(action, arg=None):
+    s = symboles()
+    if action == "appel":
+        openocd(f"mwb 0x{s['diag_line_carrier']:08x} 0", f"mwb 0x{s['diag_line_on']:08x} 1",
+                f"mwb 0x{s['diag_line_ring']:08x} 1")
+        print("appel en cours (ligne SWD)")
+    elif action == "raccrocher":
+        openocd(f"mwb 0x{s['diag_line_carrier']:08x} 0", f"mwb 0x{s['diag_line_ring']:08x} 0")
+        print("raccroché")
+    elif action == "etat":
+        n = lire_mots(s["diag_tx_n"], 1)[0]
+        print(f"ligne SWD {lire_u8(s, 'diag_line_on')}, sonnerie {lire_u8(s, 'diag_line_ring')},"
+              f" porteuse {lire_u8(s, 'diag_line_carrier')}, octets émis {n}")
+    elif action == "lire":
+        n = lire_mots(s["diag_tx_n"], 1)[0]
+        k = min(n, int(arg) if arg else 4096, 4096)
+        brut = lire_octets(s["diag_tx"], 4096)
+        data = bytes(brut[(n - k + i) & 4095] for i in range(k))
+        sys.stdout.write(bytes(c if 32 <= c < 127 else 32 for c in data).decode() + "\n")
+        return data
+    elif action == "envoyer":
+        cles = {"\\E": b"\x13\x41", "\\S": b"\x13\x46", "\\R": b"\x13\x42"}
+        data, i = b"", 0
+        while i < len(arg):
+            if arg[i:i + 2] in cles:
+                data += cles[arg[i:i + 2]]
+                i += 2
+            else:
+                data += arg[i].encode()
+                i += 1
+        head, tail = lire_mots(s["diag_rx_head"], 2)
+        cmds = [f"mwb 0x{s['diag_rx'] + ((tail + j) & 255):08x} 0x{c:02x}" for j, c in enumerate(data)]
+        cmds.append(f"mww 0x{s['diag_rx_tail']:08x} {tail + len(data)}")
+        openocd(*cmds)
+        print(f"{len(data)} octets envoyés")
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
     if a and a[0] == "flasher":
@@ -150,6 +196,8 @@ if __name__ == "__main__":
         print(f"{taper(a[1])} touches")
     elif a and a[0] == "ecran":
         ecran(a[1] if len(a) > 1 else None)
+    elif a and a[0] == "ligne" and len(a) >= 2:
+        ligne(a[1], a[2] if len(a) > 2 else None)
     elif a and a[0] == "mesure":
         mesure(int(a[1]) if len(a) > 1 else 10)
     else:

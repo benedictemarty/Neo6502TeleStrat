@@ -302,8 +302,57 @@ static void read_config(void) {
     if (modem_idx >= 0) hayes_line_init(&modem, modem_write, NULL, cfg_dial, cfg_listen);
 }
 
+/*-- Ligne de recette par sonde SWD (tools/carte.py ligne ...) ----------------*/
+// Quand la sonde met diag_line_on à 1, la prise Minitel utilise cette ligne à
+// la place du modem : la sonde simule l'appel (diag_line_ring), lit ce que le
+// Telestrat émet (diag_tx) et écrit ce que le correspondant tape (diag_rx).
+volatile uint8_t diag_line_on, diag_line_ring, diag_line_carrier;
+volatile uint8_t diag_rx[256];
+volatile uint32_t diag_rx_head, diag_rx_tail;
+volatile uint8_t diag_tx[4096];
+volatile uint32_t diag_tx_n;  // octets émis depuis le début (diag_tx circulaire)
+
+static minitel_line_t hayes;  // ligne du modem
+
+static bool line_dial(void *ctx) {
+    if (!diag_line_on) return hayes.dial(hayes.ctx);
+    diag_line_carrier = 1;
+    return true;
+}
+static void line_answer(void *ctx) {
+    if (!diag_line_on) {
+        hayes.answer(hayes.ctx);
+        return;
+    }
+    diag_line_ring = 0;
+    diag_line_carrier = 1;
+}
+static void line_hangup(void *ctx) {
+    if (!diag_line_on) {
+        hayes.hangup(hayes.ctx);
+        return;
+    }
+    diag_line_carrier = 0;
+}
+static bool line_incoming(void *ctx) { return diag_line_on ? diag_line_ring != 0 : hayes.incoming(hayes.ctx); }
+static bool line_carrier(void *ctx) { return diag_line_on ? diag_line_carrier != 0 : hayes.carrier(hayes.ctx); }
+static int line_recv(void *ctx) {
+    if (!diag_line_on) return hayes.recv(hayes.ctx);
+    if (diag_rx_head == diag_rx_tail) return -1;
+    return diag_rx[diag_rx_head++ & 255];
+}
+static void line_send(void *ctx, uint8_t data) {
+    if (!diag_line_on) {
+        hayes.send(hayes.ctx, data);
+        return;
+    }
+    diag_tx[diag_tx_n & 4095] = data;
+    diag_tx_n++;
+}
+
 void app_init(void) {
-    minitel_line_t line = hayes_line_line(&modem);
+    hayes = hayes_line_line(&modem);
+    minitel_line_t line = {line_dial, line_answer, line_hangup, line_incoming, line_carrier, line_recv, line_send, NULL};
     minitel_port_init(&minitel, &line);
     telestrat_desc_t desc = telestrat_desc();
     telestrat_init(&state.telestrat, &desc);

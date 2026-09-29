@@ -104,6 +104,23 @@ Validé le 2026-09-29 sur Olimex Neo6502 (disquette STRATSED en flash) :
 | Cœur 0 | 45 % au repos, 62 % pendant DIR (76 % au pire) |
 | Cœur 1 | 35 µs par ligne (max 41), 0 ligne DVI en retard |
 
+### Télématique sur carte (v0.4.2)
+
+Ligne de recette par SWD à la place du modem (`tools/carte.py ligne ...`) :
+toute la chaîne embarquée est exercée (ACIA, prise Minitel, sonnerie sur CB1,
+TELEMON, TELEMATIC), sauf le modem physique.
+
+| Étape | Résultat sur carte |
+|---|---|
+| `1`, `APLIC 4`, Accès disque, `N DEMO` + CTRL+L, ESC, `2` | « Attente de communication » |
+| `ligne appel` | sonnerie reconnue (XRING), décroché, porteuse, 977 octets émis (975 du banc + SEP $53 vers la ligne) |
+| page d'accueil | « serveur TELESTRAT … SERVEUR REALISE ENTIEREMENT AVEC UN TELESTRAT … » |
+| `ligne envoyer '\E'` | « taper quelque chose avant ENVOI » |
+| `ligne envoyer '1\E'` | page MENU (« PERMETTEZ-MOI DE ME PRESENTER … VOTRE CHOIX : ENVOI ») |
+| charge pendant le service | 1,000 MHz, cœur 0 53 % (66 % au pire) |
+| `ligne raccrocher` | SEP $59 $53 transmis ; retour à « Attente de communication » au délai d'inactivité de TELEMATIC (comme au banc) |
+| second appel | servi à nouveau (977 octets) |
+
 Méthode de diagnostic : journal des 1024 premiers accès en `$03xx` sur la carte
 (`diag_io`) comparé à la trace du banc PC — c'est ce qui a localisé le défaut
 de maintien de la donnée sur le bus.
