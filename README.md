@@ -82,6 +82,7 @@ tools/carte.py taper 'PRINT 6*7\n'
 tools/carte.py mesure               # MHz réels, µs par trame et par ligne, retards DVI
 tools/carte.py deposer STRATSED.DSK TELESTRA.CFG   # fichiers copiés sur la clé de la carte
 tools/carte.py relire IMPR0001.PNG page.png        # fichier de la clé relu
+tools/carte.py menu                 # ouvre ou ferme le menu ; menu ouvert, « taper » le pilote
 tools/carte.py ligne appel          # ligne de recette SWD à la place du modem : un correspondant appelle
 tools/carte.py ligne lire 500       # ce que le Telestrat lui envoie
 tools/carte.py ligne envoyer '1\E'  # ses touches (\E = ENVOI) ; ligne raccrocher, ligne etat
@@ -173,8 +174,8 @@ bande de 28 lignes est en mémoire) ; un fichier est terminé au saut de page
 (`CHR$(12)`, FX-80), à l'ouverture du menu, ou après 10 secondes sans
 impression. Quand la clé écrit, le Telestrat attend (l'ACK de l'imprimante
 est retardé) : rien n'est perdu. Variante RAM 64 Ko : Texte seulement.
-**Essayé sur carte** : page de la FX-80 écrite sur la clé (v0.16.0) ; MCP-40
-pas encore.
+**Essayé sur carte** : page de la FX-80 (v0.16.0) et tracé de la MCP-40
+(v0.16.4) écrits sur la clé.
 
 | Epson FX-80 (PNG) | MCP-40 (SVG) |
 |---|---|

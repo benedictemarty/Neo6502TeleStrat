@@ -183,7 +183,8 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-164 | Impression FX-80 sur la clé | ✅ carte (page PNG relue) |
 | US-165 | Cassette rapide sur carte (« L'Aigle d'Or ») | ✅ carte |
 | US-166 | Instantanés sur carte (NMI détourné sur le vrai 65C02) : enregistrer, reprendre en plein jeu | ✅ carte |
-| US-167 | Modem, MCP-40 sur carte | ⏳ |
+| US-167 | MCP-40 sur carte | ✅ carte : tracé en couleurs, SVG valide relu |
+| US-169 | Modem sur carte | ⏳ (la Pico du PicoWiFiModemUSB sert de sonde SWD pour l'instant) |
 | US-168 | Variante RAM 64 Ko sur carte (3 tampons DVI : FatFs du projet en FF_FS_TINY, CDC 128 octets) | ✅ carte : image propre, clé montée ; STRATSED sans BONJOUR.COM s'arrête comme au banc |
 
 ## Plus tard

@@ -6,6 +6,7 @@
   carte.py ecran [image.png]   écran texte (28 x 40 en $BB80) ; image 240x224 si un fichier est donné
   carte.py deposer FICHIER... copie des fichiers à la racine de la clé USB de la carte (par la sonde)
   carte.py relire NOM [SORTIE] relit un fichier de la clé (vérification)
+  carte.py menu                ouvre ou ferme le menu (comme F1)
   carte.py mesure [secondes]   vitesse réelle du 65C02, µs par trame (cœur 0), µs par ligne (cœur 1)
   carte.py ligne appel         ligne de recette SWD à la place du modem ; un correspondant appelle
   carte.py ligne lire [n]      octets émis par le Telestrat vers le correspondant (les n derniers)
@@ -201,6 +202,15 @@ def relire(nom, sortie=None):
     return data
 
 
+def menu():
+    """Ouvre ou ferme le menu (comme F1) ; menu ouvert, taper() lui envoie les
+    touches (\\x80 haut, \\x81 bas, \\x82 gauche, \\x83 droite, \\n Entrée)."""
+    s = symboles()
+    openocd("mwb 0x%08x 1" % s["diag_menu"])  # octet : mwb, pas mww
+    time.sleep(0.5)
+    return lire_octets(s["osd_open"], 1)[0]
+
+
 def mesure(secondes=10):
     s, _, _, ticks = disposition()
     # Compteurs remis à zéro au début de la fenêtre (le démarrage, avec l'USB, fausse le maximum)
@@ -281,6 +291,8 @@ if __name__ == "__main__":
         relire(a[1], a[2] if len(a) > 2 else None)
     elif len(a) >= 2 and a[0] == "deposer":
         deposer(a[1:])
+    elif a and a[0] == "menu":
+        print("menu ouvert" if menu() else "menu fermé")
     elif a and a[0] == "mesure":
         mesure(int(a[1]) if len(a) > 1 else 10)
     else:

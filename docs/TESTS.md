@@ -284,7 +284,9 @@ clé : menu, HYPER-BASIC, `DIR` (88 fichiers), `SAVE "CARTE"` (89 fichiers),
 `LPRINT` → `IMPR0001.PNG` valide ; mode Atmos (BASIC 1.1), cassette rapide :
 « L'Aigle d'Or » chargé ; instantané en plein jeu (`ETAT0001.STA`, 70 Ko,
 relu : cartouche `@atmos`, registres) puis repris : le jeu revient et
-continue.
+continue. Traceur MCP-40 choisi par le menu (piloté par la sonde,
+`carte.py menu`) : `LPRINT CHR$(18)`, carré en C1, texte en C3 →
+`IMPR0005.SVG` relu, XML valide, couleurs et tailles attendues.
 
 
 Validé le 2026-09-29 sur Olimex Neo6502 (disquette STRATSED en flash) :
