@@ -269,6 +269,24 @@ lieu de quatre ROM en RAM et deux emplacements (v0.6.0). v0.7.0 : les
 tampons de `TELESTRA.CFG` (4 Ko) sont pris dans l'image du Telestrat, menu
 ouvert ; la variante RAM 64 Ko liste 32 fichiers de la clé (64 sinon). RAM
 libre : environ 16,7 Ko (standard), 2,2 Ko (RAM 64 Ko), plus le tas de 2 Ko.
+v0.9.0 (enregistreur, imprimante) : 14 Ko (standard), **208 octets** (RAM
+64 Ko) — la variante RAM 64 Ko n'a plus de marge.
+
+## Imprimante et clé retirée (sprint 9)
+
+**Imprimante** : le système appelle `printer_out` à chaque octet (STROBE,
+ACK sur le VIA 1) ; le firmware le met dans une file (`byte_fifo.h`, 1 Ko ;
+256 octets avec la RAM 64 Ko) vidée à chaque trame dans le fichier
+`imprimante=` de la clé (`IMPRIM.TXT`, ouvert en ajout, `f_sync`) : aucune
+écriture de fichier pendant un cycle du 65C02. File pleine : octets perdus,
+comptés. L'imprimante est toujours branchée (TELEMON l'annonce au démarrage).
+
+**Clé retirée** : `msc_app.c` de reload ne redescend pas
+`msc_inquiry_complete` ; la présence est suivie par `tuh_msc_mounted`. Au
+retrait : lecteurs de la clé vidés (l'image en flash revient dans A),
+cassette éjectée, enregistrement et impression arrêtés, drapeau remis à
+zéro. Au rebranchement (drapeau relevé par `msc_app.c`) : `TELESTRA.CFG` et
+lecteurs relus, cartouches et machine inchangées. Non testable au banc.
 
 ## Cassette et mode Atmos (sprint 7)
 

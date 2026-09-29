@@ -108,6 +108,14 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-80 | `CSAVE` vers `NOM.TAP` sur la clé (PB7 décodé), bandeau « Écriture » | ✅ banc, ⏳ carte |
 | US-81 | `.tap` à plusieurs parties | ✅ « L'Aigle d'Or » (2 parties) au banc |
 
+## Sprint 9 — v0.9.0 — « Imprimante et clé » ✅ code (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-90 | Imprimante vers un fichier de la clé (`imprimante=`, `IMPRIM.TXT`) | ✅ code + tests de la file, ⏳ carte |
+| US-91 | Clé retirée puis rebranchée : lecteurs vidés puis remis, sans redémarrer | ✅ code, ⏳ carte (non testable au banc) |
+| US-92 | Oracle Oricutron sans fenêtre (v0.8.1) | ✅ |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
@@ -125,7 +133,8 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
   l'arrêt après la liste des ROM est reproduit par Oricutron : v0.8.1.)
 - Clé retirée puis rebranchée : non gérée (montage au premier branchement).
 - Variante RAM 64 Ko : ≈ 0,5 Ko de RAM libre.
-- Imprimante vers l'UART ou la clé USB sur le Neo6502.
+- Variante RAM 64 Ko : 208 octets de RAM libres ; toute évolution devra en
+  regagner.
 - Instantanés (savestates), sélecteur de ROM au démarrage.
 - Test « golden » image contre Oricutron (PPM), ROM ORIX.
 

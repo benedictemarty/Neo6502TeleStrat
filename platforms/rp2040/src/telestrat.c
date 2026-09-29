@@ -81,6 +81,7 @@ volatile uint32_t diag_io_n;
 #include "devices/hayes_line.h"
 #include "devices/modem_mux.h"
 #include "devices/drive_set.h"
+#include "devices/byte_fifo.h"
 // Police du menu en RAM : lue par le cœur 1 à chaque ligne affichée
 #define OSD_FONT_SECTION __attribute__((section(".time_critical.osd_font")))
 #include "osd/osd_menu.h"
@@ -240,6 +241,20 @@ static int rs232_rx(void *user_data) {
     return modem_mux_rs232_recv(&mux);
 }
 
+/*-- Imprimante : fichier de la clé -------------------------------------------*/
+// Octets de l'imprimante (VIA 1 : STROBE, ACK) mis en file par l'émulation,
+// ajoutés à la trame suivante au fichier TELESTRA.CFG « imprimante=NOM »
+// (IMPRIM.TXT par défaut ; vide : pas d'impression) à la racine de la clé.
+static byte_fifo_t printer_fifo;
+static char cfg_printer[48] = "IMPRIM.TXT";
+static FIL printer_fil;
+static bool printer_open = false;
+
+static void printer_out(uint8_t data, void *user_data) {
+    (void)user_data;
+    byte_fifo_push(&printer_fifo, data);
+}
+
 static void audio_callback(const uint8_t sample, void *user_data) {
     (void)user_data;
     audio_push_sample(sample);
@@ -265,6 +280,7 @@ static telestrat_desc_t telestrat_desc(void) {
         .audio = {.callback = {.func = audio_callback}, .sample_rate = 22050},
         .minitel = {.tx = minitel_tx, .rx = minitel_rx},
         .rs232 = {.tx = rs232_tx, .rx = rs232_rx},
+        .printer = {.func = printer_out, .user_data = NULL},
     };
     rom_pool_init(&pool, rom_slots, ROM_BUILTIN + ROM_EXTRA_SLOTS);
     d.banks[0].type = TELESTRAT_BANK_RAM;
@@ -646,10 +662,72 @@ static int menu_key(int code) {
     }
 }
 
+// À chaque trame : l'impression en attente est ajoutée au fichier
+static void printer_flush(void) {
+    uint32_t n;
+    if (!byte_fifo_count(&printer_fifo)) return;
+    if (!usb_scanned || !cfg_printer[0]) {
+        byte_fifo_drop(&printer_fifo, byte_fifo_count(&printer_fifo));  // pas de clé ou pas d'impression
+        return;
+    }
+    if (!printer_open) {
+        printer_open = f_open(&printer_fil, cfg_printer, FA_OPEN_APPEND | FA_WRITE) == FR_OK;
+        if (!printer_open) {
+            byte_fifo_drop(&printer_fifo, byte_fifo_count(&printer_fifo));
+            return;
+        }
+    }
+    const uint8_t *p;
+    while ((p = byte_fifo_peek(&printer_fifo, &n)), n) {
+        UINT w = 0;
+        f_write(&printer_fil, p, n, &w);
+        byte_fifo_drop(&printer_fifo, n);
+    }
+    f_sync(&printer_fil);
+}
+
 // À chaque trame : à la première apparition de la clé, réglages, lecteurs
 // (a= … d=, sinon la première image dans A) et cartouches (bank1= … bank7=) ;
 // la clé l'emporte sur l'image en flash
+static bool usb_first_mount = true;
+
+// Clé présente (stockage de masse monté par TinyUSB)
+static bool usb_key_present(void) {
+    for (uint8_t a = 1; a <= CFG_TUH_DEVICE_MAX; a++)
+        if (tuh_msc_mounted(a)) return true;
+    return false;
+}
+
+// Clé retirée : fichiers abandonnés (ils ne sont plus accessibles), lecteurs
+// vidés (l'image en flash revient dans A), cassette éjectée ; les cartouches
+// déjà chargées restent (en RAM)
+static void usb_unplugged(void) {
+    for (int d = 0; d < 4; d++) {
+        if (!drive_open[d]) continue;
+        wd1793_eject(&state.telestrat.fdc.wd, d);
+        drive_open[d] = false;
+        drive_name[d][0] = 0;
+    }
+    telestrat_tape_insert(&state.telestrat, 0, NULL, NULL);
+    tape_open = false;
+    tape_name[0] = 0;
+    oric_tape_rec_motor_off(&state.telestrat.tape_rec);  // enregistrement interrompu
+    printer_open = false;
+    menu.nfiles = 0;
+    menu.usb_present = false;
+    if (!drive_name[0][0]) insert_flash_disk();
+    printf("USB : clé retirée\n");
+}
+
 static void usb_poll(void) {
+    // msc_app.c (reload) ne redescend pas msc_inquiry_complete au retrait :
+    // présence suivie ici, le drapeau est remis à zéro pour le rebranchement
+    if (usb_scanned && !usb_key_present()) {
+        usb_scanned = false;
+        msc_inquiry_complete = false;
+        usb_unplugged();
+        return;
+    }
     if (usb_scanned || !msc_inquiry_complete) return;
     usb_scanned = true;
     read_config();
@@ -662,6 +740,9 @@ static void usb_poll(void) {
     drive_set_assign(&ds, wanted);
     for (int d = 0; d < 4; d++)
         if (ds.slot[d] >= 0) drive_insert(d, ds.names[ds.slot[d]]);
+    // Rebranchement : lecteurs seulement (cartouches et machine inchangées)
+    if (!usb_first_mount) return;
+    usb_first_mount = false;
     bool banks = false;
     for (int b = 1; b < 8; b++) {
         const char *err = "";
@@ -679,6 +760,9 @@ static void usb_poll(void) {
 // « a= » … « d= », « bank1= » … « bank7= » (une clé par ligne)
 static void read_config(void) {
     FIL f;
+    memset(cfg_drive, 0, sizeof(cfg_drive));
+    memset(cfg_bank, 0, sizeof(cfg_bank));
+    snprintf(cfg_printer, sizeof(cfg_printer), "IMPRIM.TXT");
     if (f_open(&f, "TELESTRA.CFG", FA_READ) != FR_OK) return;
     char line[96];
     while (f_gets(line, sizeof(line), &f)) {
@@ -689,6 +773,8 @@ static void read_config(void) {
             snprintf(cfg_dial, sizeof(cfg_dial), "%.63s", line + 5);
         } else if (!strncmp(line, "listen=", 7)) {
             cfg_listen = atoi(line + 7);
+        } else if ((v = osd_config_value(line, "imprimante"))) {
+            snprintf(cfg_printer, sizeof(cfg_printer), "%.47s", v);
         } else if (!strncmp(line, "rs232=", 6)) {
 #ifdef TELESTRAT_RS232_UART
             cfg_rs232_uext = !strcmp(line + 6, "uext");
@@ -1040,6 +1126,7 @@ int main() {
         }
         tuh_task();
         usb_poll();
+        printer_flush();
         diag_keys_poll();
 
         uint32_t execution_time = time_us_32() - start_time_in_micros;

@@ -108,6 +108,16 @@ cartouches), Enregistrer la configuration dans `TELESTRA.CFG`, Reprendre.
 L'émulation est en pause tant qu'il est ouvert. Flèches, Entrée, Suppr
 (éjecter / contenu d'origine), une lettre (aller au fichier), Échap.
 
+**Imprimante** : ce que le Telestrat imprime (`LPRINT`…) est ajouté à
+`IMPRIM.TXT` à la racine de la clé (réglable par `imprimante=`).
+
+**Clé retirée puis rebranchée** : au retrait, les lecteurs de la clé sont
+vidés (l'image en flash revient dans A), la cassette est éjectée ; au
+rebranchement, la clé est relue et les disquettes de `TELESTRA.CFG` remises,
+sans redémarrer (les cartouches déjà chargées restent). Une piste modifiée
+mais pas encore réécrite au moment du retrait est perdue. **Non essayé sur
+carte.**
+
 **Mode Atmos et cassettes** : le firmware intègre la cartouche Atmos (ORIC
 EXTENDED BASIC V1.1). Menu : banque 7 → « ORIC BASIC 1.1 (Atmos) », Cassette →
 un `.tap`, Redémarrer ; puis `CLOAD""` (et `RUN`). `CSAVE"NOM"` enregistre
@@ -133,6 +143,7 @@ rs232=usb              # prise RS232 : modem USB (défaut) ou uext
 a=STRATSED.DSK         # lecteurs A à D (a= … d=), écrits par le menu
 bank5=orix.rom         # cartouches de la clé (bank1= … bank7=), écrites par le menu
 bank7=@atmos           # ROM intégrée : cartouche Atmos (BASIC 1.1)
+imprimante=IMPRIM.TXT  # sortie de l'imprimante, ajoutée à ce fichier (vide : pas d'impression)
 ```
 
 Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour

@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (192 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (196 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -54,6 +54,8 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   Suppr, gauche/droite, boutons, défilement), sélecteurs filtrés (.dsk / .rom),
   image déjà dans un autre lecteur signalée ; `.rom` répétée, tailles
   refusées, fusion de `TELESTRA.CFG` ;
+- file d'octets de l'imprimante (`byte_fifo.h`) : bloc contigu, tour du
+  tampon, file pleine (octets perdus comptés) ;
 - cassette (`oric_tape.h`) : trames (parité), moteur arrêté, synchro
   prolongée et fin d'en-tête, premier front, durées des alternances,
   silence après l'en-tête, fin de bande, arrêt en cours d'octet, éjection ;

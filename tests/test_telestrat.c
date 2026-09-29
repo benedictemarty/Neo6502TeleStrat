@@ -25,6 +25,7 @@
 #include "devices/hayes_line.h"
 #include "devices/modem_mux.h"
 #include "devices/drive_set.h"
+#include "devices/byte_fifo.h"
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
 #include "systems/telestrat.h"
@@ -865,6 +866,26 @@ static void test_drive_set(void) {
     CHECK(s.slot[0] == 2 && s.slot[1] == -1, "même image demandée deux fois : seul le 1er lecteur l'a");
 }
 
+// --- File d'octets (imprimante vers la clé) --------------------------------------------
+static void test_byte_fifo(void) {
+    static byte_fifo_t f;
+    byte_fifo_init(&f);
+    for (int i = 0; i < BYTE_FIFO_SIZE - 10; i++) byte_fifo_push(&f, (uint8_t)i);
+    uint32_t n;
+    const uint8_t* p = byte_fifo_peek(&f, &n);
+    CHECK(n == BYTE_FIFO_SIZE - 10 && p[0] == 0 && p[5] == 5, "bloc contigu (%u)", n);
+    byte_fifo_drop(&f, n - 3);
+    for (int i = 0; i < 20; i++) byte_fifo_push(&f, (uint8_t)(0xA0 + i));
+    p = byte_fifo_peek(&f, &n);
+    CHECK(n == 13 && byte_fifo_count(&f) == 23, "bloc jusqu'à la fin du tampon, puis le reste (%u)", n);
+    byte_fifo_drop(&f, n);
+    p = byte_fifo_peek(&f, &n);
+    CHECK(n == 10 && p[0] == 0xAA, "retour au début du tampon");
+    byte_fifo_drop(&f, n);
+    for (int i = 0; i < BYTE_FIFO_SIZE + 5; i++) byte_fifo_push(&f, 1);
+    CHECK(byte_fifo_count(&f) == BYTE_FIFO_SIZE && f.lost == 5, "pleine : 5 octets perdus, comptés");
+}
+
 // --- Cassette (oric_tape.h) -------------------------------------------------------
 static const uint8_t* tap_data;
 static bool tap_read(void* ctx, uint32_t off, uint8_t* buf, uint32_t len) {
@@ -1336,6 +1357,7 @@ int main(void) {
     test_hayes_line();
     test_modem_mux();
     test_drive_set();
+    test_byte_fifo();
     test_oric_tape();
     test_oric_tape_rec();
     test_osd_render();
