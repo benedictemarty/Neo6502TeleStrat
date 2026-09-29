@@ -331,6 +331,43 @@ affiché : absent, prêt, sonnerie, en ligne, prise RS232. Au banc : `-P`
 
 RAM : 13,6 Ko libres (standard), **88 octets** (RAM 64 Ko).
 
+## Cassette rapide et moteur sans relais (sprint 13)
+
+**Cassette rapide** (`src/devices/oric_tape_turbo.h`) : dans la ROM ORIC
+EXTENDED BASIC V1.1, `$E6C9` lit un octet de la bande (résultat dans A et
+`$2F`, X et Y préservés, C = 0 sans erreur de parité) et `$E735` cherche la
+synchro (bits jusqu'à un `$16`, puis trois `$16` ; X = 0 au retour, rangé par
+l'appelant en `$02B1`, drapeau d'erreur). Relevé sur la ROM désassemblée
+(da65). L'option remplace ces routines dans la copie en RAM de la banque :
+
+    $E6C9  AD FE 03   LDA $03FE      octet suivant
+           85 2F      STA $2F
+           18         CLC
+           60         RTS
+    $E735  A2 00      LDX #0
+           AD FF 03   LDA $03FF      0 : bande après une synchro ; $80 : aucune
+           30 FB      BMI (attente, comme la ROM qui cherche)
+           60         RTS
+
+Le système répond en `$03FE`/`$03FF` seulement l'option active (sinon ces
+adresses restent des reflets du VIA 1) ; les octets d'origine servent de
+signature (autre ROM : rien n'est touché) et reviennent quand l'option est
+coupée. Le lecteur (`oric_tape.h`) : `oric_tape_turbo_sync` place la bande
+après la prochaine suite d'au moins trois `$16`, `oric_tape_turbo_byte`
+rend les octets ; le signal sur CB1 est suspendu (`turbo_hold`) jusqu'à
+l'arrêt du moteur, pour que la lecture directe et le signal ne se disputent
+pas la bande. Sur le Neo6502, aucun coût dans la boucle du bus : les ROM
+intégrées sont déjà copiées en RAM (`rom_pool`), le patch est appliqué à
+chaque fermeture du menu et au montage de la clé. Les deux traitements rares
+(registres de la cassette rapide, démarrage et arrêt du moteur) sont hors de
+la RAM (`TELESTRAT_COLD`) : le code chaud a perdu 880 octets.
+
+**Moteur toujours en marche** : `telestrat_tape_options(sys, turbo,
+motor_always)` ; le moteur vaut alors 1 quel que soit PB6. L'enregistreur
+(`CSAVE`) ferme son fichier après le dernier octet, comme avant.
+
+RAM libre : 8,4 Ko (standard), 956 octets (RAM 64 Ko).
+
 ## Imprimantes émulées : Epson FX-80 et MCP-40 (sprint 12)
 
 Trois modèles derrière le port Centronics (`imprimante_type=`, menu) : Texte

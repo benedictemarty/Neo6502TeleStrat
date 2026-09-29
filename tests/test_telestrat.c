@@ -1021,6 +1021,62 @@ static void rec_emit(oric_tape_rec_t* r, uint8_t b, bool bad_parity) {
     }
 }
 
+static void test_tape_turbo(void) {
+    // Deux programmes : synchro, $24, en-tête, nom, données
+    static const uint8_t img[] = {0x16, 0x16, 0x16, 0x24, 0, 0, 0, 0, 0x05, 0x01, 0x05, 0x01, 0, 'A', 0, 0xA5,
+                                  0x16, 0x16, 0x16, 0x16, 0x24, 1, 2, 3, 4, 5, 6, 7, 8, 9, 'B', 0, 0x77};
+    tap_data = img;
+    oric_tape_t t;
+    oric_tape_init(&t);
+    CHECK(!oric_tape_turbo_sync(&t), "rapide : pas de cassette, pas de synchro");
+    oric_tape_insert(&t, sizeof(img), tap_read, NULL);
+    CHECK(!oric_tape_turbo_sync(&t), "rapide : moteur arrêté, pas de synchro");
+    oric_tape_set_motor(&t, true);
+    CHECK(oric_tape_turbo_sync(&t) && t.pos == 3 && !oric_tape_running(&t),
+          "synchro : bande sur le $24, signal arrêté (pos %u)", t.pos);
+    CHECK(oric_tape_turbo_byte(&t) == 0x24, "premier octet : $24");
+    for (int i = 0; i < 11; i++) oric_tape_turbo_byte(&t);
+    CHECK(oric_tape_turbo_byte(&t) == 0xA5, "données du premier programme");
+    // Deuxième programme (4 octets de synchro)
+    CHECK(oric_tape_turbo_sync(&t) && oric_tape_turbo_byte(&t) == 0x24, "synchro du deuxième programme");
+    oric_tape_set_motor(&t, false);
+    CHECK(!t.turbo_hold && t.pos == 21, "moteur arrêté : signal libéré, bande en place (pos %u)", t.pos);
+    oric_tape_set_motor(&t, true);
+    for (int i = 0; i < 11; i++) oric_tape_turbo_byte(&t);
+    CHECK(oric_tape_turbo_byte(&t) == 0x77 && t.phase == ORIC_TAPE_STOPPED, "dernier octet, bout de bande");
+    CHECK(oric_tape_turbo_byte(&t) == 0 && !oric_tape_turbo_sync(&t), "au bout : 0, plus de synchro");
+    // Synchro demandée pendant la lecture du signal : l'octet entamé est sauté
+    oric_tape_rewind(&t);
+    oric_tape_set_motor(&t, false);
+    oric_tape_set_motor(&t, true);
+    for (int i = 0; i < 5; i++) oric_tape_toggle(&t);
+    CHECK(oric_tape_turbo_sync(&t) && oric_tape_turbo_byte(&t) == 0x24, "synchro trouvée depuis le signal");
+
+    // Patch de la ROM BASIC 1.1
+    static uint8_t rom[0x4000];
+    memcpy(rom, telestrat_atmos, sizeof(rom));
+    CHECK(oric_turbo_state(rom) == 1, "BASIC 1.1 d'origine reconnu");
+    CHECK(oric_turbo_apply(rom, true) && oric_turbo_state(rom) == 2, "patch appliqué");
+    CHECK(rom[0x26C9] == 0xAD && rom[0x26CA] == 0xFE && rom[0x26CB] == 0x03 && rom[0x2737] == 0xAD && rom[0x2738] == 0xFF,
+          "$E6C9 : LDA $03FE ; $E737 : LDA $03FF");
+    CHECK(oric_turbo_apply(rom, true) && oric_turbo_state(rom) == 2, "patch appliqué deux fois : inchangé");
+    CHECK(oric_turbo_apply(rom, false) && !memcmp(rom, telestrat_atmos, sizeof(rom)), "option coupée : ROM d'origine");
+    memcpy(rom, telestrat_telemon24, sizeof(rom));
+    CHECK(!oric_turbo_apply(rom, true) && !memcmp(rom, telestrat_telemon24, sizeof(rom)), "autre ROM : pas touchée");
+
+    // Système : registres $03FE / $03FF seulement avec l'option
+    load_program((const uint8_t[]){0x4C, 0x00, 0xC0}, 3);
+    boot();
+    tap_data = img;
+    telestrat_tape_insert(&sys, sizeof(img), tap_read, NULL);
+    telestrat_tape_options(&sys, false, true);
+    run(40);
+    CHECK(sys.tape.motor, "moteur toujours en marche : la bande défile sans PB6");
+    telestrat_tape_options(&sys, false, false);
+    run(40);
+    CHECK(!sys.tape.motor, "relais : moteur arrêté (PB6 à 0)");
+}
+
 static void test_oric_tape_rec(void) {
     const oric_tape_rec_out_t out = {rec_open_cb, rec_write_cb, rec_close_cb, NULL};
     oric_tape_rec_t r;
@@ -1136,6 +1192,15 @@ static void test_osd_tape_menu(void) {
     osd_menu_key(&osd_m, OSD_KEY_RIGHT);
     CHECK(osd_m.cursor == OSD_ITEM_MODEM && osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_MODEM,
           "droite : modem, Entrée : activé / coupé");
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    CHECK(osd_m.cursor == OSD_ITEM_TURBO && osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_TAPE_TURBO,
+          "sous le modem : cassette rapide, Entrée : action");
+    osd_menu_key(&osd_m, OSD_KEY_RIGHT);
+    CHECK(osd_m.cursor == OSD_ITEM_MOTOR && osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_TAPE_MOTOR,
+          "droite : moteur de la cassette, Entrée : action");
+    osd_menu_key(&osd_m, OSD_KEY_LEFT);
+    CHECK(osd_m.cursor == OSD_ITEM_TURBO, "gauche : cassette rapide");
+    osd_m.cursor = OSD_ITEM_MODEM;
     osd_menu_key(&osd_m, OSD_KEY_LEFT);
     CHECK(osd_m.cursor == OSD_ITEM_PRINTER, "gauche : imprimante");
     osd_m.printer_on = false;
@@ -1145,6 +1210,13 @@ static void test_osd_tape_menu(void) {
     CHECK(!memcmp(&osd_s.ch[25][20], "coup", 4) && !memcmp(&osd_s.ch[25][72], "activ", 5) &&
               !memcmp(&osd_s.ch[25][99], "en ligne", 8),
           "panneau : imprimante coupée, modem activé, état");
+    osd_m.tape_turbo = true;
+    osd_m.tape_motor_always = true;
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(!memcmp(&osd_s.ch[26][6], "Cassette", 8) && !memcmp(&osd_s.ch[26][20], "rapide", 6) &&
+              !memcmp(&osd_s.ch[26][72], "toujours", 8),
+          "panneau : cassette rapide, moteur toujours en marche");
+    osd_m.tape_turbo = osd_m.tape_motor_always = false;
     osd_m.printer_on = true;
     osd_m.printer_model = osd_printer_names[OSD_PRINTER_FX80];
     strcpy(osd_m.printer_file, "IMPR0003.PNG");
@@ -1191,14 +1263,17 @@ static void test_osd_config(void) {
     CHECK(osd_config_merge(old, drives, banks, out, 20) == 0, "tampon trop petit : 0");
     // Options du menu : impression, modem
     const char* old2 = "impression=oui\nmodem=oui\ndial=x:1\n";
-    n = osd_config_merge_ex(old2, drives, banks, 0, -1, 1, out, sizeof(out));
+    const osd_options_t opt2 = {false, -1, true, false, false};
+    n = osd_config_merge_ex(old2, drives, banks, &opt2, out, sizeof(out));
     CHECK(strstr(out, "impression=non\n") && strstr(out, "modem=oui\n") && !strstr(out, "impression=oui") &&
               strstr(out, "dial=x:1"),
           "impression=non, modem=oui écrits, anciennes lignes remplacées :\n%s", out);
     n = osd_config_merge(old2, drives, banks, out, sizeof(out));
     CHECK(strstr(out, "impression=oui\n") && strstr(out, "modem=oui\n"), "sans options : lignes gardées");
     const char* old3 = "impression=oui\nimprimante_type=texte\n";
-    osd_config_merge_ex(old3, drives, banks, 1, OSD_PRINTER_MCP40, 0, out, sizeof(out));
+    const osd_options_t opt3 = {true, OSD_PRINTER_MCP40, false, true, true};
+    osd_config_merge_ex(old3, drives, banks, &opt3, out, sizeof(out));
+    CHECK(strstr(out, "cassette_rapide=oui\n") && strstr(out, "cassette_moteur=toujours\n"), "options de la cassette écrites :\n%s", out);
     CHECK(strstr(out, "impression=oui\nimprimante_type=mcp40\n") && !strstr(out, "=texte"),
           "imprimante_type=mcp40 écrit :\n%s", out);
     CHECK(osd_printer_type("fx80", -1) == OSD_PRINTER_FX80 && osd_printer_type("mcp40", -1) == OSD_PRINTER_MCP40 &&
@@ -1726,6 +1801,7 @@ int main(void) {
     test_printer_fx80();
     test_plotter_mcp40();
     test_oric_tape();
+    test_tape_turbo();
     test_oric_tape_rec();
     test_osd_render();
     test_osd_menu();

@@ -31,6 +31,8 @@ typedef struct {
     int printer_type;          // OSD_PRINTER_* (imprimante_type=)
     int printer_types;         // modèles proposés par le menu (3 avec -G, sinon 1)
     const char* printer_last;  // dernière page ou dernier tracé écrit (-G)
+    bool tape_turbo;           // cassette_rapide= (-Z)
+    bool tape_motor_always;    // cassette_moteur= (-Y)
     bool line_present;         // -L
     osd_menu_t menu;
     osd_surface_t surf;
@@ -210,6 +212,13 @@ static bool menu_pc_tape(menu_pc_t* p, telestrat_t* sys, const char* name) {
     return true;
 }
 
+// Options de la cassette appliquées : système, ROM des emplacements
+// (BASIC 1.1 patché ou remis) ; retourne le nombre de BASIC 1.1 trouvés
+static int menu_pc_tape_options(menu_pc_t* p, telestrat_t* sys) {
+    telestrat_tape_options(sys, p->tape_turbo, p->tape_motor_always);
+    return oric_turbo_apply_all(p->rom, p->pool.nslots, p->tape_turbo);
+}
+
 static void menu_pc_refresh(menu_pc_t* p, telestrat_t* sys) {
     osd_menu_t* m = &p->menu;
     m->printer_on = p->printer_on;
@@ -221,6 +230,8 @@ static void menu_pc_refresh(menu_pc_t* p, telestrat_t* sys) {
     snprintf(m->printer_file, sizeof(m->printer_file), "%s", base ? base + 1 : pf);
     m->modem_on = p->modem_on;
     m->modem_state = p->line_present ? "ligne TCP (banc)" : "absent";
+    m->tape_turbo = p->tape_turbo;
+    m->tape_motor_always = p->tape_motor_always;
     snprintf(m->tape, sizeof(m->tape), "%s", sys->tape.inserted ? p->tape_name : "");
     m->tape_percent = oric_tape_percent(&sys->tape);
     m->tape_motor = sys->tape.motor && sys->tape.inserted;
@@ -269,6 +280,8 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
             if (t < p->printer_types) p->printer_type = t;
         }
         if ((v = osd_config_value(line, "modem"))) p->modem_on = osd_config_yes(v, true);
+        if ((v = osd_config_value(line, "cassette_rapide"))) p->tape_turbo = osd_config_yes(v, p->tape_turbo);
+        if ((v = osd_config_value(line, "cassette_moteur"))) p->tape_motor_always = !strcmp(v, "toujours");
         for (int d = 0; d < 4; d++) {
             const char key[2] = {(char)('a' + d), 0};
             if ((v = osd_config_value(line, key)) && !menu_pc_insert(p, sys, d, v))
@@ -286,6 +299,7 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
         }
     }
     free(cfg);
+    menu_pc_tape_options(p, sys);
 }
 
 static void menu_pc_save(menu_pc_t* p) {
@@ -295,7 +309,8 @@ static void menu_pc_save(menu_pc_t* p) {
     for (int d = 0; d < 4; d++) drives[d] = p->disk[d] ? p->disk_name[d] : NULL;
     for (int b = 0; b < 8; b++) banks[b] = p->pool.name[b];
     static char out[4096];
-    size_t n = osd_config_merge_ex(old, drives, banks, p->printer_on, p->printer_type, p->modem_on, out, sizeof(out));
+    const osd_options_t opt = {p->printer_on, p->printer_type, p->modem_on, p->tape_turbo, p->tape_motor_always};
+    size_t n = osd_config_merge_ex(old, drives, banks, &opt, out, sizeof(out));
     free(old);
     char path[512];
     _menu_pc_path(p, "TELESTRA.CFG", path, sizeof(path));
@@ -359,6 +374,16 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
             p->modem_on = !p->modem_on;
             osd_menu_message(m, false, p->modem_on ? "Modem activé" : "Modem coupé (ligne raccrochée)");
             break;
+        case OSD_ACT_TAPE_TURBO:
+            p->tape_turbo = !p->tape_turbo;
+            osd_menu_message(m, false, oric_turbo_message(p->tape_turbo, menu_pc_tape_options(p, sys)));
+            break;
+        case OSD_ACT_TAPE_MOTOR:
+            p->tape_motor_always = !p->tape_motor_always;
+            menu_pc_tape_options(p, sys);
+            osd_menu_message(m, false, p->tape_motor_always ? "Moteur toujours en marche : la cassette défile dès son insertion"
+                                                            : "Moteur commandé par le relais (PB6)");
+            break;
         case OSD_ACT_TAPE_INSERT:
             if (menu_pc_tape(p, sys, m->files[a.file].name)) {
                 snprintf(msg, sizeof(msg), "Cassette : %s (au début)", m->files[a.file].name);
@@ -384,6 +409,8 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
         case OSD_ACT_RESUME: return true;
         default: break;
     }
+    // Cartouche changée : BASIC 1.1 de nouveau patché si l'option est active
+    if (p->tape_turbo) oric_turbo_apply_all(p->rom, p->pool.nslots, true);
     menu_pc_refresh(p, sys);
     return false;
 }
@@ -421,6 +448,25 @@ static bool menu_pc_script(menu_pc_t* p, telestrat_t* sys, const char* keys) {
 
 static void menu_pc_ppm(menu_pc_t* p, const char* path) {
     osd_menu_draw(&p->menu, &p->surf);
+    const size_t n = strlen(path);
+    if (n > 4 && !strcmp(path + n - 4, ".txt")) {
+        // Texte du menu (Latin-1 -> UTF-8 ; icônes et filets : espaces)
+        FILE* t = fopen(path, "w");
+        if (!t) {
+            perror(path);
+            return;
+        }
+        for (int row = 0; row < OSD_ROWS; row++) {
+            for (int col = 0; col < OSD_COLS; col++) {
+                const uint8_t c = p->surf.ch[row][col];
+                if (c >= 0xA0) fputc(0xC0 | c >> 6, t), fputc(0x80 | (c & 0x3F), t);
+                else fputc(c >= 0x20 && c < 0x7F ? c : ' ', t);
+            }
+            fputc('\n', t);
+        }
+        fclose(t);
+        return;
+    }
     FILE* f = fopen(path, "wb");
     if (!f) {
         perror(path);

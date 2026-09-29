@@ -24,6 +24,11 @@
 // Octets lus par un rappel (image en mémoire, fichier de la clé) dans une
 // fenêtre de 256 octets.
 //
+// Lecture accélérée (oric_tape_turbo.h) : la ROM patchée demande la synchro
+// (oric_tape_turbo_sync) puis les octets un à un (oric_tape_turbo_byte) ; le
+// signal s'arrête alors (turbo_hold) jusqu'à l'arrêt du moteur, pour que les
+// deux lectures ne se disputent pas la bande.
+//
 // ## Licence zlib/libpng
 //
 // Copyright (c) 2026 bmarty
@@ -77,6 +82,7 @@ typedef struct {
     int tail_left;        // alternances de fin restantes
     oric_tape_phase_t phase;
     int next;             // cycles avant la prochaine bascule
+    bool turbo_hold;      // lecture accélérée en cours : signal arrêté
     oric_tape_read_t read;
     void* ctx;
     uint8_t win[ORIC_TAPE_WINDOW];
@@ -187,7 +193,7 @@ static inline void oric_tape_eject(oric_tape_t* t) {
 }
 
 static inline bool oric_tape_running(const oric_tape_t* t) {
-    return t->inserted && t->motor && t->phase != ORIC_TAPE_STOPPED;
+    return t->inserted && t->motor && !t->turbo_hold && t->phase != ORIC_TAPE_STOPPED;
 }
 
 // Moteur (PB6 du VIA 1). Arrêt au milieu d'un octet : on reprendra à l'octet
@@ -195,6 +201,13 @@ static inline bool oric_tape_running(const oric_tape_t* t) {
 static inline void oric_tape_set_motor(oric_tape_t* t, bool on) {
     if (on == t->motor) return;
     t->motor = on;
+    if (!on && t->turbo_hold) {
+        // Fin d'une lecture accélérée : la bande reste où la ROM s'est arrêtée
+        t->turbo_hold = false;
+        t->level = 0;
+        _oric_tape_schedule(t);
+        return;
+    }
     if (!t->inserted || t->phase != ORIC_TAPE_DATA) return;
     if (!on) {
         if (t->frame_ready && t->started && t->extra_sync == 0) t->pos++;
@@ -242,4 +255,55 @@ static inline uint8_t oric_tape_toggle(oric_tape_t* t) {
 
 static inline int oric_tape_percent(const oric_tape_t* t) {
     return t->len ? (int)((uint64_t)(t->pos < t->len ? t->pos : t->len) * 100 / t->len) : 0;
+}
+
+/*-- Lecture accélérée ---------------------------------------------------------*/
+
+// Signal arrêté ; la lecture reprend à l'octet pos
+static inline void _oric_tape_turbo_hold(oric_tape_t* t) {
+    t->turbo_hold = true;
+    t->frame_ready = false;
+    t->started = false;
+    t->extra_sync = 0;
+    t->header_end = 0;
+    t->phase = t->pos < t->len ? ORIC_TAPE_DATA : ORIC_TAPE_STOPPED;
+}
+
+// Synchro : bande placée après la prochaine suite d'au moins 3 octets $16.
+// false : pas de cassette, moteur arrêté, ou plus de synchro jusqu'au bout.
+static inline bool oric_tape_turbo_sync(oric_tape_t* t) {
+    if (!t->inserted || !t->motor) return false;
+    // Octet en cours de lecture par le signal : on repart du suivant
+    if (!t->turbo_hold && t->frame_ready && t->started && t->extra_sync == 0) t->pos++;
+    uint32_t i = t->pos, run = 0;
+    int b;
+    while ((b = _oric_tape_byte(t, i)) >= 0) {
+        i++;
+        if (b == 0x16) {
+            run++;
+        } else if (run >= 3) {
+            t->pos = i - 1;  // premier octet après la synchro
+            _oric_tape_turbo_hold(t);
+            return true;
+        } else {
+            run = 0;
+        }
+    }
+    t->pos = t->len;
+    _oric_tape_turbo_hold(t);
+    return false;
+}
+
+// Octet suivant (0 au bout de la bande)
+static inline uint8_t oric_tape_turbo_byte(oric_tape_t* t) {
+    if (!t->inserted) return 0;
+    if (!t->turbo_hold) {
+        if (t->frame_ready && t->started && t->extra_sync == 0) t->pos++;
+        _oric_tape_turbo_hold(t);
+    }
+    const int b = _oric_tape_byte(t, t->pos);
+    if (b < 0) return 0;
+    t->pos++;
+    if (t->pos >= t->len) t->phase = ORIC_TAPE_STOPPED;
+    return (uint8_t)b;
 }

@@ -146,6 +146,15 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-123 | Pas de perte : ACK retenu tant que la file est presque pleine | ✅ code, rejeu identique |
 | US-124 | Banc : `-G fx80:RÉP` / `mcp40:RÉP`, outil `printer_render` (rendu après coup d'un `IMPRIM.TXT`) | ✅ |
 
+## Sprint 13 — v0.13.0 — « Cassette rapide, moteur sans relais » ✅ au banc (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-130 | Cassette rapide : `CLOAD` du BASIC 1.1 immédiat (ROM patchée en RAM, registres `$03FE`/`$03FF`) | ✅ banc (`test_tape`, « L'Aigle d'Or »), ⏳ carte |
+| US-131 | Moteur toujours en marche (câble DIN sans relais) | ✅ banc, ⏳ carte |
+| US-132 | Menu et `TELESTRA.CFG` : `cassette_rapide=`, `cassette_moteur=` | ✅ banc |
+| US-133 | Banc : `-Z`, `-Y`, texte du menu (`-O menu.txt`) | ✅ |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
@@ -155,17 +164,16 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 - Essai croisé sur carte : TELEMATIC (Neo6502TeleStrat) appelé par NeoTel sur un second Neo6502.
 - Menu sur carte : rendu (temps du cœur 1), clavier, clé, cartouches,
   cassette et bandeau.
-- Cassette : chargement accéléré (BASIC 1.1, au niveau du bus sur le
-  Neo6502) ; `STORE`/`RECALL` (tableaux) non essayés.
-- Cassette sans relais moteur (câble DIN 3 broches : la bande défile sans
-  PB6) : option « moteur toujours en marche » ; la démonstration « prise K7 »
-  de « Telestrat à cœur ouvert » (p. 101, fréquence sur CB1) en dépend.
+- Cassette : `STORE`/`RECALL` (tableaux) non essayés ; chargement accéléré
+  du BASIC 1.0 (banque 5 de STRATORIC) ; démonstration « prise K7 » de
+  « Telestrat à cœur ouvert » (p. 101) à essayer avec le moteur toujours en
+  marche.
 - STRATSED avec la variante RAM 64 Ko (banque 5 vide) : « Logiciel ecrit par
   Fabrice BROCHE » au lieu du menu (banc) ; Oricutron ne simule pas de banque
   vide. À vérifier : notice de la cartouche, vrai Telestrat. (Sans TELE-ASS,
   l'arrêt après la liste des ROM est reproduit par Oricutron : v0.8.1.)
-- Variante RAM 64 Ko : 92 octets de RAM libres ; toute évolution devra en
-  regagner (liste de fichiers du menu…). Imprimante : Texte seulement.
+- Variante RAM 64 Ko : 956 octets de RAM libres (v0.13.0). Imprimante :
+  Texte seulement.
 - Vraie imprimante USB (classe imprimante USB, ESC/P ou PCL) à la place des
   images : envoi des octets bruts, ou de la page rendue.
 - FX-80 : police 9 x 11 de la FX-80, mode proportionnel, caractères de

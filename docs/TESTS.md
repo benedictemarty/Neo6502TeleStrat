@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (209 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (380 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -83,6 +83,13 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - menu : périphériques (imprimante sous la banque 1, modem à droite, Entrée :
   actions, panneau : état) ; `TELESTRA.CFG` : `impression=`, `modem=`,
   valeurs oui / non ;
+- cassette rapide (`oric_tape_turbo.h`, `oric_tape.h`) : pas de synchro
+  sans cassette ni moteur ; synchro puis octets de deux programmes, signal
+  suspendu puis libéré à l'arrêt du moteur, bout de bande ; synchro demandée
+  pendant la lecture du signal ; patch de BASIC 1.1 (reconnu, appliqué deux
+  fois sans effet, retiré = ROM d'origine), autre ROM intacte ; moteur
+  toujours en marche puis relais ; menu : navigation et panneau ;
+  `cassette_rapide=`, `cassette_moteur=` écrits ;
 - menu : ligne Cassette (sélecteur des `.tap`, insertion, éjection, barre),
   ROM intégrées d'abord dans le choix d'une banque, lettre, bandeau (icône,
   nom, barre, fond tramé) ;
@@ -160,10 +167,10 @@ seul) :
 |---|---|
 | menu (`-M 400:heSerdeHezueue`) : STRATSED en A, hyperbas.rom en banque 6, Enregistrer, RESET | messages du menu ; « 32 Ko ROM », STRATSED V2.0c et HYPER BASIC V2.0b après le RESET (à froid) ; `TELESTRA.CFG` = `a=`, `bank6=` |
 | configuration `standard`, `TELESTRA.CFG` du menu plus `bank5=teleass.rom` | TELEASS deux fois (banques 2 et 5) ; `SAVE "MENUOK"` réécrit dans le fichier de la clé |
-| menu : imprimante coupée (`uuuue`), Enregistrer ; puis `LPRINT "IMPRIME"` (`-P`) | « Imprimante coupée », `impression=non` et `modem=oui` écrits ; rien d'imprimé ; avec `impression=oui`, « IMPRIME » imprimé |
+| menu : imprimante coupée (`uuuuuue`), Enregistrer ; puis `LPRINT "IMPRIME"` (`-P`) | « Imprimante coupée », `impression=non` et `modem=oui` écrits ; rien d'imprimé ; avec `impression=oui`, « IMPRIME » imprimé |
 | `telemon` : `.rom` de 1000 octets puis teleass.rom en banque 5, hyperbas.rom en banque 4, image du menu (`-O`) | « taille invalide » ; banque 5 prise (emplacement supplémentaire) ; « plus de place » ; PPM 960 x 544 |
 
-## Cassette — `tests/test_tape.sh` (12 vérifications)
+## Cassette — `tests/test_tape.sh` (18 vérifications)
 
 Configuration `atmos` (BASIC 1.1 en banque 7). `10 PRINT "CASSETTE OK"` et
 `20 PRINT 6*7` tapés, RAM relevée (`-r`), cassette faite par
@@ -175,6 +182,14 @@ Atmos intégrée en banque 7, `essai.tap`, RESET, `CLOAD`, `RUN` ; bandeau
 (`-C`) : `ESSAI.TAP` écrit, rechargé par `CLOAD`, `RUN` (« CSAVE OK », 42) ;
 bandeau « Écriture » (point rouge) pendant l'enregistrement. Essai manuel :
 « L'Aigle d'Or » (Loriciels, `AIGLE.TAP`, deux parties) se charge en entier.
+Cassette rapide (`-Z`) : « Ready » sous `CLOAD""` à la trame 240 (en lecture
+normale, « Loading » y est encore affiché), `RUN` donne « CASSETTE OK » et
+42. Moteur toujours en marche (`-Y`) : bandeau de lecture sans `CLOAD` (pas
+de bandeau avec le relais). Menu : cassette rapide et moteur activés,
+Enregistrer → `cassette_rapide=oui`, `cassette_moteur=toujours` ; menu
+relu au démarrage suivant (`-O menu.txt`) : réglages affichés, cartouches
+nommées. Essai manuel : « L'Aigle d'Or » en rapide arrive à « APPUYEZ SUR
+UNE TOUCHE » (en lecture normale, encore « Loading » après 120 s).
 
 ## Imprimantes — `tests/test_printer.sh` (12 vérifications)
 

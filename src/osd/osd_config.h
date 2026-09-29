@@ -82,14 +82,24 @@ static inline void osd_printer_cycle(bool* on, int* type, int ntypes) {
     }
 }
 
-// Clés gérées par le menu (impression=, imprimante_type= et modem= seulement
-// si le menu les écrit)
+// Options du menu (panneau Périphériques), écrites dans TELESTRA.CFG
+typedef struct {
+    bool printer;            // impression=oui|non
+    int printer_type;        // imprimante_type=texte|fx80|mcp40 (OSD_PRINTER_*)
+    bool modem;              // modem=oui|non
+    bool tape_turbo;         // cassette_rapide=oui|non
+    bool tape_motor_always;  // cassette_moteur=toujours|relais
+} osd_options_t;
+
+// Clés gérées par le menu (options seulement si le menu les écrit)
 static inline bool _osd_config_owned(const char* line, bool options) {
     static const char* const keys[] = {"a", "b", "c", "d", "bank1", "bank2", "bank3", "bank4", "bank5", "bank6", "bank7"};
+    static const char* const opts[] = {"impression", "imprimante_type", "modem", "cassette_rapide", "cassette_moteur"};
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
         if (osd_config_value(line, keys[i])) return true;
-    return options && (osd_config_value(line, "impression") || osd_config_value(line, "modem") ||
-                       osd_config_value(line, "imprimante_type"));
+    for (size_t i = 0; options && i < sizeof(opts) / sizeof(opts[0]); i++)
+        if (osd_config_value(line, opts[i])) return true;
+    return false;
 }
 
 // Valeur oui / non d'une clé (défaut si absente ou autre)
@@ -104,11 +114,10 @@ static inline bool osd_config_yes(const char* value, bool dflt) {
 // image du lecteur (NULL ou "" : aucune ligne) ; bank[b] : cartouche de la clé
 // en banque b (NULL ou "" : contenu d'origine). Retourne la longueur écrite
 // (0 si out est trop petit).
-// Avec les options du menu : printer, modem = 1 (oui), 0 (non), -1 (lignes
-// existantes gardées telles quelles) ; printer_type = OSD_PRINTER_* (-1 :
-// pas de ligne imprimante_type=)
+// Avec les options du menu (opt ; NULL : lignes existantes gardées telles
+// quelles)
 static inline size_t osd_config_merge_ex(const char* old, const char* const drive[4], const char* const bank[8],
-                                         int printer, int printer_type, int modem, char* out, size_t cap) {
+                                         const osd_options_t* opt, char* out, size_t cap) {
     size_t len = 0;
     char line[128];
 #define _OSD_APPEND(s)                              \
@@ -129,7 +138,7 @@ static inline size_t osd_config_merge_ex(const char* old, const char* const driv
         memcpy(line, p, m);
         line[m] = 0;
         while (m && (line[m - 1] == '\r' || line[m - 1] == ' ')) line[--m] = 0;
-        if (m && !_osd_config_owned(line, printer >= 0 || modem >= 0)) {
+        if (m && !_osd_config_owned(line, opt != NULL)) {
             _OSD_APPEND(line);
             _OSD_APPEND("\n");
         }
@@ -146,17 +155,21 @@ static inline size_t osd_config_merge_ex(const char* old, const char* const driv
         snprintf(line, sizeof(line), "bank%d=%.100s\n", b, bank[b]);
         _OSD_APPEND(line);
     }
-    if (printer >= 0) _OSD_APPEND(printer ? "impression=oui\n" : "impression=non\n");
-    if (printer >= 0 && printer_type >= 0 && printer_type < OSD_PRINTER_TYPES) {
-        snprintf(line, sizeof(line), "imprimante_type=%s\n", osd_printer_keys[printer_type]);
-        _OSD_APPEND(line);
+    if (opt) {
+        _OSD_APPEND(opt->printer ? "impression=oui\n" : "impression=non\n");
+        if (opt->printer_type >= 0 && opt->printer_type < OSD_PRINTER_TYPES) {
+            snprintf(line, sizeof(line), "imprimante_type=%s\n", osd_printer_keys[opt->printer_type]);
+            _OSD_APPEND(line);
+        }
+        _OSD_APPEND(opt->modem ? "modem=oui\n" : "modem=non\n");
+        _OSD_APPEND(opt->tape_turbo ? "cassette_rapide=oui\n" : "cassette_rapide=non\n");
+        _OSD_APPEND(opt->tape_motor_always ? "cassette_moteur=toujours\n" : "cassette_moteur=relais\n");
     }
-    if (modem >= 0) _OSD_APPEND(modem ? "modem=oui\n" : "modem=non\n");
 #undef _OSD_APPEND
     return len;
 }
 
 static inline size_t osd_config_merge(const char* old, const char* const drive[4], const char* const bank[8], char* out,
                                       size_t cap) {
-    return osd_config_merge_ex(old, drive, bank, -1, -1, -1, out, cap);
+    return osd_config_merge_ex(old, drive, bank, NULL, out, cap);
 }

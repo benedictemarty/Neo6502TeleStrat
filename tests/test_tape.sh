@@ -40,6 +40,17 @@ mkdir "$TMP/rec"
 "$BIN" -c atmos -C "$TMP/rec" -f 620 -w 150 -k 8 -t '10 PRINT "CSAVE OK"\n20 PRINT 6*7\nCSAVE"ESSAI"\n' \
     -D "$TMP/ecrit.ppm" > /dev/null 2>&1
 
+# Cassette rapide (-Z) : CLOAD terminé là où la lecture normale commence à
+# peine ; moteur toujours en marche (-Y) : la bande défile sans CLOAD
+"$BIN" -c atmos -K "$TMP/essai.tap" -Z -f 240 -w 150 -k 8 -t 'CLOAD""\n' -s > "$TMP/rapide.txt"
+"$BIN" -c atmos -K "$TMP/essai.tap" -Z -f 1500 -w 150 -k 8 -t "CLOAD\"\"\n${W}RUN\n" -s > "$TMP/rapide_run.txt"
+"$BIN" -c atmos -K "$TMP/essai.tap" -f 20 -D "$TMP/relais.ppm" > /dev/null 2>&1
+"$BIN" -c atmos -K "$TMP/essai.tap" -Y -f 20 -D "$TMP/toujours.ppm" > /dev/null 2>&1
+# Menu : u × 4 = cassette rapide, e ; r = moteur, e ; z u e = Enregistrer
+mkdir "$TMP/opt"
+"$BIN" -c standard -U "$TMP/opt" -M "5:uuuuerezuex" -f 10 > /dev/null 2> "$TMP/opt_msg.txt"
+"$BIN" -c standard -U "$TMP/opt" -M "5:" -O "$TMP/opt_menu.txt" -f 8 > /dev/null 2>&1
+
 fail=0
 n=0
 check() {
@@ -71,6 +82,22 @@ d = open('$TMP/ecrit.ppm', 'rb').read()
 px = d[len(b'P6\\n960 544\\n255\\n'):]
 row = [px[((256 * 2 + 5) * 960 + x) * 3:((256 * 2 + 5) * 960 + x) * 3 + 3] for x in range(120, 140)]
 sys.exit(0 if b'\\xff\\x00\\x00' in row else 1)\""
+check "cassette rapide : CLOAD fini en moins de 2 s (Ready sous CLOAD)" "grep -A2 'CLOAD\"\"' '$TMP/rapide.txt' | grep -q Ready && ! grep -A2 'CLOAD\"\"' '$TMP/pendant.txt' | grep -q Ready"
+check "cassette rapide : RUN donne CASSETTE OK et 42" "grep -q '^  CASSETTE OK' '$TMP/rapide_run.txt' && grep -q '^   42' '$TMP/rapide_run.txt'"
+bandeau() {
+    python3 -c "
+import sys
+d = open('$1', 'rb').read()
+px = d[len(b'P6\\n960 544\\n255\\n'):]
+r = (256 * 2 + 3) * 960
+row = [px[(r + x) * 3:(r + x) * 3 + 3] for x in range(960)]
+sys.exit(0 if b'\\xff\\xff\\x00' in row and b'\\x00\\x00\\xff' in row else 1)"
+}
+n=$((n + 2))
+if bandeau "$TMP/relais.ppm"; then fail=$((fail + 1)); echo "ÉCHEC [cassette] : relais : la bande défile sans CLOAD"; fi
+if ! bandeau "$TMP/toujours.ppm"; then fail=$((fail + 1)); echo "ÉCHEC [cassette] : moteur toujours en marche : la bande ne défile pas"; fi
+check "menu relu : cassette rapide, moteur toujours ; cartouches nommées" "grep -q 'Cassette.*rapide' '$TMP/opt_menu.txt' && grep -q 'Moteur.*toujours en marche' '$TMP/opt_menu.txt' && grep -q 'Banque 3 *TELEMATIC' '$TMP/opt_menu.txt' && grep -q 'Banque 2 *TELE-ASS' '$TMP/opt_menu.txt'"
+check "menu : cassette rapide, moteur toujours, TELESTRA.CFG" "grep -q 'Cassette rapide' '$TMP/opt_msg.txt' && grep -q 'Moteur toujours en marche' '$TMP/opt_msg.txt' && grep -qx 'cassette_rapide=oui' '$TMP/opt/TELESTRA.CFG' && grep -qx 'cassette_moteur=toujours' '$TMP/opt/TELESTRA.CFG'"
 if [ "$fail" -ne 0 ]; then
     cat "$TMP/menu_msg.txt" "$TMP/csave_msg.txt"
     for f in ecran vide pendant menu; do echo "--- $f :"; grep -v '^$' "$TMP/$f.txt" | head -14; done

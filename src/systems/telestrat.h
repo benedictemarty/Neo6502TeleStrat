@@ -61,6 +61,7 @@
 
 #include "devices/oric_tape.h"
 #include "devices/oric_tape_rec.h"
+#include "devices/oric_tape_turbo.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -152,6 +153,8 @@ typedef struct {
     oric_tape_t tape;
     uint32_t tape_due;  // cycle de la prochaine bascule du signal
     oric_tape_rec_t tape_rec;  // CSAVE : PB7 du VIA 1 vers un fichier .tap
+    bool tape_turbo;           // $03FE / $03FF répondent (oric_tape_turbo.h)
+    bool tape_motor_always;    // pas de relais moteur : la bande défile toujours
     bool valid;
     chips_debug_t debug;
     chips_audio_callback_t audio_callback;
@@ -259,6 +262,10 @@ void telestrat_set_bank_rom(telestrat_t* sys, int bank, const uint8_t* rom);
 void telestrat_tape_insert(telestrat_t* sys, uint32_t len, oric_tape_read_t read, void* ctx);
 // Enregistreur (CSAVE) : fichiers .tap par ces rappels ; NULL : aucun
 void telestrat_tape_recorder(telestrat_t* sys, const oric_tape_rec_out_t* out);
+// Options de la cassette : lecture accélérée (registres $03FE et $03FF pour
+// la ROM patchée par la plate-forme, oric_tape_turbo.h) ; moteur toujours en
+// marche (câble sans relais : PB6 ignoré)
+void telestrat_tape_options(telestrat_t* sys, bool turbo, bool motor_always);
 void telestrat_restore_bank(telestrat_t* sys, int bank);
 // Insère une image MFM_DISK dans le lecteur 0..3 (false si invalide)
 bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect);
@@ -284,6 +291,8 @@ uint8_t telestrat_peek(telestrat_t* sys, uint16_t addr);
 // Chemins moins fréquents, hors de telestrat_tick pour qu'il reste court
 // (peu de registres à sauver) mais en RAM eux aussi
 #define TELESTRAT_SLOW TELESTRAT_HOT __attribute__((noinline))
+// Chemins rares (lecture accélérée de la cassette) : hors de la RAM (flash)
+#define TELESTRAT_COLD __attribute__((noinline))
 
 #define TELESTRAT_PATTR_HIRES (0x04)
 #define TELESTRAT_LATTR_ALT   (0x01)
@@ -324,6 +333,12 @@ void telestrat_tape_insert(telestrat_t* sys, uint32_t len, oric_tape_read_t read
 
 void telestrat_tape_recorder(telestrat_t* sys, const oric_tape_rec_out_t* out) {
     oric_tape_rec_init(&sys->tape_rec, out);
+    _telestrat_input_changed(sys);
+}
+
+void telestrat_tape_options(telestrat_t* sys, bool turbo, bool motor_always) {
+    sys->tape_turbo = turbo;
+    sys->tape_motor_always = motor_always;
     _telestrat_input_changed(sys);
 }
 
@@ -628,6 +643,13 @@ static inline uint32_t _telestrat_via_quiet(const mos6522via_t* c) {
     return k;
 }
 
+// Moteur démarré ou arrêté (rare : hors de la RAM)
+TELESTRAT_COLD static void _telestrat_tape_motor(telestrat_t* sys, bool motor) {
+    oric_tape_set_motor(&sys->tape, motor);
+    sys->tape_due = sys->system_ticks + (uint32_t)oric_tape_next(&sys->tape);
+    if (!motor) oric_tape_rec_motor_off(&sys->tape_rec);
+}
+
 // Cassette : moteur sur PB6 du VIA 1 (sortie), bascules du signal sur CB1 à leur cycle
 // (multiples de 4 : alternances de 208 et 416 cycles, à partir d'un pas)
 static inline void _telestrat_update_tape(telestrat_t* sys) {
@@ -635,12 +657,8 @@ static inline void _telestrat_update_tape(telestrat_t* sys) {
     const uint32_t t = sys->system_ticks;
     // Sortie programmée seulement (ORB & DDRB) : au RESET, PB6 en entrée
     // se lit à 1 et ne doit pas lancer le moteur
-    const bool motor = (sys->via.pb.outr & sys->via.pb.ddr & 0x40) != 0;
-    if (motor != tp->motor) {
-        oric_tape_set_motor(tp, motor);
-        sys->tape_due = t + (uint32_t)oric_tape_next(tp);
-        if (!motor) oric_tape_rec_motor_off(&sys->tape_rec);
-    }
+    const bool motor = sys->tape_motor_always || (sys->via.pb.outr & sys->via.pb.ddr & 0x40) != 0;
+    if (motor != tp->motor) _telestrat_tape_motor(sys, motor);
     // CSAVE : PB7 (sortie du timer 1) écouté tant que le moteur tourne ; ses
     // fronts tombent au passage à zéro du timer, qui borne la fenêtre de repos
     if (motor && sys->tape_rec.enabled) oric_tape_rec_level(&sys->tape_rec, (mos6522via_get_pb(&sys->via) >> 7) & 1, t);
@@ -738,6 +756,15 @@ TELESTRAT_SLOW static void _telestrat_step(telestrat_t* sys) {
 // Accès en $03xx : périphériques à jour, puis pas complet au prochain multiple
 // de 4 ; sauf pour le FDC et l'ACIA quand la ligne IRQ ne change pas (lecture
 // de DRQ, de données...) : seul l'horizon de repos est recalculé
+// Lecture accélérée (ROM BASIC 1.1 patchée) : $03FE octet suivant, $03FF synchro
+TELESTRAT_COLD static void _telestrat_tape_turbo_read(telestrat_t* sys, uint8_t reg) {
+    uint8_t data;
+    if (reg == ORIC_TURBO_BYTE_REG) data = oric_tape_turbo_byte(&sys->tape);
+    else data = oric_tape_turbo_sync(&sys->tape) ? 0x00 : 0x80;
+    MOS6502CPU_SET_DATA(&sys->cpu, data);
+    sys->quiet_until = sys->system_ticks;
+}
+
 TELESTRAT_SLOW static void _telestrat_io_access(telestrat_t* sys, uint16_t addr) {
 #ifdef TELESTRAT_IO_HOOK
     // Journal de diagnostic de la plate-forme (cycle, adresse, sens, donnée écrite)
@@ -745,6 +772,10 @@ TELESTRAT_SLOW static void _telestrat_io_access(telestrat_t* sys, uint16_t addr)
 #endif
     _telestrat_catch_up(sys);
     const uint8_t reg = addr & 0xFF;
+    if (sys->tape_turbo && sys->cpu.rw && reg >= ORIC_TURBO_BYTE_REG) {
+        _telestrat_tape_turbo_read(sys, reg);
+        return;
+    }
     const bool fdc_acia = (reg >= 0x10 && reg <= 0x14) || reg == 0x18 || (reg >= 0x1C && reg <= 0x1F);
     if (!fdc_acia) {
         _telestrat_io_rw(sys, addr, sys->cpu.rw);

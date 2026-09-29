@@ -40,12 +40,16 @@
 //              (flèches), e (Entrée), x (Échap), s (Suppr), h / z (début / fin),
 //              majuscule = saut à l'initiale ; le menu se ferme sur Reprendre
 //              ou RESET, sinon à la fin des touches
-//   -O FICHIER image du menu (960 x 544, PPM) après les touches de -M
+//   -O FICHIER image du menu (960 x 544, PPM) après les touches de -M ; FICHIER.txt :
+//              texte du menu
 //   -D FICHIER sortie DVI de la carte en fin d'exécution (960 x 544, PPM) : image
 //              du Telestrat centrée, bandeau de la cassette si le moteur tourne
 //   -C RÉP     CSAVE : cassettes enregistrées en RÉP/NOM.TAP (défaut : le
 //              répertoire de -U s'il est donné)
 //   -K FICHIER cassette .tap insérée (mode Atmos : -c atmos, ou cartouche Atmos)
+//   -Z         cassette rapide : CLOAD du BASIC 1.1 sans attendre (ROM patchée,
+//              oric_tape_turbo.h) ; avec -U, TELESTRA.CFG cassette_rapide= prime
+//   -Y         moteur de la cassette toujours en marche (câble sans relais)
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
 //   -B PRÉFIXE enregistre la trace (tests/replay.c, tools/rp2040_load.py) : PRÉFIXE.trace
 //              (un mot par cycle : adresse | R/W << 16 | IRQ << 17 | donnée << 24),
@@ -395,6 +399,7 @@ int main(int argc, char** argv) {
     const char* rs232_spec = NULL;
     const char* usb_dir = NULL;
     const char* tape_file = NULL;
+    bool tape_turbo = false, tape_motor_always = false;
     const char* dvi_file = NULL;
     const char* rec_dir = NULL;
     const char* menu_script = NULL;
@@ -409,7 +414,7 @@ int main(int argc, char** argv) {
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:ZY")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -432,6 +437,8 @@ int main(int argc, char** argv) {
                 break;
             case 'O': menu_ppm = optarg; break;
             case 'K': tape_file = optarg; break;
+            case 'Z': tape_turbo = true; break;
+            case 'Y': tape_motor_always = true; break;
             case 'D': dvi_file = optarg; break;
             case 'C': rec_dir = optarg; break;
             case 'R': realtime = 1; break;
@@ -530,6 +537,15 @@ int main(int argc, char** argv) {
     }
 #ifndef TELESTRAT_REF
     if (menu_script && !usb_dir) usb_dir = ".";
+    // ROM en mémoire modifiable (lecture accélérée : BASIC 1.1 patché) ; avec
+    // -U, les emplacements du menu en tiennent lieu (et gardent l'adresse
+    // d'origine qui nomme les ROM intégrées)
+    static uint8_t rom_copy[8][0x4000];
+    for (int b = 0; b < 8 && !usb_dir; b++) {
+        if (desc.banks[b].type != TELESTRAT_BANK_ROM || !desc.banks[b].rom) continue;
+        memcpy(rom_copy[b], desc.banks[b].rom, 0x4000);
+        desc.banks[b].rom = rom_copy[b];
+    }
     if (usb_dir) menu_pc_prepare(&menu_pc, &desc);
 #endif
     telestrat_init(&sys, &desc);
@@ -547,6 +563,8 @@ int main(int argc, char** argv) {
     if (usb_dir) {
         menu_pc.printer_file = printer_file;
         menu_pc.printer_type = printer_type;
+        menu_pc.tape_turbo = tape_turbo;
+        menu_pc.tape_motor_always = tape_motor_always;
         menu_pc.printer_types = printer_render_on ? OSD_PRINTER_TYPES : 1;
         menu_pc.printer_last = printer_files.name;
         menu_pc.line_present = minitel_on;
@@ -554,11 +572,16 @@ int main(int argc, char** argv) {
         printer_enabled = menu_pc.printer_on;
         printer_select(menu_pc.printer_type);
         modem_enabled = menu_pc.modem_on;
+    } else {
+        telestrat_tape_options(&sys, tape_turbo, tape_motor_always);
+        for (int b = 0; b < 8; b++) oric_turbo_apply(rom_copy[b], tape_turbo);
     }
 #else
     (void)usb_dir;
     (void)menu_ppm;
     (void)render_spec;
+    (void)tape_turbo;
+    (void)tape_motor_always;
     (void)menu_frame;
     if (menu_script) {
         fprintf(stderr, "menu absent de la référence\n");

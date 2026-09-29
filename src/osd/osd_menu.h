@@ -67,6 +67,8 @@ enum {
     OSD_ACT_LOAD_BUILTIN, // target = banque, file = ROM intégrée
     OSD_ACT_PRINTER,      // imprimante activée / coupée
     OSD_ACT_MODEM,        // modem activé / coupé
+    OSD_ACT_TAPE_TURBO,   // cassette : lecture accélérée oui / non
+    OSD_ACT_TAPE_MOTOR,   // cassette : moteur toujours en marche / relais
 };
 
 typedef struct {
@@ -87,10 +89,12 @@ typedef struct {
 #define OSD_ITEM_BANK7   5   // 5-11 : banques 7 à 1
 #define OSD_ITEM_PRINTER 12  // périphériques
 #define OSD_ITEM_MODEM   13
-#define OSD_ITEM_RESET   14
-#define OSD_ITEM_SAVE    15
-#define OSD_ITEM_RESUME  16
-#define OSD_ITEMS        17
+#define OSD_ITEM_TURBO   14  // cassette : lecture accélérée
+#define OSD_ITEM_MOTOR   15  // cassette : moteur toujours en marche
+#define OSD_ITEM_RESET   16
+#define OSD_ITEM_SAVE    17
+#define OSD_ITEM_RESUME  18
+#define OSD_ITEMS        19
 
 typedef struct {
     // --- Rempli par la plate-forme ---
@@ -106,6 +110,8 @@ typedef struct {
     const char* printer_model;    // « Texte », « Epson FX-80 »… (NULL : non affiché)
     char printer_file[OSD_NAME_LEN];  // fichier texte ou dernière page écrite
     bool modem_on;                // modem utilisé (sinon ligne coupée)
+    bool tape_turbo;              // cassette : lecture accélérée (BASIC 1.1)
+    bool tape_motor_always;       // cassette : moteur toujours en marche
     const char* modem_state;      // « absent », « branché », « sonnerie », « en ligne »…
     bool usb_present;
     char usb_label[OSD_NAME_LEN];
@@ -225,13 +231,15 @@ static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
         case OSD_KEY_DOWN: c = (c + 1) % OSD_ITEMS; break;
         case OSD_KEY_LEFT:
             if (c == OSD_ITEM_MODEM) c = OSD_ITEM_PRINTER;
-            else if (c == OSD_ITEM_PRINTER) break;
+            else if (c == OSD_ITEM_MOTOR) c = OSD_ITEM_TURBO;
+            else if (c == OSD_ITEM_PRINTER || c == OSD_ITEM_TURBO) break;
             else if (_osd_item_is_bank(c)) c = OSD_ITEM_DRIVE0 + (c - OSD_ITEM_BANK7 < 5 ? c - OSD_ITEM_BANK7 : 4);
             else if (c > OSD_ITEM_RESET) c--;
             break;
         case OSD_KEY_RIGHT:
             if (c <= OSD_ITEM_TAPE) c = OSD_ITEM_BANK7 + (c - OSD_ITEM_DRIVE0);
             else if (c == OSD_ITEM_PRINTER) c = OSD_ITEM_MODEM;
+            else if (c == OSD_ITEM_TURBO) c = OSD_ITEM_MOTOR;
             else if (c >= OSD_ITEM_RESET && c < OSD_ITEM_RESUME) c++;
             break;
         case OSD_KEY_HOME: c = 0; break;
@@ -252,6 +260,8 @@ static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
             if (c <= OSD_ITEM_TAPE || _osd_item_is_bank(c)) _osd_open_browser(m, c);
             else if (c == OSD_ITEM_PRINTER) a.type = OSD_ACT_PRINTER;
             else if (c == OSD_ITEM_MODEM) a.type = OSD_ACT_MODEM;
+            else if (c == OSD_ITEM_TURBO) a.type = OSD_ACT_TAPE_TURBO;
+            else if (c == OSD_ITEM_MOTOR) a.type = OSD_ACT_TAPE_MOTOR;
             else if (c == OSD_ITEM_RESET) a.type = OSD_ACT_RESET;
             else if (c == OSD_ITEM_SAVE) a.type = OSD_ACT_SAVE;
             else a.type = OSD_ACT_RESUME;
@@ -431,6 +441,24 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
             snprintf(buf, sizeof(buf), "PicoWiFiModemUSB : %s", m->modem_state);
             osd_puts(s, 25, 80, buf, dim_m, 35);
         }
+        // Cassette : lecture accélérée, moteur
+        const bool sel_t = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_TURBO;
+        const bool sel_o = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_MOTOR;
+        _osd_item_bar(s, 26, 4, 55, sel_t);
+        _osd_item_bar(s, 26, 61, 55, sel_o);
+        const uint8_t acc_t = sel_t ? OSD_SEL_ACC : OSD_PANEL_ACC, dim_t = sel_t ? OSD_SEL_DIM : OSD_PANEL_DIM;
+        const uint8_t acc_o = sel_o ? OSD_SEL_ACC : OSD_PANEL_ACC, dim_o = sel_o ? OSD_SEL_DIM : OSD_PANEL_DIM;
+        const uint8_t on_t = sel_t ? OSD_ATTR(OSD_GREEN, OSD_BLUE) : OSD_PANEL_OK;
+        const uint8_t off_t = sel_t ? OSD_ATTR(OSD_RED, OSD_BLUE) : OSD_PANEL_ERR;
+        const uint8_t on_o = sel_o ? OSD_ATTR(OSD_GREEN, OSD_BLUE) : OSD_PANEL_OK;
+        osd_puts(s, 26, 6, "Cassette", acc_t, -1);
+        osd_putc(s, 26, 18, m->tape_turbo ? OSD_DOT : OSD_CROSS, m->tape_turbo ? on_t : off_t);
+        osd_puts(s, 26, 20, m->tape_turbo ? "rapide" : "vitesse réelle", m->tape_turbo ? on_t : off_t, -1);
+        if (m->tape_turbo) osd_puts(s, 26, 28, "(CLOAD du BASIC 1.1)", dim_t, -1);
+        osd_puts(s, 26, 63, "Moteur", acc_o, -1);
+        osd_putc(s, 26, 70, OSD_DOT, on_o);
+        osd_puts(s, 26, 72, m->tape_motor_always ? "toujours en marche" : "relais (PB6)", on_o, -1);
+        if (m->tape_motor_always) osd_puts(s, 26, 91, "câble sans relais", dim_o, -1);
     }
 
     // Actions

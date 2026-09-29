@@ -42,10 +42,10 @@ echo "bank5=teleass.rom" >> "$TMP/cle/TELESTRA.CFG"
 rm "$TMP/cle/TELESTRA.CFG"
 "$BIN" -c telemon -U "$TMP/cle" -M "10:hrddeAeeTedeHe" -O "$TMP/menu.ppm" -f 20 > /dev/null 2> "$TMP/menu3.txt"
 
-# Périphériques : u u u u = imprimante, e = coupée ; z u e = Enregistrer
+# Périphériques : u × 6 = imprimante, e = coupée ; z u e = Enregistrer
 mkdir "$TMP/prn"
 cp "$DSK" "$TMP/prn/a.dsk"
-"$BIN" -c standard -U "$TMP/prn" -P "$TMP/lp0.txt" -M "5:uuuuezuex" -f 10 > /dev/null 2> "$TMP/prn_msg.txt"
+"$BIN" -c standard -U "$TMP/prn" -P "$TMP/lp0.txt" -M "5:uuuuuuezuex" -f 10 > /dev/null 2> "$TMP/prn_msg.txt"
 cp "$TMP/prn/TELESTRA.CFG" "$TMP/cfg_prn"
 "$BIN" -c standard -U "$TMP/prn" -0 "$TMP/prn/a.dsk" -P "$TMP/lp1.txt" -f 1500 -w 1200 -k 8 \
     -t '1~~~~~~LPRINT "IMPRIME"\n' > /dev/null 2>&1

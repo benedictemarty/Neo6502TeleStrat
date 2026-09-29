@@ -173,6 +173,21 @@ sous l'image montre la cassette et sa position. TELEMON et
 HYPER-BASIC n'ont pas de chargeur de cassette : le mode Atmos est le moyen de
 lire les cassettes sur Telestrat.
 
+Deux réglages de la cassette, dans le panneau « Périphériques » du menu
+(Entrée) ou dans `TELESTRA.CFG` :
+
+- **Cassette rapide** (`cassette_rapide=oui`) : `CLOAD` du BASIC 1.1 est
+  immédiat. Les deux routines de lecture de la ROM (lire un octet, chercher la
+  synchro) sont remplacées, dans sa copie en mémoire, par la lecture directe
+  de la bande ; la ROM d'origine revient quand on coupe l'option. « L'Aigle
+  d'Or » (deux parties) arrive à son écran d'accueil au lieu de rester
+  plusieurs minutes sur « Loading ». Les jeux qui ont leur propre chargeur
+  (lecture directe du signal) gardent la vitesse réelle, comme le BASIC 1.0.
+- **Moteur toujours en marche** (`cassette_moteur=toujours`, défaut
+  `relais`) : pour un câble DIN sans relais moteur, la bande défile dès
+  qu'elle est insérée, sans attendre que l'Oric allume le moteur (PB6). Comme
+  avec un vrai magnétophone, taper `CLOAD""` avant d'insérer la cassette.
+
 **Pas encore essayé sur carte** (aperçus du banc PC) :
 
 ![Menu](docs/images/menu.png)
@@ -194,6 +209,8 @@ imprimante=IMPRIM.TXT  # imprimante Texte : sortie ajoutée à ce fichier (vide 
 impression=oui         # imprimante activée (non : coupée) ; écrit par le menu
 imprimante_type=fx80   # texte, fx80 (pages PNG) ou mcp40 (tracés SVG) ; écrit par le menu
 modem=oui              # modem activé (non : ligne coupée) ; écrit par le menu
+cassette_rapide=oui    # CLOAD du BASIC 1.1 immédiat (non : vitesse réelle) ; écrit par le menu
+cassette_moteur=relais # toujours : bande défilant sans relais moteur ; écrit par le menu
 ```
 
 Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour
@@ -234,7 +251,8 @@ build/telestrat_headless -c standard -0 a.dsk -L listen:3615 -R ...  # ligne Min
 ```
 
 Cassette au banc : `-c atmos` (cartouche Atmos en banque 7), `-K jeu.tap`,
-puis `-t 'CLOAD""\n'` ; `-D sortie.ppm` écrit la sortie DVI de la carte
+puis `-t 'CLOAD""\n'` (`-Z` : cassette rapide, `-Y` : moteur toujours en
+marche) ; `-D sortie.ppm` écrit la sortie DVI de la carte
 (960 x 544 : image centrée, bandeau de la cassette pendant la lecture).
 `-C RÉP` : les `CSAVE` y écrivent `NOM.TAP` (par défaut le répertoire de
 `-U`). `tools/mktap.py` fait un `.tap` d'un programme BASIC relevé dans la RAM

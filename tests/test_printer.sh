@@ -60,10 +60,10 @@ else
     echo "test_printer : disquette système absente ($DSK), tests de bout en bout ignorés"
 fi
 
-# 3. Menu (-G fx80 : FX-80 choisie) : u u u u = imprimante ; e = MCP-40 ; z u e =
+# 3. Menu (-G fx80 : FX-80 choisie) : u × 6 = imprimante ; e = MCP-40 ; z u e =
 #    Enregistrer
 mkdir "$TMP/cle"
-"$BIN" -c standard -U "$TMP/cle" -G "fx80:$TMP/cle" -M "5:uuuuezuex" -f 10 > /dev/null 2> "$TMP/menu.txt"
+"$BIN" -c standard -U "$TMP/cle" -G "fx80:$TMP/cle" -M "5:uuuuuuezuex" -f 10 > /dev/null 2> "$TMP/menu.txt"
 check "menu : Imprimante : Traceur MCP-40" "grep -q 'Imprimante : Traceur MCP-40' '$TMP/menu.txt'"
 check "TELESTRA.CFG : imprimante_type=mcp40" "grep -qx 'imprimante_type=mcp40' '$TMP/cle/TELESTRA.CFG' && grep -qx 'impression=oui' '$TMP/cle/TELESTRA.CFG'"
 

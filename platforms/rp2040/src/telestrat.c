@@ -162,6 +162,12 @@ void tuh_cdc_umount_cb(uint8_t idx) {
 // ni données, prise Minitel et RS232 vers le modem) ; imprimante coupée =
 // sortie jetée
 static bool modem_enabled = true;
+// Cassette (menu, TELESTRA.CFG « cassette_rapide=oui|non »,
+// « cassette_moteur=relais|toujours ») : CLOAD du BASIC 1.1 accéléré (ROM des
+// emplacements patchée, oric_tape_turbo.h) ; moteur toujours en marche
+// (câble sans relais)
+static bool tape_turbo = false;
+static bool tape_motor_always = false;
 static bool printer_enabled = true;
 
 static void modem_poll(void) {
@@ -627,6 +633,8 @@ static void menu_refresh(void) {
 #endif
         snprintf(menu.printer_file, sizeof(menu.printer_file), "%s", cfg_printer);
     menu.modem_on = modem_enabled;
+    menu.tape_turbo = tape_turbo;
+    menu.tape_motor_always = tape_motor_always;
     menu.modem_state = modem_idx < 0            ? "absent"
                        : mux.rs232              ? "prise RS232"
                        : hayes_line_carrier(&modem) ? "en ligne"
@@ -670,7 +678,8 @@ static void config_save(void) {
     const char *drives[4], *banks[8];
     for (int d = 0; d < 4; d++) drives[d] = strcmp(drive_name[d], FLASH_NAME) ? drive_name[d] : NULL;
     for (int b = 0; b < 8; b++) banks[b] = pool.name[b];
-    const size_t len = osd_config_merge_ex(old, drives, banks, printer_enabled, printer_type, modem_enabled, out, 2048);
+    const osd_options_t opt = {printer_enabled, printer_type, modem_enabled, tape_turbo, tape_motor_always};
+    const size_t len = osd_config_merge_ex(old, drives, banks, &opt, out, 2048);
     bool ok = len > 0 && f_open(&f, "TELESTRA.CFG", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
     if (ok) {
         ok = f_write(&f, out, (UINT)len, &n) == FR_OK && n == len;
@@ -694,7 +703,16 @@ static void menu_open(void) {
     menu_draw();
 }
 
+// Options de la cassette appliquées : système, BASIC 1.1 des emplacements
+// patché ou remis (aussi après chaque changement de cartouche) ; retourne le
+// nombre de BASIC 1.1 trouvés
+static int tape_options_apply(void) {
+    telestrat_tape_options(&state.telestrat, tape_turbo, tape_motor_always);
+    return oric_turbo_apply_all(rom_slots, ROM_BUILTIN + ROM_EXTRA_SLOTS, tape_turbo);
+}
+
 static void menu_close(void) {
+    tape_options_apply();  // cartouches peut-être changées
     osd_open = false;
     state.telestrat.screen_dirty = true;  // l'image a servi de surface au menu
 }
@@ -759,6 +777,16 @@ static void menu_action(osd_action_t a) {
                 if (modem_idx >= 0) modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
             }
             osd_menu_message(&menu, false, modem_enabled ? "Modem activé" : "Modem coupé (ligne raccrochée)");
+            break;
+        case OSD_ACT_TAPE_TURBO:
+            tape_turbo = !tape_turbo;
+            osd_menu_message(&menu, false, oric_turbo_message(tape_turbo, tape_options_apply()));
+            break;
+        case OSD_ACT_TAPE_MOTOR:
+            tape_motor_always = !tape_motor_always;
+            tape_options_apply();
+            osd_menu_message(&menu, false, tape_motor_always ? "Moteur toujours en marche : la cassette défile dès son insertion"
+                                                             : "Moteur commandé par le relais (PB6)");
             break;
         case OSD_ACT_TAPE_INSERT:
             if (tape_insert(menu.files[a.file].name)) {
@@ -933,6 +961,7 @@ static void usb_poll(void) {
     drive_set_assign(&ds, wanted);
     for (int d = 0; d < 4; d++)
         if (ds.slot[d] >= 0) drive_insert(d, ds.names[ds.slot[d]]);
+    tape_options_apply();
     // Rebranchement : lecteurs seulement (cartouches et machine inchangées)
     if (!usb_first_mount) return;
     usb_first_mount = false;
@@ -945,6 +974,7 @@ static void usb_poll(void) {
         if (rb ? rom_pool_load_builtin(&pool, &state.telestrat, b, rb, &err) : bank_load(b, cfg_bank[b], &err)) banks = true;
         else printf("TELESTRA.CFG : %s : %s\n", cfg_bank[b], err);
     }
+    tape_options_apply();
     // Cartouches présentes dès le démarrage : TELEMON doit les inventorier
     if (banks) telestrat_cold_reset(&state.telestrat);
 }
@@ -968,6 +998,10 @@ static void read_config(void) {
             cfg_listen = atoi(line + 7);
         } else if ((v = osd_config_value(line, "impression"))) {
             printer_enabled = osd_config_yes(v, true);
+        } else if ((v = osd_config_value(line, "cassette_rapide"))) {
+            tape_turbo = osd_config_yes(v, tape_turbo);
+        } else if ((v = osd_config_value(line, "cassette_moteur"))) {
+            tape_motor_always = !strcmp(v, "toujours");
         } else if ((v = osd_config_value(line, "modem"))) {
             modem_enabled = osd_config_yes(v, true);
         } else if ((v = osd_config_value(line, "imprimante_type"))) {
