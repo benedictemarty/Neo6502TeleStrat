@@ -147,6 +147,17 @@ récapitulatif des SEP) :
 | pas de porteuse en 40 s | second `SEP $59` |
 | PRO1 DECONNEXION, perte de porteuse | `SEP $59`, `SEP $53` |
 
+**Fin de session de TELEMATIC** (observé au banc, lu dans le source) : le
+serveur termine une communication quand il reçoit `SEP $49` (touche
+Connexion/Fin, code `MNTL_CNXFI` = `$49 + $5F`) ; la perte de porteuse seule ne
+l'avertit pas (`SEP $59 $53` ignorés) : il revient alors en attente par son
+délai d'inactivité (120 s, puis « deconnexion dans 30 sec »). Comportement
+d'origine conservé.
+
+**Émulation Minitel** (APLIC 1) : FUNCT+D = XLIGNE (appel sortant), FUNCT+F =
+XDECON, RETURN = ENVOI ; les pages s'affichent en HIRES (40 x 25 cellules de
+6 x 8, jeu de caractères en `$9800`).
+
 Le délai de porteuse sert aussi TELEMON (attente `$EF47` : vide le tampon puis
 patiente 0,1 s). Reste une **hypothèse** : la cadence de sonnerie française
 1,5 s / 3,5 s (absente de la STUM, qui ne traite pas l'appel entrant).

@@ -64,15 +64,25 @@ Puis : « 44 Ko libres », `PRINT 6*7` → 42, `DIR` → 88 fichiers ; `SAVE` su
 copie puis, dans une nouvelle session, `LOAD`/`RUN` et `DIR` → 89 fichiers ;
 `LPRINT` → fichier imprimante.
 
-## Télématique de bout en bout — `tests/test_telematic.sh` (6 vérifications)
+## Télématique de bout en bout — `tests/test_telematic.sh` (7 vérifications)
 
 Configuration standard (TELEMATIC en banque 3), `STRATSED.DSK`, arborescence
 `DEMO` chargée, serveur lancé ; ligne `-L listen:PORT` (port libre) ; le
 correspondant `tests/minitel_client.py` appelle, attend la page, envoie ENVOI,
-raccroche. Vérifié : `ESC 9 o ESC 9 h` émis, `SEP $50 $59 $53` reçus, page
+puis Connexion/Fin (`SEP $49`), raccroche. Vérifié : `ESC 9 o ESC 9 h` émis, `SEP $50 $59 $53` reçus, page
 d'accueil (« SERVEUR REALISE ENTIEREMENT… »), réponse à ENVOI (« taper quelque
 chose avant ENVOI »), `SEP $59 $53` au raccrochage, retour à « Attente de
-communication ».
+communication » ; `ESC 9 g` (XDECON) émis à la fin de session.
+
+## Émulation Minitel en appel sortant — `tests/test_minitel_emul.sh` (4 vérifications)
+
+TELEMATIC `APLIC 1` (configuration standard, `STRATSED.DSK`) ; serveur de test
+`tests/minitel_server.py` (port libre, fichier `.pret` une fois à l'écoute) ;
+ligne `-L connect:`. FUNCT+D (`\fD` dans `-t`), puis « BONJOUR » et RETURN
+(ENVOI). Vérifié : `ESC 9 o ESC 9 h` émis, page du serveur affichée, `BONJOUR`
++ `SEP $41` reçus par le serveur, sa réponse « RECU: BONJOUR » affichée. L'écran
+de l'émulation est en HIRES : lu par `tests/hires_texte.py` dans l'image de la
+RAM (`-r`), cellule par cellule contre le jeu de caractères en `$9800`.
 
 ## Rejeu contre la référence — `tests/test_replay.sh` (2 traces)
 

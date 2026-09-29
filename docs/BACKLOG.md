@@ -39,7 +39,7 @@ HYPER-BASIC, TELE-ASS, TELEMATIC en serveur Minitel par le modem Wi-Fi.
 | US-23 | Ligne sur PicoWiFiModemUSB (Hayes, USB CDC), réglée par TELESTRA.CFG | ✅ code + 15 tests (faux modem), ⏳ essai sur carte |
 | US-24 | Aiguillage Minitel / RS232 par PA4 du VIA 2 | ✅ |
 | US-25 | Banques vides = bus flottant (TELEMATIC démarre, banques `$10`) | ✅ |
-| US-26 | Émulation Minitel (APLIC 1) en appel sortant | ⏳ ligne prête (`connect:`), scénario non testé |
+| US-26 | Émulation Minitel (APLIC 1) en appel sortant | ✅ v0.4.3 au banc (`tests/test_minitel_emul.sh`) ; carte à faire |
 
 ## Sprint 4 — v0.4.0 — « Tenir 1 MHz sur le RP2040 » ✅ (2026-09-29, mesure sans carte)
 
@@ -67,7 +67,7 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-45 | Clé USB, modem PicoWiFiModemUSB, son, manette | ⏳ matériel non branché lors de la recette |
 | US-46 | TELEMATIC serveur sur carte (ligne de recette SWD à la place du modem) | ✅ v0.4.2 : appel, pages, ENVOI, MENU, raccrochage, second appel |
 | US-47 | Bus : OE3 maintenu bas jusqu'après la descente de PHI2 (solution de la session BBC, reload dfc1584) au lieu du renvoi d'impulsion | ⏳ à évaluer sur carte |
-| US-48 | Raccrochage du correspondant : TELEMATIC ne revient en attente qu'à son délai d'inactivité (banc et carte) ; vérifier sur la documentation si un autre signal (DCD de l'ACIA ?) est attendu | ⏳ |
+| US-48 | Raccrochage du correspondant : TELEMATIC ne revient en attente qu'à son délai d'inactivité (banc et carte) ; vérifier sur la documentation si un autre signal (DCD de l'ACIA ?) est attendu | ✅ v0.4.3 : comportement d'origine — TELEMATIC termine sur `SEP $49` (Connexion/Fin), pas sur la perte de porteuse ; testé |
 
 ## Plus tard
 

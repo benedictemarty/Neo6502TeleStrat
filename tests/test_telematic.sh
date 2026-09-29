@@ -19,7 +19,9 @@ E=$(printf '\033')
 "$BIN" -c standard -0 "$TMP/a.dsk" -L "listen:$PORT" -f 15000 -w 500 \
     -t "1~~~~~~APLIC 4\n~~~~\n~~~~NDEMO$CL~~~~$E~~2\n" -T "$TMP/serie.txt" -s > "$TMP/ecran.txt" &
 PID=$!
-python3 "$(dirname "$0")/minitel_client.py" "$PORT" "$TMP/recu.bin" 60 1.0 '\E' '\X' > /dev/null
+# ENVOI, puis Connexion/Fin (SEP $49) : TELEMATIC raccroche aussitôt (XDECON,
+# $ECB7) ; puis le client coupe la ligne
+python3 "$(dirname "$0")/minitel_client.py" "$PORT" "$TMP/recu.bin" 60 1.0 '\E' '\F' '\X' > /dev/null
 wait $PID
 awk '{print $2 $3}' "$TMP/serie.txt" | tr '\n' ' ' > "$TMP/seq.txt"
 awk '$2=="TX"{print $3}' "$TMP/serie.txt" | tr '\n' ' ' > "$TMP/tx.txt"
@@ -38,7 +40,8 @@ check "XLIGNE : ESC 9 o puis ESC 9 h vers le Minitel" "grep -q '1B 39 6F 1B 39 6
 check "Minitel (STUM 1B) : SEP \$50, SEP \$59 puis SEP \$53 à la connexion" "grep -q '^13 50 13 59 13 53 ' '$TMP/rx.txt'"
 check "page d'accueil de DEMO reçue" "grep -q 'SERVEUR REALISE ENTIEREMENT' '$TMP/recu.bin'"
 check "le serveur réagit à ENVOI" "grep -q 'taper quelque chose avant ENVOI' '$TMP/recu.bin'"
-check "raccrochage du correspondant : SEP \$59 puis SEP \$53" "grep -q '13 59 13 53 \$' '$TMP/rx.txt'"
+check "Connexion/Fin du correspondant : TELEMATIC raccroche (ESC 9 g)" "grep -q '1B 39 67' '$TMP/tx.txt'"
+check "raccrochage : SEP \$59 puis SEP \$53" "grep -q '13 59 13 53 \$' '$TMP/rx.txt'"
 check "retour en attente d'appel" "grep -q 'Attente de communication' '$TMP/ecran.txt'"
 if [ "$fail" -ne 0 ]; then
     echo "--- trace série :"; head -c 400 "$TMP/seq.txt"; echo

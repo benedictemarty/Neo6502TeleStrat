@@ -6,14 +6,15 @@ du banc (telestrat_headless -L listen:PORT), attend une première page, envoie
 Usage : minitel_client.py PORT SORTIE DUREE SILENCE [TOUCHES...]
   SILENCE : secondes sans données qui marquent la fin d'une page
   TOUCHES : texte à envoyer après la première page ; \\E = ENVOI ($13 $41),
-            \\S = SOMMAIRE ($13 $46), \\R = RETOUR ($13 $42), \\X = CONNEXION/FIN
-            (le client raccroche)
+            \\S = SOMMAIRE ($13 $46), \\R = RETOUR ($13 $42), \\F = touche
+            CONNEXION/FIN ($13 $49), \\X = le client raccroche (ligne coupée)
 """
 import socket
 import sys
 import time
 
-KEYS = {"\\E": b"\x13\x41", "\\S": b"\x13\x46", "\\R": b"\x13\x42", "\\G": b"\x13\x44"}
+KEYS = {"\\E": b"\x13\x41", "\\S": b"\x13\x46", "\\R": b"\x13\x42", "\\G": b"\x13\x44",
+        "\\F": b"\x13\x49"}
 
 
 def encode(text):

@@ -15,7 +15,8 @@
 //   -w N       trames avant la frappe de -t (défaut 100)
 //   -t TEXTE   texte tapé (une touche toutes les 4 trames ; \n = RETURN ; ~, absent du
 //              clavier, ne fait qu'occuper un créneau : une pause d'une touche)
-//   -k N       trames par touche pour -t (défaut 4)
+//   -k N       trames par touche pour -t (défaut 4) ; dans -t, \\f devant un caractère :
+//              touche tapée avec FUNCT maintenue (ex. \\fD = FUNCT+D)
 //   -s         affiche l'écran texte (28 x 40 en $BB80)
 //   -b         affiche la banque courante et l'état des banques ($0200-$0207)
 //   -p FICHIER écrit l'image 240 x 224 (PPM binaire)
@@ -324,14 +325,26 @@ int main(int argc, char** argv) {
 
     size_t pos = 0, len = text ? strlen(text) : 0;
     int key_down = 0;
+    int funct = 0;
     for (int frame = 0; frame < frames; frame++) {
         if (text && frame >= wait && pos < len && ((frame - wait) % key_period) == 0) {
             int c = (unsigned char)text[pos];
+            funct = 0;
+            if (c == '\\' && pos + 1 < len && text[pos + 1] == 'f' && pos + 2 < len) {
+                // \f : touche suivante avec FUNCT maintenue (code 0x146)
+                funct = 1;
+                pos += 2;
+                c = (unsigned char)text[pos];
+            }
             if (c == '\\' && pos + 1 < len && text[pos + 1] == 'n') {
                 c = 0x0D;
                 pos++;
             } else if (c == '\n') {
                 c = 0x0D;
+            }
+            if (funct) {
+                telestrat_key_down(&sys, 0x146);
+                bench_key(frame, 1, 0x146);
             }
             telestrat_key_down(&sys, c);
             bench_key(frame, 1, c);
@@ -340,6 +353,11 @@ int main(int argc, char** argv) {
         } else if (key_down && ((frame - wait) % key_period) == key_period / 2) {
             telestrat_key_up(&sys, key_down);
             bench_key(frame, 0, key_down);
+            if (funct) {
+                telestrat_key_up(&sys, 0x146);
+                bench_key(frame, 0, 0x146);
+                funct = 0;
+            }
             key_down = 0;
         }
         current_frame = frame;

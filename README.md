@@ -128,7 +128,8 @@ connecte « appelle » le Telestrat ; `-L connect:HÔTE:PORT` : la connexion du
 Minitel émulé ouvre une connexion TCP ; `-T` trace les octets de l'ACIA.
 
 Dans `-t`, `\n` tape RETURN et `~` (absent du clavier) occupe un créneau de
-frappe, donc fait une pause ; `-k N` règle le nombre de trames par touche. Les tests disque
+frappe, donc fait une pause ; `\f` avant une touche la tape avec FUNCT
+(`\fD` : connexion de l'émulation Minitel) ; `-k N` règle le nombre de trames par touche. Les tests disque
 utilisent `STRATSED.DSK` (`STRATSED_DSK=...`, voir [docs/TESTS.md](docs/TESTS.md)).
 
 Configurations : `standard` (notice), `ram64k` (cartouche RAM 64 Ko),
