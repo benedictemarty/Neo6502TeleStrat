@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (114 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (149 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -40,6 +40,15 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   sur la prise Minitel, RING vu par `hayes_line`, octets bruts dans les deux
   sens sur la RS232 (CONNECT non interprété, pas de temporisation Hayes),
   ligne Minitel au repos, réinitialisation au retour, modem débranché ;
+- affectation des lecteurs au démarrage (`drive_set.h`) : première image en
+  A, `b=`/`d=` sans casse, nom inconnu ignoré, image demandée deux fois ;
+- cartouche changée à chaud (`telestrat_set_bank_rom`), lecture seule,
+  contenu d'origine rendu (ROM, RAM), banque courante vidée ;
+- menu (`src/osd`) : UTF-8 vers la police, rendu d'une ligne (encre, fond
+  tramé en damier, grandes lettres), navigation (Échap, Entrée, lettre,
+  Suppr, gauche/droite, boutons, défilement), sélecteurs filtrés (.dsk / .rom),
+  image déjà dans un autre lecteur signalée ; `.rom` répétée, tailles
+  refusées, fusion de `TELESTRA.CFG` ;
 - banque vide instable (bus flottant) ;
 - rendu de l'écran identique au rendu d'origine (copie d'oric_screen_update)
   sur 600 écrans aléatoires : texte, HIRES, attributs série, double hauteur,
@@ -103,6 +112,22 @@ lettres doublées se perdent) :
 | `SOUT 65:SOUT 66`, puis `SSAVE "ESSAI",A#9000,E#9010` d'un bloc « ABCDEFGHIJKLMNOP » | « AB » reçu ; en-tête : 50 x `$16`, `$24`, « ESSAI » ; données du bloc |
 | `SOUT 33:SLOAD` (le correspondant renvoie le fichier au « ! »), puis lecture de `#9000` | nom « ESSAI    COM » affiché ; mémoire restituée |
 | `CONSOLE`, « HELLO » tapé | « HELLO » reçu ; réponse « SALUT » affichée |
+
+## Menu et clé USB — `tests/test_menu.sh` (9 vérifications)
+
+Un répertoire tient lieu de clé (`-U`) : `STRATSED.DSK`, `hyperbas.rom`,
+`teleass.rom`, une `.rom` de 1000 octets. Configuration `telemon` (TELEMON
+seul) :
+
+| Étape | Vérifié |
+|---|---|
+| menu (`-M 400:heSerdeHezueue`) : STRATSED en A, hyperbas.rom en banque 6, Enregistrer, RESET | messages du menu ; « 32 Ko ROM », STRATSED V2.0c et HYPER BASIC V2.0b après le RESET (à froid) ; `TELESTRA.CFG` = `a=`, `bank6=` |
+| démarrage suivant sans menu (plus `bank2=teleass.rom`) | « 48 Ko ROM », TELEASS ; `SAVE "MENUOK"` réécrit dans le fichier de la clé |
+| `.rom` de 1000 octets en banque 5, image du menu (`-O`) | « taille invalide » ; PPM 960 x 544 |
+
+## Coût du menu sur le cœur 1 — `make charge-menu`
+
+Voir docs/PERFORMANCE.md (non inclus dans `make test` : unicorn et capstone).
 
 ## Rejeu contre la référence — `tests/test_replay.sh` (2 traces)
 

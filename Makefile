@@ -16,7 +16,7 @@ CPPFLAGS += -Isrc -I$(RELOAD_DIR)/src
 
 BUILD := build
 ROMS_H := src/roms/telestrat_roms.h
-HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h src/devices/hayes_line.h
+HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h
 
 all: test
 
@@ -46,6 +46,7 @@ test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_hea
 	sh tests/test_telematic.sh $(BUILD)/telestrat_headless
 	sh tests/test_minitel_emul.sh $(BUILD)/telestrat_headless
 	sh tests/test_rs232.sh $(BUILD)/telestrat_headless
+	sh tests/test_menu.sh $(BUILD)/telestrat_headless
 	sh tests/test_replay.sh $(BUILD)/telestrat_headless_ref $(BUILD)/replay
 
 uf2: $(ROMS_H)
@@ -72,4 +73,9 @@ charge: $(BUILD)/telestrat_headless uf2
 	$(PYTHON) tools/rp2040_load.py $(BUILD)/rp2040/telestrat_bench.elf $(BUILD)/rp2040/telestrat.elf \
 	    $(BUILD)/charge --disk $(BUILD)/charge.dsk --every 10
 
-.PHONY: charge
+# Coût d'une ligne affichée par le cœur 1 : menu contre image (même émulateur)
+charge-menu: uf2
+	$(MAKE) -C $(BUILD)/rp2040 telestrat_osd_bench
+	$(PYTHON) tools/osd_cost.py $(BUILD)/rp2040/telestrat_osd_bench.elf
+
+.PHONY: charge charge-menu

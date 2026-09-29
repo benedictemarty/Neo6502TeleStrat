@@ -19,3 +19,7 @@
 | `~/picowifi/PicoWiFiModemUSB/README.md` | commandes AT du modem (`ATA`, `ATS0`, `AT$SP`, RING) |
 | `~/Neo6502NeoTel` | branchement du PicoWiFiModemUSB (USB CDC) sur le Neo6502 |
 | `~/Téléchargements/telestrat_*.pdf` (schémas de la carte mère, « Telestrat à cœur ouvert », « Système ») | à exploiter aux sprints 2-3 (FDC, ACIA) |
+| `olimex_neo6502.h` du pico-sdk ; `serial.cpp` du firmware officiel du Neo6502 (Paul Robson) | UART0 de l'UEXT : TX GPIO 28, RX GPIO 29 |
+| `hid_app.c` et `msc_app.c` de reload-emulator | codes des touches (ASCII, sinon code HID \| 0x100) ; montage de la clé (FatFs, LUN 0) |
+| `dvi_timing.c` de PicoDVI | 960x544 : 1104 pixels par ligne à 37,2 MHz (budget d'une ligne de tampon : 59,35 µs) |
+| Police du menu (`tools/gen_osd_font.py`) | dessin original du projet (aucune police tierce) |

@@ -86,9 +86,25 @@ seule), insérée dans le lecteur A tant qu'aucune clé ne fournit de `.dsk`.
 
 ## Utilisation (Neo6502)
 
-Copier des images `.dsk` (format `MFM_DISK`, comme pour Oricutron) à la racine
-d'une clé USB (FAT) : la première est insérée dans le lecteur A dès le montage,
-et les écritures (`SAVE`…) sont réécrites dans le fichier, piste par piste.
+**Clé USB** : stockage de masse (FAT12/16/32 ou exFAT, noms longs), lu par
+le RP2040 ; le Telestrat ne la voit pas directement mais par ce qu'on y prend
+à la racine :
+
+- images `.dsk` (format `MFM_DISK`, comme pour Oricutron) : disquettes des
+  lecteurs A à D, lues et réécrites piste par piste (`SAVE`… modifie le
+  fichier) ; au montage, la première va dans A ;
+- images `.rom` de 16 Ko (ou 8, 4, 2, 1 Ko, répétées) : cartouches, copiées en
+  RAM dans une banque (deux à la fois ; aucune avec la variante RAM 64 Ko).
+
+**Menu (F1)** : disquettes des lecteurs A à D, cartouches des banques 7 à 1
+(une `.rom` de la clé ou le contenu d'origine), Redémarrer (à froid, pour que
+TELEMON inventorie les cartouches), Enregistrer la configuration dans
+`TELESTRA.CFG`, Reprendre. L'émulation est en pause tant qu'il est ouvert.
+Flèches, Entrée, Suppr (éjecter / contenu d'origine), une lettre (aller au
+fichier), Échap. **Pas encore essayé sur carte** (aperçus du banc PC) :
+
+![Menu](docs/images/menu.png)
+![Choix d'une disquette](docs/images/menu_disquettes.png)
 
 **Télématique** : brancher un PicoWiFiModemUSB (modem Hayes USB, Wi-Fi) sur le
 port USB hôte — avec un concentrateur s'il faut aussi le clavier et la clé. Un
@@ -98,6 +114,8 @@ fichier `TELESTRA.CFG` facultatif à la racine de la clé règle la ligne :
 listen=3615            # port TCP où le modem attend les appels (AT$SP) : serveur TELEMATIC
 dial=hôte:port         # composé par ATD quand le Minitel émulé se connecte
 rs232=usb              # prise RS232 : modem USB (défaut) ou uext
+a=STRATSED.DSK         # lecteurs A à D (a= … d=), écrits par le menu
+bank5=orix.rom         # cartouches de la clé (bank1= … bank7=), écrites par le menu
 ```
 
 Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour
@@ -118,7 +136,7 @@ sinon sur cet UART, n'y passent plus. **Pas encore essayé sur carte.**
 
 | Touche | Effet |
 |---|---|
-| F1 | image suivante de la clé dans le lecteur A |
+| F1 | menu : disquettes, cartouches, RESET, configuration |
 | F12 | RESET |
 | F11 | NMI |
 | Windows gauche | FUNCT |
@@ -133,6 +151,17 @@ build/telestrat_headless -c ram64k -p boot.ppm        # image 240x224
 build/telestrat_headless -c oricutron -0 STRATSED.DSK -f 1200 -w 500 -t '1~~~~~~DIR\n' -s
 build/telestrat_headless -0 a.dsk -W a2.dsk -P imprimante.txt ...   # disque réécrit, imprimante
 build/telestrat_headless -c standard -0 a.dsk -L listen:3615 -R ...  # ligne Minitel sur TCP, temps réel
+```
+
+Menu au banc : `-U RÉP` fait d'un répertoire la clé USB (`.dsk`, `.rom`,
+`TELESTRA.CFG` appliqué au démarrage) ; `-M T:TOUCHES` ouvre le menu à la
+trame T et y tape des touches (`u d l r` flèches, `e` Entrée, `x` Échap, `s`
+Suppr, `h`/`z` début/fin, majuscule = initiale) ; `-O menu.ppm` en fait une
+image 960 x 544. Exemple (STRATSED en A, TELE-ASS de la clé en banque 5,
+RESET) :
+
+```sh
+build/telestrat_headless -U cle -M '400:heSerddeTezuue' -O menu.ppm -f 1600 -s
 ```
 
 `-S listen:PORT` ou `-S connect:HÔTE:PORT` relie la prise RS232 (PA4 = 1) à

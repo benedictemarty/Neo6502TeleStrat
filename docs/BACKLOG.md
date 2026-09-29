@@ -77,6 +77,18 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-51 | Prise RS232 du Neo6502 sur l'UART0 de l'UEXT, au format programmé dans l'ACIA (`rs232=uext`) | ✅ code + tests du format, ⏳ essai sur carte |
 | US-52 | Prise RS232 vers le PicoWiFiModemUSB (défaut), partagé avec la prise Minitel selon PA4 (`modem_mux.h`) | ✅ v0.5.1 code + 13 tests, ⏳ essai sur carte |
 
+## Sprint 6 — v0.6.0 — « Menu : disquettes et cartouches » ✅ au banc (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-60 | Menu à l'écran (F1), moderne : police originale, panneaux tramés, sélecteur de fichiers | ✅ banc PC (captures), ⏳ carte |
+| US-61 | Disquettes des lecteurs A à D depuis la clé, noms longs, une image par lecteur | ✅ banc, ⏳ carte |
+| US-62 | Cartouches `.rom` de la clé dans les banques (deux emplacements en RAM), contenu d'origine | ✅ banc, ⏳ carte |
+| US-63 | `TELESTRA.CFG` : `a=` … `d=`, `bank1=` … `bank7=` appliqués au montage, écrits par le menu | ✅ banc, ⏳ carte |
+| US-64 | RESET à froid (TELEMON n'inventorie les cartouches qu'à froid) | ✅ |
+| US-65 | Banc : `-U` (répertoire = clé), `-M` (touches du menu), `-O` (image du menu) ; `tests/test_menu.sh` | ✅ 9/9 |
+| US-66 | Coût du menu sur le cœur 1 mesuré sans carte (`make charge-menu`) | ✅ ≈ 48 µs sur 59,35 (estimation) |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
@@ -84,7 +96,12 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
   `CONSOLE`), puis retour à TELEMATIC ; en option l'UEXT.
 - Vérifier sur matériel la cadence de sonnerie (seule hypothèse Minitel restante).
 - Essai croisé sur carte : TELEMATIC (Neo6502TeleStrat) appelé par NeoTel sur un second Neo6502.
-- Images disque intégrées en flash (lecture seule), lecteurs B à D depuis la clé.
+- Menu sur carte : rendu (temps du cœur 1), clavier, clé, cartouches.
+- TELEMON + HYPER-BASIC seuls : le démarrage sur STRATSED s'arrête après la
+  liste des ROM (observé au banc, non expliqué ; comparer à Oricutron).
+- Clé retirée puis rebranchée : non gérée (montage au premier branchement).
+- RAM du firmware standard presque pleine (≈ 0,5 Ko + tas) : ROM intégrées en
+  flash ? (coût des lectures de banque à mesurer).
 - Imprimante vers l'UART ou la clé USB sur le Neo6502.
 - Instantanés (savestates), sélecteur de ROM au démarrage.
 - Test « golden » image contre Oricutron (PPM), ROM ORIX.

@@ -102,6 +102,23 @@ Profil (reload de travail, même ordre de grandeur) :
 | ACIA (tick + rappel de réception à vide) | 5 % |
 | sonnerie (`set_cb1`), clavier, FDC, AY | 1 à 2 % chacun |
 
+## Menu (sprint 6) : coût d'une ligne sur le cœur 1 (`make charge-menu`)
+
+`tools/osd_cost.py` exécute `telestrat_osd_bench` dans le même émulateur
+Cortex-M0+ (mêmes hypothèses) : une ligne du menu contre une ligne de l'image.
+
+| Ligne de tampon | Cycles (moyenne / pire) | à 372 MHz |
+|---|---|---|
+| image du Telestrat (`telestrat_video_line`) | 4 769 / 4 769 | 12,8 µs |
+| menu (`osd_render_line`) | 8 637 / 9 623 | 23,2 / 25,9 µs |
+
+Budget : une ligne de tampon toutes les 59,35 µs (1104 pixels à 37,2 MHz =
+29,68 µs par ligne de sortie, deux lignes par tampon). Sur carte, la ligne de
+l'image coûte 35 µs, encodage TMDS compris (v0.4.1) ; avec le menu,
+**estimation** 35 − 12,8 + 25,9 ≈ 48 µs, soit 81 % du budget. Première
+version (masques par attribut en branchements) : 2,4 fois l'image sur PC ;
+tables de masques + multiplication : 1,6 fois. À mesurer sur carte.
+
 ## Limites du modèle
 
 - Optimiste : aucune contention SRAM avec le cœur 1 (DVI) et le DMA ; code

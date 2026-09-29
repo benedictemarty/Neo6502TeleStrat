@@ -149,6 +149,10 @@ typedef struct {
     telestrat_bank_type_t bank_type[TELESTRAT_NUM_BANKS];
     const uint8_t* bank_rd[TELESTRAT_NUM_BANKS];
     uint8_t* bank_wr[TELESTRAT_NUM_BANKS];
+    // Contenu d'origine (descripteur), pour telestrat_restore_bank
+    telestrat_bank_type_t bank_type_orig[TELESTRAT_NUM_BANKS];
+    const uint8_t* bank_rd_orig[TELESTRAT_NUM_BANKS];
+    uint8_t* bank_wr_orig[TELESTRAT_NUM_BANKS];
     uint8_t bank;  // banque visible en $C000-$FFFF
 
     uint8_t joy[2];  // [0] = port droit (PB7), [1] = port gauche (PB6)
@@ -181,6 +185,10 @@ typedef struct {
 void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc);
 void telestrat_discard(telestrat_t* sys);
 void telestrat_reset(telestrat_t* sys);
+// Démarrage à froid (mise sous tension) : RAM effacée puis RESET. TELEMON ne
+// refait l'inventaire des banques (cartouches) qu'à froid : sur un RESET à
+// chaud il affiche seulement « Logiciel ecrit par Fabrice BROCHE » (observé).
+void telestrat_cold_reset(telestrat_t* sys);
 void telestrat_nmi(telestrat_t* sys);
 void telestrat_tick(telestrat_t* sys);
 uint32_t telestrat_exec(telestrat_t* sys, uint32_t micro_seconds);
@@ -230,6 +238,10 @@ void telestrat_key_up(telestrat_t* sys, int key_code);
 void telestrat_kbd_update(telestrat_t* sys, uint32_t micro_seconds);
 // Prise sélectionnée pour l'ACIA (PA4 du VIA 2)
 bool telestrat_serial_is_rs232(telestrat_t* sys);
+// Cartouche changée à chaud (menu) : ROM de 16 Ko en lecture seule, NULL =
+// banque vide ; telestrat_restore_bank remet le contenu du descripteur
+void telestrat_set_bank_rom(telestrat_t* sys, int bank, const uint8_t* rom);
+void telestrat_restore_bank(telestrat_t* sys, int bank);
 // Insère une image MFM_DISK dans le lecteur 0..3 (false si invalide)
 bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect);
 // Lecture « système » (sans effet de bord sur les E/S) pour les tests
@@ -284,6 +296,22 @@ void telestrat_select_bank(telestrat_t* sys, uint8_t bank) {
 
 // PA4 du VIA 2 : prise RS232 (1) ou Minitel (0)
 bool telestrat_serial_is_rs232(telestrat_t* sys) { return (mos6522via_get_pa(&sys->via2) & 0x10) != 0; }
+
+void telestrat_set_bank_rom(telestrat_t* sys, int bank, const uint8_t* rom) {
+    if (bank < 0 || bank >= TELESTRAT_NUM_BANKS) return;
+    sys->bank_type[bank] = rom ? TELESTRAT_BANK_ROM : TELESTRAT_BANK_EMPTY;
+    sys->bank_rd[bank] = rom;
+    sys->bank_wr[bank] = NULL;
+    if (bank == sys->bank) telestrat_select_bank(sys, bank);
+}
+
+void telestrat_restore_bank(telestrat_t* sys, int bank) {
+    if (bank < 0 || bank >= TELESTRAT_NUM_BANKS) return;
+    sys->bank_type[bank] = sys->bank_type_orig[bank];
+    sys->bank_rd[bank] = sys->bank_rd_orig[bank];
+    sys->bank_wr[bank] = sys->bank_wr_orig[bank];
+    if (bank == sys->bank) telestrat_select_bank(sys, bank);
+}
 
 static void _telestrat_serial_tx(uint8_t data, void* user_data) {
     telestrat_t* sys = (telestrat_t*)user_data;
@@ -346,6 +374,11 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
         }
     }
 
+    for (int i = 0; i < TELESTRAT_NUM_BANKS; i++) {
+        sys->bank_type_orig[i] = sys->bank_type[i];
+        sys->bank_rd_orig[i] = sys->bank_rd[i];
+        sys->bank_wr_orig[i] = sys->bank_wr[i];
+    }
     telestrat_select_bank(sys, TELESTRAT_BOOT_BANK);
 
     _telestrat_init_key_map(sys);
@@ -372,6 +405,12 @@ void telestrat_discard(telestrat_t* sys) {
 void telestrat_nmi(telestrat_t* sys) {
     CHIPS_ASSERT(sys && sys->valid);
     MOS6502CPU_NMI(&sys->cpu);
+}
+
+void telestrat_cold_reset(telestrat_t* sys) {
+    memset(sys->ram, 0, sizeof(sys->ram));
+    memset(sys->bank_ram, 0, sizeof(sys->bank_ram));
+    telestrat_reset(sys);
 }
 
 void telestrat_reset(telestrat_t* sys) {

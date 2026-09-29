@@ -53,6 +53,10 @@ target_include_directories(telestrat PRIVATE
 target_compile_options(telestrat PRIVATE -Wall)
 option(TELESTRAT_VIDEO_480 "800x480 à 295,2 MHz (1,20 V) au lieu de 960x544 à 372 MHz (1,30 V)" OFF)
 
+# Version affichée par le menu (fichier VERSION du dépôt)
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION TELESTRAT_VER LIMIT_COUNT 1)
+target_compile_definitions(telestrat PRIVATE TELESTRAT_VERSION="v${TELESTRAT_VER}")
+
 option(TELESTRAT_RS232_UART "prise RS232 possible sur l'UART0 de l'UEXT (TELESTRA.CFG rs232=uext)" ON)
 
 target_compile_definitions(telestrat PRIVATE
@@ -119,3 +123,12 @@ pico_set_float_implementation(telestrat_bench compiler)
 pico_set_double_implementation(telestrat_bench compiler)
 pico_set_mem_ops_implementation(telestrat_bench compiler)
 pico_enable_stdio_uart(telestrat_bench 0)
+
+# Coût d'une ligne affichée par le cœur 1 (tools/osd_cost.py) : menu contre
+# image du Telestrat, exécuté dans le même émulateur Cortex-M0+
+add_executable(telestrat_osd_bench EXCLUDE_FROM_ALL ${CMAKE_CURRENT_SOURCE_DIR}/bench/osd_bench.c)
+target_include_directories(telestrat_osd_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_options(telestrat_osd_bench PRIVATE -Wall -g)
+target_link_libraries(telestrat_osd_bench pico_stdlib)
+pico_set_mem_ops_implementation(telestrat_osd_bench compiler)
+pico_enable_stdio_uart(telestrat_osd_bench 0)

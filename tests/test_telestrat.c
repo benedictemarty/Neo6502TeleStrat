@@ -24,6 +24,9 @@
 #include "devices/minitel_port.h"
 #include "devices/hayes_line.h"
 #include "devices/modem_mux.h"
+#include "devices/drive_set.h"
+#include "osd/osd_menu.h"
+#include "osd/osd_config.h"
 #include "systems/telestrat.h"
 #include "telestrat_video.h"
 
@@ -71,6 +74,27 @@ static void test_reset_bank(void) {
     CHECK(sys.bank == 7, "banque au RESET = %d (attendu 7)", sys.bank);
     run(100);
     CHECK(sys.bank == 7, "banque après exécution = %d", sys.bank);
+}
+
+// Cartouche changée à chaud par le menu, puis contenu d'origine
+static void test_bank_hot_swap(void) {
+    const uint8_t prog[] = {0x4C, 0x00, 0xC0};
+    load_program(prog, sizeof(prog));
+    boot();
+    static uint8_t cart[0x4000];
+    memset(cart, 0x42, sizeof(cart));
+    telestrat_set_bank_rom(&sys, 5, cart);
+    telestrat_select_bank(&sys, 5);
+    CHECK(telestrat_peek(&sys, 0xC000) == 0x42 && sys.bank_wr[5] == NULL, "cartouche en banque 5, lecture seule");
+    telestrat_set_bank_rom(&sys, 6, cart);
+    telestrat_restore_bank(&sys, 6);
+    CHECK(sys.bank_rd[6] == rom6, "banque 6 : HYPER-BASIC d'origine rendu");
+    telestrat_set_bank_rom(&sys, 1, cart);
+    telestrat_restore_bank(&sys, 1);
+    CHECK(sys.bank_type[1] == TELESTRAT_BANK_RAM && sys.bank_wr[1] != NULL, "banque 1 : RAM d'origine rendue");
+    telestrat_restore_bank(&sys, 5);
+    CHECK(sys.rd_cur == NULL, "banque courante vidée : bus flottant");
+    telestrat_select_bank(&sys, 7);
 }
 
 static void test_bank_switch_and_ram(void) {
@@ -775,6 +799,150 @@ static void test_modem_mux(void) {
     CHECK(modem_out_n == 0, "modem débranché : rien n'est écrit");
 }
 
+// --- Images de la clé dans les lecteurs A à D (drive_set.h) ---------------------
+static void test_drive_set(void) {
+    drive_set_t s;
+    drive_set_init(&s);
+    const char* none[4] = {NULL, NULL, NULL, NULL};
+    drive_set_assign(&s, none);
+    CHECK(s.slot[0] == -1, "clé sans image : lecteur A vide");
+    drive_set_add(&s, "STRATSED.DSK");
+    drive_set_add(&s, "TELEDIS.DSK");
+    drive_set_add(&s, "JEUX.DSK");
+    drive_set_assign(&s, none);
+    CHECK(s.slot[0] == 0 && s.slot[1] == -1 && s.slot[2] == -1 && s.slot[3] == -1, "sans réglage : 1re image en A seule");
+    const char* cfg[4] = {"", "jeux.dsk", "INCONNU.DSK", "Teledis.dsk"};
+    drive_set_assign(&s, cfg);
+    CHECK(s.slot[0] == 0 && s.slot[1] == 2 && s.slot[2] == -1 && s.slot[3] == 1,
+          "b= et d= (casse ignorée), nom inconnu ignoré : %d %d %d %d", s.slot[0], s.slot[1], s.slot[2], s.slot[3]);
+    const char* cfg2[4] = {"JEUX.DSK", "JEUX.DSK", NULL, NULL};
+    drive_set_assign(&s, cfg2);
+    CHECK(s.slot[0] == 2 && s.slot[1] == -1, "même image demandée deux fois : seul le 1er lecteur l'a");
+}
+
+// --- Menu (OSD) : texte, rendu d'une ligne, navigation ---------------------------
+static osd_surface_t osd_s;
+static osd_menu_t osd_m;
+
+static void test_osd_render(void) {
+    const char* p = "é—x\xC3";
+    CHECK(osd_next_char(&p) == 0xE9 && osd_next_char(&p) == OSD_EMDASH && osd_next_char(&p) == 'x',
+          "UTF-8 : é en Latin-1, tiret cadratin, ASCII");
+    CHECK(osd_strlen("Clé") == 3, "longueur en cellules d'une chaîne accentuée");
+    uint32_t r[OSD_WIDTH / 32], g[OSD_WIDTH / 32], b[OSD_WIDTH / 32];
+    osd_clear(&osd_s, OSD_ATTR(OSD_WHITE, OSD_BLACK));
+    osd_putc(&osd_s, 0, 0, 'A', OSD_ATTR(OSD_WHITE, OSD_BLACK));
+    osd_putc(&osd_s, 0, 1, 'A', OSD_ATTR(OSD_RED, OSD_BLACK));
+    osd_render_line(&osd_s, 1, r, g, b);
+    const uint32_t a1 = osd_font['A'][1];
+    CHECK(r[0] == (a1 | a1 << 8) && g[0] == a1 && b[0] == a1, "encre blanche puis rouge (ligne 1 de A)");
+    // Fond tramé bleu : un pixel sur deux, alterné d'une ligne à l'autre
+    osd_fill(&osd_s, 1, 0, 1, OSD_COLS, OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER));
+    osd_render_line(&osd_s, 8, r, g, b);
+    uint32_t r2[OSD_WIDTH / 32], g2[OSD_WIDTH / 32], b2[OSD_WIDTH / 32];
+    osd_render_line(&osd_s, 9, r2, g2, b2);
+    CHECK(b[0] == 0x55555555u && b2[0] == 0xAAAAAAAAu && r[0] == 0 && g2[5] == 0, "fond tramé : damier bleu");
+    // Grandes lettres : chaque pixel doublé sur deux cellules
+    osd_clear(&osd_s, OSD_ATTR(OSD_WHITE, OSD_BLACK));
+    osd_puts_big(&osd_s, 0, 0, "T", OSD_ATTR(OSD_WHITE, OSD_BLACK));
+    osd_render_line(&osd_s, 1, r, g, b);
+    const uint16_t wide = _osd_widen(osd_font['T'][1]);
+    CHECK((r[0] & 0xFFFF) == wide, "grande lettre : T élargi (%04X / %04X)", (unsigned)(r[0] & 0xFFFF), wide);
+}
+
+static void test_osd_config(void) {
+    static uint8_t bank[OSD_BANK_BYTES], img[0x2000];
+    for (int i = 0; i < 0x2000; i++) img[i] = (uint8_t)i;
+    CHECK(osd_rom_fill(bank, img, 0x2000) && bank[0x2005] == 5 && bank[0x3FFF] == 0xFF && bank[0x0005] == 5,
+          ".rom de 8 Ko répétée dans la banque");
+    CHECK(!osd_rom_fill(bank, img, 0x1234) && !osd_rom_size_ok(0x8000), "taille refusée (0x1234, 32 Ko)");
+    CHECK(osd_config_value("bank5=ORIX.ROM", "bank5") && !strcmp(osd_config_value("bank5=ORIX.ROM", "bank5"), "ORIX.ROM") &&
+              !osd_config_value("bank51=X", "bank5") && !osd_config_value("a=X", "b"),
+          "lecture d'une clé de réglage");
+    const char* old = "dial=go.minipavi.fr:516\r\na=VIEUX.DSK\nlisten=3615\nbank3=OLD.ROM\n\nrs232=uext";
+    const char* drives[4] = {"STRATSED.DSK", NULL, "", "Jeux 1987.dsk"};
+    const char* banks[8] = {NULL, NULL, NULL, NULL, NULL, "orix.rom", NULL, NULL};
+    char out[512];
+    size_t n = osd_config_merge(old, drives, banks, out, sizeof(out));
+    CHECK(n == strlen(out) && !strcmp(out, "dial=go.minipavi.fr:516\nlisten=3615\nrs232=uext\na=STRATSED.DSK\n"
+                                           "d=Jeux 1987.dsk\nbank5=orix.rom\n"),
+          "TELESTRA.CFG fusionné :\n%s", out);
+    CHECK(osd_config_merge(old, drives, banks, out, 20) == 0, "tampon trop petit : 0");
+}
+
+static void osd_sample(void) {
+    osd_menu_init(&osd_m);
+    strcpy(osd_m.drive[0], "STRATSED.DSK");
+    strcpy(osd_m.bank[6], "HYPER-BASIC");
+    osd_m.bank_kind[6] = OSD_BANK_ROM;
+    const char* names[5] = {"JEUX.DSK", "forth.rom", "STRATSED.DSK", "Demo.dsk", "orix.rom"};
+    for (int i = 0; i < 5; i++) {
+        strcpy(osd_m.files[i].name, names[i]);
+        osd_m.files[i].kind = strstr(names[i], ".rom") ? OSD_FILE_ROM : OSD_FILE_DSK;
+    }
+    osd_m.nfiles = 5;
+    osd_m.usb_present = true;
+}
+
+static void test_osd_menu(void) {
+    osd_sample();
+    osd_action_t a = osd_menu_key(&osd_m, OSD_KEY_ESC);
+    CHECK(osd_m.cursor == OSD_ITEM_RESUME && a.type == OSD_ACT_RESUME, "ouverture sur « Reprendre », Échap reprend");
+    osd_menu_key(&osd_m, OSD_KEY_HOME);
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_count == 3,
+          "lecteur A : sélecteur des seules .dsk (%d)", osd_m.browse_count);
+    CHECK(osd_m.browse_cursor == 2, "curseur sur l'image en place (STRATSED.DSK)");
+    osd_menu_key(&osd_m, 'd');
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_INSERT && a.target == 0 && a.file == 3 && osd_m.page == OSD_PAGE_MAIN,
+          "lettre d puis Entrée : Demo.dsk dans A (%d %d %d)", a.type, a.target, a.file);
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    a = osd_menu_key(&osd_m, OSD_KEY_DEL);
+    CHECK(a.type == OSD_ACT_EJECT && a.target == 1, "Suppr sur B : éjecter");
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    osd_menu_key(&osd_m, OSD_KEY_HOME);
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_EJECT && a.target == 1, "sélecteur : 1re ligne = éjecter");
+    osd_menu_key(&osd_m, OSD_KEY_RIGHT);
+    CHECK(osd_m.cursor == OSD_ITEM_BANK7 + 1, "droite depuis B : banque 6 (%d)", osd_m.cursor);
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(osd_m.browse_count == 2, "banque : sélecteur des seules .rom");
+    osd_menu_key(&osd_m, OSD_KEY_UP);
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_LOAD_ROM && a.target == 6 && a.file == 4, "haut (bouclage) puis Entrée : orix.rom en banque 6");
+    a = osd_menu_key(&osd_m, OSD_KEY_DEL);
+    CHECK(a.type == OSD_ACT_RESTORE && a.target == 6, "Suppr sur une banque : contenu d'origine");
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    a = osd_menu_key(&osd_m, OSD_KEY_ESC);
+    CHECK(a.type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_MAIN, "Échap dans le sélecteur : retour sans action");
+    osd_m.cursor = OSD_ITEM_RESET;
+    CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_RESET, "bouton RESET");
+    osd_menu_key(&osd_m, OSD_KEY_RIGHT);
+    CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_SAVE, "bouton Enregistrer");
+    osd_menu_key(&osd_m, OSD_KEY_LEFT);
+    osd_menu_key(&osd_m, OSD_KEY_LEFT);
+    CHECK(osd_m.cursor == OSD_ITEM_RESET, "gauche dans les boutons");
+    // Sélecteur long : défilement
+    for (int i = 0; i < 40; i++) {
+        snprintf(osd_m.files[i].name, OSD_NAME_LEN, "IMG%02d.DSK", i);
+        osd_m.files[i].kind = OSD_FILE_DSK;
+    }
+    osd_m.nfiles = 40;
+    osd_m.cursor = 0;
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    osd_menu_key(&osd_m, OSD_KEY_END);
+    CHECK(osd_m.browse_cursor == 40 && osd_m.browse_scroll == 41 - OSD_BROWSE_VISIBLE, "Fin : défilement (%d)",
+          osd_m.browse_scroll);
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(osd_s.ch[7 + OSD_BROWSE_VISIBLE][OSD_COLS / 2] != 0, "dessin du sélecteur défilé");
+    // Image déjà dans le lecteur B : marquée « en B » dans le sélecteur de A
+    strcpy(osd_m.drive[1], "IMG00.DSK");
+    osd_menu_key(&osd_m, OSD_KEY_HOME);
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(!memcmp(&osd_s.ch[9][22 + 76 - 18], "en B", 4), "image déjà en B signalée");
+}
+
 // --- Rendu de l'écran : identique au rendu d'origine (oric.h) -----------------
 // Copie exacte de l'ancien telestrat_screen_update (oric_screen_update de
 // reload), comme référence
@@ -904,6 +1072,7 @@ static void test_acia(void) {
 
 int main(void) {
     test_reset_bank();
+    test_bank_hot_swap();
     test_bank_switch_and_ram();
     test_bank_ddr_keeps_inputs();
     test_fdc_no_disk();
@@ -918,6 +1087,10 @@ int main(void) {
     test_minitel_port();
     test_hayes_line();
     test_modem_mux();
+    test_drive_set();
+    test_osd_render();
+    test_osd_menu();
+    test_osd_config();
     printf("test_telestrat : %d/%d vérifications réussies\n", checks - failures, checks);
     return failures ? 1 : 0;
 }

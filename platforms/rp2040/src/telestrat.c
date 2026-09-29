@@ -4,9 +4,9 @@
 // émule VIA 1 et 2, AY-3-8912, Microdisc intégré, ACIA et vidéo ULA (DVI).
 // Dérivé de platforms/rp2040/systems/oric/src/oric.c de reload-emulator.
 //
-// Disquettes : fichiers .dsk (MFM_DISK) à la racine d'une clé USB (FAT),
-// lus et écrits piste par piste (wd1793_insert_streamed) ; la première image
-// est insérée dans le lecteur A dès que la clé est montée.
+// Clé USB (FAT/exFAT) : images .dsk (MFM_DISK) dans les lecteurs A à D, lues
+// et écrites piste par piste (wd1793_insert_streamed), images .rom en banque
+// (cartouches, en RAM) ; menu à l'écran (F1, src/osd) et TELESTRA.CFG.
 //
 // Télématique : un PicoWiFiModemUSB (modem Hayes en USB CDC) sert de ligne au
 // Minitel émulé sur la prise de l'ACIA (devices/minitel_port.h) : appels
@@ -14,7 +14,7 @@
 // sortants (ATD, émulation Minitel). Réglages facultatifs dans TELESTRA.CFG à
 // la racine de la clé : « dial=hôte:port » et « listen=port ».
 //
-// Touches : F1 = image suivante dans le lecteur A, F11 = NMI, F12 = RESET,
+// Touches : F1 = menu (disquettes, cartouches), F11 = NMI, F12 = RESET,
 // Windows gauche = FUNCT, Pause = retour au firmware Neo6502 (multi-boot).
 // Manette USB = joystick droit (la 2e : joystick gauche).
 //
@@ -80,6 +80,11 @@ volatile uint32_t diag_io_n;
 #include "devices/minitel_port.h"
 #include "devices/hayes_line.h"
 #include "devices/modem_mux.h"
+#include "devices/drive_set.h"
+// Police du menu en RAM : lue par le cœur 1 à chaque ligne affichée
+#define OSD_FONT_SECTION __attribute__((section(".time_critical.osd_font")))
+#include "osd/osd_menu.h"
+#include "osd/osd_config.h"
 #include "systems/telestrat.h"
 
 #include "hardware/clocks.h"
@@ -257,15 +262,33 @@ static telestrat_desc_t telestrat_desc(void) {
     return d;
 }
 
-/*-- Disquettes sur clé USB -------------------------------------------------*/
+/*-- Clé USB : disquettes, cartouches, menu (F1) ------------------------------*/
+// La clé (stockage de masse USB, FAT/exFAT, monté par msc_app.c de reload)
+// n'est pas vue par le Telestrat : ses images .dsk vont dans les lecteurs A à
+// D du Microdisc (lues et écrites piste par piste), ses images .rom dans les
+// banques (cartouches, copiées en RAM). Réglages dans TELESTRA.CFG : a= … d=,
+// bank1= … bank7= (src/osd/osd_config.h), réécrits par le menu.
 
-#define USB_MAX_FILES 32
-static char usb_files[USB_MAX_FILES][13];  // noms 8.3 des .dsk de la racine
-static int usb_num_files = 0;
+#ifdef TELESTRAT_RAM64K
+#define ROM_SLOTS 0  // la RAM des banques prend la place des cartouches
+#else
+#define ROM_SLOTS 2
+#endif
+
+static osd_menu_t menu;
+static volatile bool osd_open = false;
 static bool usb_scanned = false;
-static FIL usb_fil;
-static bool usb_fil_open = false;
-static int current_image = -1;
+static FIL drive_fil[4];
+static bool drive_open[4];
+static char drive_name[4][OSD_NAME_LEN];  // "" : vide ; image en flash : nom réservé
+static const char FLASH_NAME[] = "(image en flash)";
+#if ROM_SLOTS
+static uint8_t rom_slot[ROM_SLOTS][OSD_BANK_BYTES];
+static int rom_slot_bank[ROM_SLOTS] = {-1, -1};
+#endif
+static char rom_name[8][OSD_NAME_LEN];    // cartouche de la clé en banque b ("" : origine)
+static char cfg_drive[4][OSD_NAME_LEN];   // TELESTRA.CFG : a= … d=
+static char cfg_bank[8][OSD_NAME_LEN];    // TELESTRA.CFG : bank1= … bank7=
 
 extern bool msc_inquiry_complete;
 
@@ -281,83 +304,302 @@ static bool has_ext(const char *name, const char *ext) {
 }
 
 static bool usb_read(void *ctx, uint32_t offset, uint8_t *buf, uint32_t len) {
-    (void)ctx;
+    FIL *f = ctx;
     UINT n = 0;
-    if (!usb_fil_open || f_lseek(&usb_fil, offset) != FR_OK) return false;
-    if (f_read(&usb_fil, buf, len, &n) != FR_OK) return false;
+    if (f_lseek(f, offset) != FR_OK || f_read(f, buf, len, &n) != FR_OK) return false;
     return n == len;
 }
 
 static bool usb_write(void *ctx, uint32_t offset, uint8_t *buf, uint32_t len) {
-    (void)ctx;
+    FIL *f = ctx;
     UINT n = 0;
-    if (!usb_fil_open || f_lseek(&usb_fil, offset) != FR_OK) return false;
-    if (f_write(&usb_fil, buf, len, &n) != FR_OK || n != len) return false;
-    return f_sync(&usb_fil) == FR_OK;
+    if (f_lseek(f, offset) != FR_OK || f_write(f, buf, len, &n) != FR_OK || n != len) return false;
+    return f_sync(f) == FR_OK;
 }
 
+// Fichiers .dsk et .rom de la racine (noms longs jusqu'à OSD_NAME_LEN - 1)
 static void usb_scan(void) {
     DIR dir;
     FILINFO fno;
-    usb_num_files = 0;
-    if (f_opendir(&dir, "/") != FR_OK) return;
-    while (usb_num_files < USB_MAX_FILES && f_readdir(&dir, &fno) == FR_OK && fno.fname[0]) {
+    menu.nfiles = 0;
+    menu.usb_present = msc_inquiry_complete && f_opendir(&dir, "/") == FR_OK;
+    if (!menu.usb_present) return;
+    while (menu.nfiles < OSD_MENU_FILES && f_readdir(&dir, &fno) == FR_OK && fno.fname[0]) {
         if (fno.fattrib & AM_DIR) continue;
-        if (has_ext(fno.fname, ".dsk")) {
-            strncpy(usb_files[usb_num_files], fno.fname, 12);
-            usb_files[usb_num_files][12] = 0;
-            usb_num_files++;
-        }
+        const bool dsk = has_ext(fno.fname, ".dsk"), rom = has_ext(fno.fname, ".rom");
+        if ((!dsk && !rom) || strlen(fno.fname) >= OSD_NAME_LEN) continue;
+        osd_file_t *f = &menu.files[menu.nfiles++];
+        snprintf(f->name, sizeof(f->name), "%s", fno.fname);
+        f->size = (uint32_t)fno.fsize;
+        f->kind = dsk ? OSD_FILE_DSK : OSD_FILE_ROM;
     }
     f_closedir(&dir);
-    printf("USB : %d image(s) .dsk\n", usb_num_files);
+    // Tri par nom (insertion : 64 fichiers au plus)
+    for (int i = 1; i < menu.nfiles; i++) {
+        osd_file_t t = menu.files[i];
+        int j = i - 1;
+        while (j >= 0 && strcmp(menu.files[j].name, t.name) > 0) {
+            menu.files[j + 1] = menu.files[j];
+            j--;
+        }
+        menu.files[j + 1] = t;
+    }
+    snprintf(menu.usb_label, sizeof(menu.usb_label), "Clé montée");
 }
 
-// Insère l'image `index` de la clé dans le lecteur A
-static void insert_image(int index) {
-    if (index < 0 || index >= usb_num_files) return;
-    wd1793_eject(&state.telestrat.fdc.wd, 0);  // réécrit la piste en attente
-    if (usb_fil_open) {
-        f_close(&usb_fil);
-        usb_fil_open = false;
+static void drive_eject(int d) {
+    wd1793_eject(&state.telestrat.fdc.wd, d);  // réécrit la piste en attente
+    if (drive_open[d]) f_close(&drive_fil[d]);
+    drive_open[d] = false;
+    drive_name[d][0] = 0;
+}
+
+// Image de la clé dans un lecteur ; false si illisible, invalide ou déjà ailleurs
+static bool drive_insert(int d, const char *name) {
+    for (int o = 0; o < 4; o++)
+        if (o != d && !strcmp(drive_name[o], name)) return false;
+    drive_eject(d);
+    FIL *f = &drive_fil[d];
+    const bool rw = f_open(f, name, FA_READ | FA_WRITE) == FR_OK;
+    if (!rw && f_open(f, name, FA_READ) != FR_OK) return false;
+    drive_open[d] = true;
+    if (!wd1793_insert_streamed(&state.telestrat.fdc.wd, d, f_size(f), usb_read, rw ? usb_write : NULL, f)) {
+        f_close(f);
+        drive_open[d] = false;
+        return false;
     }
-    const char *name = usb_files[index];
-    bool rw = f_open(&usb_fil, name, FA_READ | FA_WRITE) == FR_OK;
-    if (!rw && f_open(&usb_fil, name, FA_READ) != FR_OK) {
-        printf("USB : %s illisible\n", name);
-        return;
-    }
-    usb_fil_open = true;
-    if (!wd1793_insert_streamed(&state.telestrat.fdc.wd, 0, f_size(&usb_fil), usb_read, rw ? usb_write : NULL, NULL)) {
-        printf("USB : %s n'est pas une image MFM_DISK\n", name);
-        f_close(&usb_fil);
-        usb_fil_open = false;
-        return;
-    }
-    current_image = index;
-    printf("Lecteur A : %s%s\n", name, rw ? "" : " (protégée)");
+    snprintf(drive_name[d], sizeof(drive_name[d]), "%s", name);
+    printf("Lecteur %c : %s%s\n", 'A' + d, name, rw ? "" : " (protégée)");
+    return true;
 }
 
 // Image intégrée à la flash (lecture seule), dans le lecteur A
 static void insert_flash_disk(void) {
 #ifdef TELESTRAT_FLASH_DISK_H
     if (wd1793_insert(&state.telestrat.fdc.wd, 0, (uint8_t *)telestrat_flash_disk, sizeof(telestrat_flash_disk), true)) {
+        snprintf(drive_name[0], sizeof(drive_name[0]), "%s", FLASH_NAME);
         printf("Lecteur A : image en flash (%u octets, protégée)\n", (unsigned)sizeof(telestrat_flash_disk));
     }
 #endif
 }
 
-// À chaque trame : à la première apparition de la clé, liste et insère la
-// première image (la clé l'emporte sur l'image en flash)
+static void bank_restore(int bank) {
+    telestrat_restore_bank(&state.telestrat, bank);
+#if ROM_SLOTS
+    for (int s = 0; s < ROM_SLOTS; s++)
+        if (rom_slot_bank[s] == bank) rom_slot_bank[s] = -1;
+#endif
+    rom_name[bank][0] = 0;
+}
+
+// Cartouche de la clé en banque ; *err : raison d'un refus
+static bool bank_load(int bank, const char *name, const char **err) {
+#if ROM_SLOTS
+    FIL f;
+    if (f_open(&f, name, FA_READ) != FR_OK) {
+        *err = "fichier illisible";
+        return false;
+    }
+    const size_t size = f_size(&f);
+    int slot = -1;
+    for (int s = 0; s < ROM_SLOTS; s++)
+        if (rom_slot_bank[s] == bank) slot = s;
+    for (int s = 0; s < ROM_SLOTS && slot < 0; s++)
+        if (rom_slot_bank[s] < 0) slot = s;
+    bool ok = false;
+    UINT n = 0;
+    if (!osd_rom_size_ok(size)) *err = "taille invalide (16, 8, 4, 2 ou 1 Ko)";
+    else if (slot < 0) *err = "plus de place : rendre une banque à son contenu d'origine";
+    else ok = true;
+    if (ok) {
+        telestrat_set_bank_rom(&state.telestrat, bank, NULL);  // l'emplacement change
+        if (f_read(&f, rom_slot[slot], size, &n) != FR_OK || n != size) {
+            *err = "lecture impossible";
+            ok = false;
+            rom_slot_bank[slot] = -1;
+            telestrat_restore_bank(&state.telestrat, bank);
+        } else {
+            for (size_t base = size; base < OSD_BANK_BYTES; base += size) memcpy(rom_slot[slot] + base, rom_slot[slot], size);
+            // Une banque tenue par un autre emplacement est rendue à son origine
+            if (rom_slot_bank[slot] >= 0 && rom_slot_bank[slot] != bank) bank_restore(rom_slot_bank[slot]);
+            rom_slot_bank[slot] = bank;
+            telestrat_set_bank_rom(&state.telestrat, bank, rom_slot[slot]);
+            snprintf(rom_name[bank], sizeof(rom_name[bank]), "%s", name);
+            printf("Banque %d : %s\n", bank, name);
+        }
+    }
+    f_close(&f);
+    return ok;
+#else
+    (void)bank;
+    (void)name;
+    *err = "pas de cartouche de la clé avec la RAM 64 Ko";
+    return false;
+#endif
+}
+
+static const char *bank_label(int b) {
+    const telestrat_t *sys = &state.telestrat;
+    const uint8_t *r = sys->bank_rd_orig[b];
+    if (r == telestrat_telemon24) return "TELEMON 2.4";
+    if (r == telestrat_hyperbas) return "HYPER-BASIC";
+#ifndef TELESTRAT_RAM64K
+    if (r == telestrat_teleass) return "TELE-ASS";
+    if (r == telestrat_telematic) return "TELEMATIC";
+#endif
+    return sys->bank_type_orig[b] == TELESTRAT_BANK_RAM ? (b == 0 ? "RAM interne" : "RAM 16 Ko") : "";
+}
+
+static void menu_refresh(void) {
+    const telestrat_t *sys = &state.telestrat;
+    for (int d = 0; d < 4; d++) {
+        snprintf(menu.drive[d], sizeof(menu.drive[d]), "%.47s", drive_name[d]);
+        menu.drive_ro[d] = drive_name[d][0] && sys->fdc.wd.disk[d].write_protect;
+    }
+    for (int b = 0; b < 8; b++) {
+        if (rom_name[b][0]) {
+            snprintf(menu.bank[b], sizeof(menu.bank[b]), "%.47s", rom_name[b]);
+            menu.bank_kind[b] = OSD_BANK_ROM_USB;
+        } else {
+            snprintf(menu.bank[b], sizeof(menu.bank[b]), "%s", bank_label(b));
+            menu.bank_kind[b] = sys->bank_type[b] == TELESTRAT_BANK_RAM   ? OSD_BANK_RAM
+                                : sys->bank_type[b] == TELESTRAT_BANK_ROM ? OSD_BANK_ROM
+                                                                          : OSD_BANK_EMPTY;
+        }
+    }
+}
+
+static void config_save(void) {
+    static char old[2048], out[2048];
+    FIL f;
+    UINT n = 0;
+    old[0] = 0;
+    if (f_open(&f, "TELESTRA.CFG", FA_READ) == FR_OK) {
+        f_read(&f, old, sizeof(old) - 1, &n);
+        old[n] = 0;
+        f_close(&f);
+    }
+    const char *drives[4], *banks[8];
+    for (int d = 0; d < 4; d++) drives[d] = strcmp(drive_name[d], FLASH_NAME) ? drive_name[d] : NULL;
+    for (int b = 0; b < 8; b++) banks[b] = rom_name[b];
+    const size_t len = osd_config_merge(old, drives, banks, out, sizeof(out));
+    bool ok = len > 0 && f_open(&f, "TELESTRA.CFG", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
+    if (ok) {
+        ok = f_write(&f, out, (UINT)len, &n) == FR_OK && n == len;
+        f_close(&f);
+    }
+    osd_menu_message(&menu, !ok, ok ? "Configuration enregistrée dans TELESTRA.CFG" : "TELESTRA.CFG : écriture impossible");
+}
+
+static void menu_draw(void);
+
+static void menu_open(void) {
+    usb_scan();
+    menu_refresh();
+    menu.page = OSD_PAGE_MAIN;
+    menu.cursor = OSD_ITEM_RESUME;
+    menu.message[0] = 0;
+    osd_open = true;
+    menu_draw();
+}
+
+static void menu_close(void) {
+    osd_open = false;
+    state.telestrat.screen_dirty = true;  // l'image a servi de surface au menu
+}
+
+static void menu_action(osd_action_t a) {
+    char msg[96];
+    const char *err = "";
+    switch (a.type) {
+        case OSD_ACT_INSERT:
+            if (drive_insert(a.target, menu.files[a.file].name)) {
+                snprintf(msg, sizeof(msg), "Lecteur %c : %s", 'A' + a.target, menu.files[a.file].name);
+                osd_menu_message(&menu, false, msg);
+            } else {
+                snprintf(msg, sizeof(msg), "%s : image refusée (MFM_DISK, déjà en place ?)", menu.files[a.file].name);
+                osd_menu_message(&menu, true, msg);
+            }
+            break;
+        case OSD_ACT_EJECT:
+            drive_eject(a.target);
+            snprintf(msg, sizeof(msg), "Lecteur %c vide", 'A' + a.target);
+            osd_menu_message(&menu, false, msg);
+            break;
+        case OSD_ACT_LOAD_ROM:
+            if (bank_load(a.target, menu.files[a.file].name, &err)) {
+                snprintf(msg, sizeof(msg), "Banque %d : %s — RESET conseillé", a.target, menu.files[a.file].name);
+                osd_menu_message(&menu, false, msg);
+            } else {
+                snprintf(msg, sizeof(msg), "%s : %s", menu.files[a.file].name, err);
+                osd_menu_message(&menu, true, msg);
+            }
+            break;
+        case OSD_ACT_RESTORE:
+            bank_restore(a.target);
+            snprintf(msg, sizeof(msg), "Banque %d : contenu d'origine", a.target);
+            osd_menu_message(&menu, false, msg);
+            break;
+        case OSD_ACT_RESET:
+            telestrat_cold_reset(&state.telestrat);  // à froid : TELEMON revoit les cartouches
+            menu_close();
+            return;
+        case OSD_ACT_SAVE: config_save(); break;
+        case OSD_ACT_RESUME: menu_close(); return;
+        default: break;
+    }
+    menu_refresh();
+    menu_draw();
+}
+
+// Touche du clavier USB (codes de hid_app.c) vers le menu
+static int menu_key(int code) {
+    switch (code) {
+        case 0x152: return OSD_KEY_UP;
+        case 0x151: return OSD_KEY_DOWN;
+        case 0x150: return OSD_KEY_LEFT;
+        case 0x14F: return OSD_KEY_RIGHT;
+        case 0x0D: return OSD_KEY_ENTER;
+        case 0x1B: return OSD_KEY_ESC;
+        case 0x08:
+        case 0x7F: return OSD_KEY_DEL;
+        case 0x14A: return OSD_KEY_HOME;
+        case 0x14D: return OSD_KEY_END;
+        case 0x14B: return OSD_KEY_PGUP;
+        case 0x14E: return OSD_KEY_PGDN;
+        default: return code < 0x100 ? code : 0;
+    }
+}
+
+// À chaque trame : à la première apparition de la clé, réglages, lecteurs
+// (a= … d=, sinon la première image dans A) et cartouches (bank1= … bank7=) ;
+// la clé l'emporte sur l'image en flash
 static void usb_poll(void) {
     if (usb_scanned || !msc_inquiry_complete) return;
     usb_scanned = true;
     read_config();
     usb_scan();
-    if (usb_num_files > 0) insert_image(0);
+    drive_set_t ds;
+    drive_set_init(&ds);
+    for (int i = 0; i < menu.nfiles; i++)
+        if (menu.files[i].kind == OSD_FILE_DSK) drive_set_add(&ds, menu.files[i].name);
+    const char *wanted[4] = {cfg_drive[0], cfg_drive[1], cfg_drive[2], cfg_drive[3]};
+    drive_set_assign(&ds, wanted);
+    for (int d = 0; d < 4; d++)
+        if (ds.slot[d] >= 0) drive_insert(d, ds.names[ds.slot[d]]);
+    bool banks = false;
+    for (int b = 1; b < 8; b++) {
+        const char *err = "";
+        if (!cfg_bank[b][0]) continue;
+        if (bank_load(b, cfg_bank[b], &err)) banks = true;
+        else printf("TELESTRA.CFG : %s : %s\n", cfg_bank[b], err);
+    }
+    // Cartouches présentes dès le démarrage : TELEMON doit les inventorier
+    if (banks) telestrat_cold_reset(&state.telestrat);
 }
 
-// TELESTRA.CFG : « dial=hôte:port », « listen=port » (une clé par ligne)
+// TELESTRA.CFG : « dial=hôte:port », « listen=port », « rs232=usb|uext »,
+// « a= » … « d= », « bank1= » … « bank7= » (une clé par ligne)
 static void read_config(void) {
     FIL f;
     if (f_open(&f, "TELESTRA.CFG", FA_READ) != FR_OK) return;
@@ -365,6 +607,7 @@ static void read_config(void) {
     while (f_gets(line, sizeof(line), &f)) {
         char *e = line + strlen(line);
         while (e > line && (e[-1] == '\r' || e[-1] == '\n' || e[-1] == ' ')) *--e = 0;
+        const char *v;
         if (!strncmp(line, "dial=", 5)) {
             snprintf(cfg_dial, sizeof(cfg_dial), "%.63s", line + 5);
         } else if (!strncmp(line, "listen=", 7)) {
@@ -374,6 +617,15 @@ static void read_config(void) {
             cfg_rs232_uext = !strcmp(line + 6, "uext");
             if (cfg_rs232_uext) rs232_uart_init();
 #endif
+        }
+        for (int d = 0; d < 4; d++) {
+            const char key[2] = {(char)('a' + d), 0};
+            if ((v = osd_config_value(line, key))) snprintf(cfg_drive[d], sizeof(cfg_drive[d]), "%s", v);
+        }
+        for (int b = 1; b < 8; b++) {
+            char key[8];
+            snprintf(key, sizeof(key), "bank%d", b);
+            if ((v = osd_config_value(line, key))) snprintf(cfg_bank[b], sizeof(cfg_bank[b]), "%s", v);
         }
     }
     f_close(&f);
@@ -455,6 +707,21 @@ void app_init(void) {
 #define DVI_TIMING   dvi_timing_960x544p_60hz
 #endif
 
+/*-- Menu à l'écran ------------------------------------------------------------*/
+// Pleine résolution de sortie (960 x 272 lignes de tampon) : pas en 800x480.
+// Surface : l'image du Telestrat, inutile tant que l'émulation est en pause.
+#if FRAME_WIDTH >= OSD_WIDTH && FRAME_HEIGHT / 2 >= OSD_LINES
+#define TELESTRAT_OSD 1
+#define OSD_SURFACE ((osd_surface_t *)state.telestrat.fb)
+_Static_assert(sizeof(osd_surface_t) <= sizeof(state.telestrat.fb), "surface du menu plus grande que l'image");
+static void menu_draw(void) {
+    menu.version = TELESTRAT_VERSION;
+    osd_menu_draw(&menu, OSD_SURFACE);
+}
+#else
+static void menu_draw(void) {}
+#endif
+
 /*-- Recette par sonde SWD (tools/carte.py) ----------------------------------*/
 // Toujours présent (coût négligeable) : la sonde lit ces variables et remplit
 // la file de touches pendant que la carte tourne.
@@ -468,9 +735,29 @@ volatile uint32_t diag_late;              // lignes DVI en retard (PicoDVI)
 const volatile uint32_t diag_layout[4] = {offsetof(state_t, telestrat.ram), offsetof(state_t, telestrat.fb),
                                  offsetof(state_t, telestrat.system_ticks), offsetof(state_t, telestrat.bank)};
 
-// Une touche de la file : appui 3 trames, relâche 3 trames
+// Une touche de la file : appui 3 trames, relâche 3 trames. Menu : la sonde
+// l'ouvre ou le ferme par diag_menu = 1 ; menu ouvert, la file lui va, avec
+// 0x80-0x83 = haut, bas, gauche, droite, 0x0D Entrée, 0x1B Échap, 0x7F Suppr.
+volatile uint8_t diag_menu;
 static void diag_keys_poll(void) {
     static int held = 0, phase = 0;
+#ifdef TELESTRAT_OSD
+    if (diag_menu) {
+        diag_menu = 0;
+        if (osd_open) menu_close();
+        else menu_open();
+    }
+    if (osd_open && phase == 0) {
+        if (diag_keyq_head == diag_keyq_tail) return;
+        static const int arrows[4] = {0x152, 0x151, 0x150, 0x14F};
+        int code = diag_keyq[diag_keyq_head & 255];
+        diag_keyq_head++;
+        if (code >= 0x80 && code <= 0x83) code = arrows[code - 0x80];
+        const int key = menu_key(code);
+        if (key) menu_action(osd_menu_key(&menu, key));
+        return;
+    }
+#endif
     if (phase == 0 && diag_keyq_head != diag_keyq_tail) {
         held = diag_keyq[diag_keyq_head & 255];
         telestrat_key_down(&state.telestrat, held);
@@ -506,9 +793,19 @@ static int host_to_telestrat(int code) {
 void kbd_raw_key_down(int code) {
     if (code == (NEO_MULTIBOOT_RETURN_KEY | 0x100)) neo_multiboot_return();
     telestrat_t *sys = &state.telestrat;
+#ifdef TELESTRAT_OSD
+    if (osd_open && code != 0x13A) {
+        const int key = menu_key(code);
+        if (key) menu_action(osd_menu_key(&menu, key));
+        return;
+    }
+#endif
     switch (code) {
-        case 0x13A:  // F1 : image suivante dans le lecteur A
-            if (usb_num_files > 0) insert_image((current_image + 1) % usb_num_files);
+        case 0x13A:  // F1 : menu (disquettes, cartouches)
+#ifdef TELESTRAT_OSD
+            if (osd_open) menu_close();
+            else menu_open();
+#endif
             break;
         case 0x144:  // F11
             telestrat_nmi(sys);
@@ -522,7 +819,10 @@ void kbd_raw_key_down(int code) {
     }
 }
 
-void kbd_raw_key_up(int code) { telestrat_key_up(&state.telestrat, host_to_telestrat(code)); }
+void kbd_raw_key_up(int code) {
+    if (osd_open) return;
+    telestrat_key_up(&state.telestrat, host_to_telestrat(code));
+}
 
 void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_state) {
     if (index > 1) return;
@@ -548,13 +848,19 @@ void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_stat
 #define TOP_LINES     ((DISPLAY_LINES - TELESTRAT_SCREEN_HEIGHT) / 2)
 #define LEFT_PIXELS   ((FRAME_WIDTH - TELESTRAT_VIDEO_PIXELS) / 2)
 
-// Cœur 1 : image -> plans 1 bpp -> trois encodages TMDS 1 bpp par ligne
+// Cœur 1 : image -> plans 1 bpp -> trois encodages TMDS 1 bpp par ligne ;
+// menu ouvert : ses lignes à la place (même coût, plein écran)
 static inline void __not_in_flash_func(render_frame)() {
     for (int y = 0; y < DISPLAY_LINES; y++) {
         const int src = y - TOP_LINES;
         uint32_t *tmdsbuf;
         queue_remove_blocking_u32(&dvi0.q_tmds_free, &tmdsbuf);
         const uint32_t t0 = time_us_32();
+#ifdef TELESTRAT_OSD
+        if (osd_open) {
+            osd_render_line(OSD_SURFACE, y, planes[0], planes[1], planes[2]);
+        } else
+#endif
         if (src >= 0 && src < TELESTRAT_SCREEN_HEIGHT) {
             telestrat_video_line(&state.telestrat.fb[src * TELESTRAT_VIDEO_BYTES_PER_LINE], planes[0], planes[1],
                                  planes[2], LEFT_PIXELS);
@@ -639,7 +945,8 @@ int main() {
         // Une trame PAL de l'ULA : 312 lignes x 64 cycles, par tranches de
         // 1 ms (sonnerie à 50 Hz sur CB1)
         const uint32_t num_ticks = 19968;
-        for (uint32_t slice = 0; slice < 20; slice++) {
+        // Menu ouvert : émulation en pause (le 65C02 attend, horloge arrêtée)
+        for (uint32_t slice = 0; slice < 20 && !osd_open; slice++) {
             const uint32_t n = slice < 19 ? 998 : num_ticks - 19 * 998;
             for (uint32_t ticks = 0; ticks < n; ticks++) {
                 telestrat_tick(&state.telestrat);
@@ -650,8 +957,10 @@ int main() {
             telestrat_set_ring(&state.telestrat, minitel_port_tick(&minitel, 1000));
         }
 
-        telestrat_screen_update(&state.telestrat);
-        telestrat_kbd_update(&state.telestrat, num_ticks);
+        if (!osd_open) {
+            telestrat_screen_update(&state.telestrat);
+            telestrat_kbd_update(&state.telestrat, num_ticks);
+        }
         tuh_task();
         usb_poll();
         diag_keys_poll();

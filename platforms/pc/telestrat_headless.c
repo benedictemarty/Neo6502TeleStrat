@@ -31,6 +31,13 @@
 //              modem : listen:PORT (le premier client) ou connect:HOTE:PORT ;
 //              -T la trace en RTX/RRX (-B ne trace que la prise Minitel) ;
 //              -T note aussi les bascules de prise (PA4)
+//   -U RÉP     répertoire tenant lieu de clé USB pour le menu (.dsk, .rom,
+//              TELESTRA.CFG : a= … d=, bank1= … bank7= appliqués au démarrage)
+//   -M T:TOUCHES ouvre le menu à la trame T et y tape TOUCHES : u d l r
+//              (flèches), e (Entrée), x (Échap), s (Suppr), h / z (début / fin),
+//              majuscule = saut à l'initiale ; le menu se ferme sur Reprendre
+//              ou RESET, sinon à la fin des touches
+//   -O FICHIER image du menu (960 x 544, PPM) après les touches de -M
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
 //   -B PRÉFIXE enregistre la trace (tests/replay.c, tools/rp2040_load.py) : PRÉFIXE.trace
 //              (un mot par cycle : adresse | R/W << 16 | IRQ << 17 | donnée << 24),
@@ -87,6 +94,9 @@
 #include "systems/telestrat.h"
 #endif
 #include "line_tcp.h"
+#ifndef TELESTRAT_REF  // la référence figée n'a pas de menu
+#include "menu_pc.h"
+#endif
 #include <time.h>
 
 #define RAM(n)  {.type = TELESTRAT_BANK_RAM}
@@ -250,13 +260,20 @@ int main(int argc, char** argv) {
     const char* printer_file = NULL;
     const char* line_spec = NULL;
     const char* rs232_spec = NULL;
+    const char* usb_dir = NULL;
+    const char* menu_script = NULL;
+    const char* menu_ppm = NULL;
+    int menu_frame = -1;
+#ifndef TELESTRAT_REF
+    static menu_pc_t menu_pc;
+#endif
     int realtime = 0;
     int key_period = 4;
     const char* bench_prefix = NULL;
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:S:RB:k:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:S:U:M:O:RB:k:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -271,6 +288,12 @@ int main(int argc, char** argv) {
             case 'P': printer_file = optarg; break;
             case 'L': line_spec = optarg; break;
             case 'S': rs232_spec = optarg; break;
+            case 'U': usb_dir = optarg; break;
+            case 'M':
+                menu_frame = atoi(optarg);
+                menu_script = strchr(optarg, ':') ? strchr(optarg, ':') + 1 : "";
+                break;
+            case 'O': menu_ppm = optarg; break;
             case 'R': realtime = 1; break;
             case 'k': key_period = atoi(optarg) < 2 ? 2 : atoi(optarg); break;
             case 'B': bench_prefix = optarg; break;
@@ -357,6 +380,18 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
+#ifndef TELESTRAT_REF
+    if (menu_script && !usb_dir) usb_dir = ".";
+    if (usb_dir) menu_pc_init(&menu_pc, &sys, usb_dir, "banc PC");
+#else
+    (void)usb_dir;
+    (void)menu_ppm;
+    (void)menu_frame;
+    if (menu_script) {
+        fprintf(stderr, "menu absent de la référence\n");
+        return 2;
+    }
+#endif
     telestrat_reset(&sys);
 
     size_t pos = 0, len = text ? strlen(text) : 0;
@@ -397,6 +432,12 @@ int main(int argc, char** argv) {
             key_down = 0;
         }
         current_frame = frame;
+#ifndef TELESTRAT_REF
+        if (frame == menu_frame) {
+            menu_pc_script(&menu_pc, &sys, menu_script);
+            if (menu_ppm) menu_pc_ppm(&menu_pc, menu_ppm);
+        }
+#endif
         struct timespec t0;
         clock_gettime(CLOCK_MONOTONIC, &t0);
         // Trame de 20 ms par tranches de 1 ms (sonnerie à 50 Hz)
@@ -449,6 +490,9 @@ int main(int argc, char** argv) {
         printf("\n");
     }
     if (ppm) write_ppm(ppm);
+#ifndef TELESTRAT_REF
+    if (usb_dir) menu_pc_finish(&menu_pc, &sys);
+#endif
     if (write_disk && images[0]) {
         FILE* f = fopen(write_disk, "wb");
         if (!f || fwrite(images[0], 1, image_sizes[0], f) != image_sizes[0]) {
