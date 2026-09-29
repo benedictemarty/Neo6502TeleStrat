@@ -26,6 +26,12 @@ $(ROMS_H): tools/fetch_roms.py
 $(BUILD)/telestrat_headless: platforms/pc/telestrat_headless.c $(HEADERS) | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $<
 
+$(BUILD)/telestrat_headless_ref: platforms/pc/telestrat_headless.c $(HEADERS) src/systems/telestrat_ref.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DTELESTRAT_REF -o $@ $<
+
+$(BUILD)/replay: tests/replay.c $(HEADERS) | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $<
+
 $(BUILD)/test_telestrat: tests/test_telestrat.c $(HEADERS) | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $<
 
@@ -34,10 +40,11 @@ $(BUILD):
 
 headless: $(BUILD)/telestrat_headless
 
-test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless
+test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_headless_ref $(BUILD)/replay
 	$(BUILD)/test_telestrat
 	sh tests/test_boot.sh $(BUILD)/telestrat_headless
 	sh tests/test_telematic.sh $(BUILD)/telestrat_headless
+	sh tests/test_replay.sh $(BUILD)/telestrat_headless_ref $(BUILD)/replay
 
 uf2: $(ROMS_H)
 	cmake -S platforms/rp2040 -B $(BUILD)/rp2040 -DRELOAD_DIR=$(RELOAD_DIR) $(if $(NEO_SLOT_TELESTRAT),-DNEO_MULTIBOOT_DIR=$(NEO_MULTIBOOT_DIR) -DNEO_SLOT_TELESTRAT=$(NEO_SLOT_TELESTRAT))

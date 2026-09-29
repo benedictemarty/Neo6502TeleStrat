@@ -30,6 +30,39 @@ clavier et USB compris.
    `get_data`, `set_data`, `set_irq`) est calculé sur le firmware et ajouté.
    Profil par fonction et par ligne de source avec `--profile`.
 
+## Sprint 4 (v0.4.0) : le Telestrat tient 1 MHz (mesure sans carte)
+
+| Scénario (trace) | Système | Pilote de bus | Rendu écran / trame | Charge moyenne | Charge au pire |
+|---|---|---|---|---|---|
+| Disque : démarrage, HYPER-BASIC, DIR (30 M cycles) | 102 cycles | 68 cycles | 0,60 Mcycle (0,92 au pire) | **68 %** | **76 %** |
+| Serveur TELEMATIC appelé (60 M cycles) | 105 cycles | 68 cycles | 0,05 Mcycle (0,92 au pire) | **59 %** | **76 %** |
+
+Aucune trame au-delà du budget ; il reste ~24 % pour l'USB (`tuh_task`,
+pistes lues sur la clé, modem) et la contention mémoire, non modélisés.
+Point de départ (v0.3.2) : 314 + 84 cycles, 150 % en moyenne.
+
+Ce qui a changé, **sans rien changer au comportement** (vérifié à chaque étape
+par `tests/test_replay.sh` : 0 différence sur le bus, la ligne IRQ, l'audio,
+la liaison série et l'image, contre le modèle de référence) :
+
+| Étape | Système (cycles / cycle 6502) |
+|---|---|
+| référence (tous les périphériques tous les 4 cycles) | 314 |
+| pas de 4 cycles « au repos » sautés, rattrapés d'un coup | 198 |
+| `telestrat_tick` court (pas complet et E/S hors ligne), banque en cache, AY par échéance | 118 |
+| FDC/ACIA : accès sans pas complet si l'IRQ ne change pas | 119 |
+| VIA stable aussi avec une IRQ en attente (65C02 sous SEI) ; entrées extérieures qui coupent le repos | 103 |
+| lectures de VIA sans effet de bord (XRING qui scrute l'IFR) | 102 |
+
+Autres gains : pilote de bus intégré (`platforms/rp2040/src/neo6502_bus.h`,
+même séquence GPIO et mêmes NOP que reload, sans appels : 84 → 68 cycles) ;
+rendu de l'écran par table (deux pixels par consultation : 1,35 → 0,92 Mcycle
+au pire, image identique au rendu d'origine sur 600 écrans aléatoires).
+
+Dépendances de mesure : puces figées dans `src/chips` (reload 462372a) ; SDK
+Pico de `~/reload-emulator` au commit 2fd6e23 (mis à jour par ailleurs entre
+deux mesures : à figer aussi).
+
 ## Résultats (2026-09-29, puces de reload figées au commit 462372a)
 
 | Poste | Cycles M0+ par cycle 6502 |
@@ -67,7 +100,7 @@ Profil (reload de travail, même ordre de grandeur) :
   (échantillons de l'AY, ~2 %).
 - Une seule trace (disque) ; la télématique ajoute l'ACIA actif.
 
-## Pistes (sprint 4 proposé)
+## Pistes proposées avant le sprint 4 (pour mémoire)
 
 | Piste | Gain estimé |
 |---|---|

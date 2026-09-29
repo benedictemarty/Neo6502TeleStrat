@@ -105,11 +105,31 @@ typedef struct {
     uint32_t ev[];
 } bench_events_t;
 
-__attribute__((noinline, used)) void bench_init(uint32_t disk_size) {
+// Liaison série branchée mais muette : l'ACIA interroge la ligne comme sur la
+// carte (tous les 64 cycles)
+static int bench_rx(void* u) {
+    (void)u;
+    return -1;
+}
+
+static void bench_tx(uint8_t d, void* u) {
+    (void)d;
+    (void)u;
+}
+
+// config : 0 = « oricutron » du banc, 1 = « standard » (TELEMATIC en banque 3)
+__attribute__((noinline, used)) void bench_init(uint32_t disk_size, uint32_t config) {
     telestrat_desc_t d = {0};
-    // Configuration « oricutron » du banc (celle des tests de démarrage)
-    for (int i = 0; i <= 4; i++) d.banks[i].type = TELESTRAT_BANK_RAM;
-    d.banks[5] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_teleass};
+    d.minitel.tx = bench_tx;
+    d.minitel.rx = bench_rx;
+    if (config == 1) {
+        d.banks[0].type = TELESTRAT_BANK_RAM;
+        d.banks[2] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_teleass};
+        d.banks[3] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_telematic};
+    } else {
+        for (int i = 0; i <= 4; i++) d.banks[i].type = TELESTRAT_BANK_RAM;
+        d.banks[5] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_teleass};
+    }
     d.banks[6] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_hyperbas};
     d.banks[7] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_telemon24};
     telestrat_init(&sys, &d);
@@ -126,9 +146,9 @@ __attribute__((noinline, used)) void bench_frame_begin(uint32_t frame) {
         uint32_t v = e->ev[bench_event_pos++];
         int code = v & 0x7FFF;
         if (v & 0x8000) {
-            kbd_key_down(&sys.kbd, code);
+            telestrat_key_down(&sys, code);
         } else {
-            kbd_key_up(&sys.kbd, code);
+            telestrat_key_up(&sys, code);
         }
     }
 }
@@ -153,12 +173,12 @@ __attribute__((noinline, used)) void bench_replay_only(uint32_t n) {
 
 // Fin de trame : comme la boucle principale du firmware
 __attribute__((noinline, used)) void bench_frame_end(void) {
-    kbd_update(&sys.kbd, 20000);
+    telestrat_kbd_update(&sys, 20000);
     telestrat_screen_update(&sys);
 }
 
 int main(void) {
-    bench_init(0);
+    bench_init(0, 0);
     bench_ticks(1);
     bench_replay_only(1);
     bench_frame_begin(0);

@@ -495,12 +495,17 @@ static void test_acia_serial(void) {
     acia_in[acia_in_n++] = 0x53;
     mos6551acia_read(&a, 1);
     mos6551acia_tick(&a, 4);
+    mos6551acia_poll_rx(&a);
     st = mos6551acia_read(&a, 1);
     CHECK((st & 0x88) == 0x88 && !mos6551acia_irq(&a), "octet reçu : état $%02X, broche IRQ inactive", st);
     CHECK(mos6551acia_read(&a, 0) == 0x13, "donnée reçue $13");
     mos6551acia_tick(&a, 4);
+    mos6551acia_poll_rx(&a);
     CHECK(!(a.status & MOS6551_ST_RXFULL), "octet suivant retenu jusqu'à la fin du caractère");
-    for (int i = 0; i < 8333 / 4 + 1; i++) mos6551acia_tick(&a, 4);
+    for (int i = 0; i < 8333 / 4 + 1; i++) {
+        mos6551acia_tick(&a, 4);
+        mos6551acia_poll_rx(&a);
+    }
     CHECK((a.status & MOS6551_ST_RXFULL) && a.rx == 0x53, "2e octet reçu au rythme du débit");
     // IRQ de réception autorisée ($65) : broche active jusqu'à la lecture de la donnée
     mos6551acia_write(&a, 2, 0x65);
@@ -512,7 +517,10 @@ static void test_acia_serial(void) {
     // Récepteur inactif (DTR = 0) : rien n'entre
     mos6551acia_write(&a, 2, 0x62);
     acia_in[acia_in_n++] = 0x55;
-    for (int i = 0; i < 3000; i++) mos6551acia_tick(&a, 4);
+    for (int i = 0; i < 3000; i++) {
+        mos6551acia_tick(&a, 4);
+        mos6551acia_poll_rx(&a);
+    }
     CHECK(!(a.status & MOS6551_ST_RXFULL), "DTR inactif : pas de réception");
 }
 
@@ -701,6 +709,85 @@ static void test_hayes_line(void) {
     CHECK(!l2.dial(l2.ctx), "sans numéro : pas d'appel sortant");
 }
 
+// --- Rendu de l'écran : identique au rendu d'origine (oric.h) -----------------
+// Copie exacte de l'ancien telestrat_screen_update (oric_screen_update de
+// reload), comme référence
+static void ref_render(const uint8_t* ram, uint8_t* pattr_io, bool blink_state, uint8_t* fb) {
+    uint8_t pattr = *pattr_io;
+    for (int y = 0; y < TELESTRAT_SCREEN_HEIGHT; y++) {
+        uint8_t lattr = 0, fgcol = 7, bgcol = 0;
+        uint8_t* p = &fb[y * (TELESTRAT_SCREEN_WIDTH / 2)];
+        for (int x = 0; x < 40; x++) {
+            uint8_t ch, pat;
+            if ((pattr & 0x04) && y < 200) {
+                ch = pat = ram[0xA000 + y * 40 + x];
+            } else {
+                ch = ram[0xBB80 + (y >> 3) * 40 + x];
+                int off = (lattr & 0x02 ? y >> 1 : y) & 7;
+                const uint8_t* base;
+                if (pattr & 0x04) {
+                    base = ram + ((lattr & 0x01) ? 0x9C00 : 0x9800);
+                } else {
+                    base = ram + ((lattr & 0x01) ? 0xB800 : 0xB400);
+                }
+                pat = base[((ch & 0x7F) << 3) | off];
+            }
+            if (!(ch & 0x60)) {
+                pat = 0x00;
+                switch (ch & 0x18) {
+                    case 0x00: fgcol = ch & 7; break;
+                    case 0x08: lattr = ch & 7; break;
+                    case 0x10: bgcol = ch & 7; break;
+                    case 0x18: pattr = ch & 7; break;
+                }
+            }
+            uint8_t cf = fgcol, cb = bgcol;
+            if (ch & 0x80) {
+                cb ^= 0x07;
+                cf ^= 0x07;
+            }
+            if ((lattr & 0x04) && blink_state) cf = cb;
+            *p = (pat & 0x20 ? cf : cb) << 4;
+            *p++ |= (pat & 0x10 ? cf : cb);
+            *p = (pat & 0x08 ? cf : cb) << 4;
+            *p++ |= (pat & 0x04 ? cf : cb);
+            *p = (pat & 0x02 ? cf : cb) << 4;
+            *p++ |= (pat & 0x01 ? cf : cb);
+        }
+    }
+    *pattr_io = pattr;
+}
+
+static void test_screen_render(void) {
+    static uint8_t fb[TELESTRAT_FRAMEBUFFER_SIZE];
+    const uint8_t prog[] = {0x4C, 0x00, 0xC0};
+    load_program(prog, sizeof(prog));
+    boot();
+    uint32_t rnd = 12345;
+    int bad = 0, frames = 0;
+    for (int it = 0; it < 300; it++) {
+        // Écran aléatoire ; attributs fréquents une fois sur deux
+        for (int a = 0x9800; a < 0xC000; a++) {
+            rnd = rnd * 1103515245u + 12345u;
+            uint8_t v = (uint8_t)(rnd >> 16);
+            if ((it & 1) && (v & 3) == 0) v &= 0x9F;  // attribut série (bits 5-6 à 0)
+            sys.ram[a] = v;
+        }
+        sys.pattr = (uint8_t)(it * 7) & 7;
+        for (int b = 0; b < 2; b++) {
+            // blink_counter : bit 5 = état du clignotement ; forcer le rendu
+            sys.blink_counter = b ? 0x20 : 0x00;
+            sys.screen_dirty = true;
+            uint8_t pattr = sys.pattr;
+            ref_render(sys.ram, &pattr, sys.blink_counter & 0x20, fb);
+            telestrat_screen_update(&sys);
+            frames++;
+            if (memcmp(fb, sys.fb, sizeof(fb)) != 0 || pattr != sys.pattr) bad++;
+        }
+    }
+    CHECK(bad == 0, "rendu identique au rendu d'origine : %d écrans différents sur %d", bad, frames);
+}
+
 static void test_acia(void) {
     mos6551acia_t a = {0};
     mos6551acia_reset(&a);
@@ -721,6 +808,7 @@ int main(void) {
     test_fdc_write_track();
     test_fdc_streamed();
     test_acia();
+    test_screen_render();
     test_acia_serial();
     test_minitel_port();
     test_hayes_line();

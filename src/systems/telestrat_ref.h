@@ -1,5 +1,14 @@
 #pragma once
 
+// telestrat_ref.h — MODÈLE DE RÉFÉRENCE (ne pas optimiser)
+//
+// Copie figée de systems/telestrat.h tel qu'au sprint 3 (v0.3.2 + réception
+// série interrogée tous les 64 cycles) : tous les périphériques avancent tous
+// les 4 cycles, simplement. Il sert d'oracle : le banc compilé avec
+// -DTELESTRAT_REF enregistre des traces (telestrat_headless_ref -B), que le
+// système optimisé doit rejouer à l'identique (tests/replay.c : données du
+// bus, ligne IRQ, échantillons audio, octets série).
+
 // telestrat.h
 //
 // Oric Telestrat (1986) en un en-tête C, au format des systèmes de
@@ -159,9 +168,6 @@ typedef struct {
     int32_t printer_ack;  // cycles restants de l'impulsion ACK
 
     bool ring;  // détecteur de sonnerie de la ligne -> CB1 du VIA 2
-    bool inputs_dirty;      // entrée extérieure changée : prochain pas complet
-    uint32_t quiet_until;   // pas de 4 cycles sautés tant que system_ticks < quiet_until
-    uint32_t deferred;      // cycles des pas sautés, pas encore appliqués
     mos6551acia_tx_t minitel_tx, rs232_tx;
     mos6551acia_rx_t minitel_rx, rs232_rx;
     void *minitel_user_data, *rs232_user_data;
@@ -172,10 +178,7 @@ typedef struct {
     bool screen_dirty;
 
     uint32_t system_ticks;
-    uint32_t psg_next;         // prochain cycle où l'AY a quelque chose à faire
-    uint32_t psg_next_sample;  // prochain échantillon (tous les 46 cycles)
-    const uint8_t* rd_cur;     // banque visible : lecture (NULL = bus flottant)
-    uint8_t* wr_cur;           // banque visible : écriture (NULL = ignorée)
+    uint8_t psg_sample_div;
 } telestrat_t;
 
 void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc);
@@ -192,42 +195,12 @@ bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t s
     return wd1793_insert(&sys->fdc.wd, drive, image, size, write_protect);
 }
 
-// Entrée extérieure changée : pas complet au prochain multiple de 4, même au
-// milieu d'une fenêtre de repos
-static inline void _telestrat_input_changed(telestrat_t* sys) {
-    sys->inputs_dirty = true;
-    sys->quiet_until = sys->system_ticks;
-}
-
-void telestrat_set_ring(telestrat_t* sys, bool level) {
-    if (level != sys->ring) _telestrat_input_changed(sys);
-    sys->ring = level;
-}
-
-void telestrat_key_down(telestrat_t* sys, int key_code) {
-    kbd_key_down(&sys->kbd, key_code);
-    _telestrat_input_changed(sys);
-}
-
-void telestrat_key_up(telestrat_t* sys, int key_code) {
-    kbd_key_up(&sys->kbd, key_code);
-    _telestrat_input_changed(sys);
-}
-
-void telestrat_kbd_update(telestrat_t* sys, uint32_t micro_seconds) {
-    kbd_update(&sys->kbd, micro_seconds);
-    _telestrat_input_changed(sys);
-}
+void telestrat_set_ring(telestrat_t* sys, bool level) { sys->ring = level; }
 
 void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state);
 // Niveau du détecteur de sonnerie (CB1 du VIA 2 ; TELEMON XRING attend des
 // impulsions à 50 Hz en rafales)
 void telestrat_set_ring(telestrat_t* sys, bool level);
-// Clavier : passer par ces fonctions (et non par kbd_*) pour que le système
-// voie le changement
-void telestrat_key_down(telestrat_t* sys, int key_code);
-void telestrat_key_up(telestrat_t* sys, int key_code);
-void telestrat_kbd_update(telestrat_t* sys, uint32_t micro_seconds);
 // Prise sélectionnée pour l'ACIA (PA4 du VIA 2)
 bool telestrat_serial_is_rs232(telestrat_t* sys);
 // Insère une image MFM_DISK dans le lecteur 0..3 (false si invalide)
@@ -251,9 +224,6 @@ uint8_t telestrat_peek(telestrat_t* sys, uint16_t addr);
 #ifndef TELESTRAT_HOT
 #define TELESTRAT_HOT
 #endif
-// Chemins moins fréquents, hors de telestrat_tick pour qu'il reste court
-// (peu de registres à sauver) mais en RAM eux aussi
-#define TELESTRAT_SLOW TELESTRAT_HOT __attribute__((noinline))
 
 #define TELESTRAT_PATTR_HIRES (0x04)
 #define TELESTRAT_LATTR_ALT   (0x01)
@@ -276,11 +246,7 @@ static uint8_t _telestrat_psg_in(int port_id, void* user_data) {
     return 0xFF;
 }
 
-void telestrat_select_bank(telestrat_t* sys, uint8_t bank) {
-    sys->bank = bank & 7;
-    sys->rd_cur = sys->bank_rd[sys->bank];
-    sys->wr_cur = sys->bank_wr[sys->bank];
-}
+void telestrat_select_bank(telestrat_t* sys, uint8_t bank) { sys->bank = bank & 7; }
 
 // PA4 du VIA 2 : prise RS232 (1) ou Minitel (0)
 bool telestrat_serial_is_rs232(telestrat_t* sys) { return (mos6522via_get_pa(&sys->via2) & 0x10) != 0; }
@@ -307,7 +273,6 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     }
 
     memset(sys, 0, sizeof(telestrat_t));
-    sys->psg_next_sample = 45;  // 1er échantillon au 46e cycle (comme la référence)
     sys->valid = true;
     sys->debug = desc->debug;
     sys->audio_callback = desc->audio.callback;
@@ -381,8 +346,6 @@ void telestrat_reset(telestrat_t* sys) {
     ay38910psg_reset(&sys->psg);
     telestrat_fdc_reset(&sys->fdc);
     mos6551acia_reset(&sys->acia);
-    sys->quiet_until = sys->system_ticks;
-    sys->deferred = 0;
     // Au RESET, le port A du VIA 2 est en entrée (tiré à 1) : banque 7
     telestrat_select_bank(sys, TELESTRAT_BOOT_BANK);
     MOS6502CPU_RESET(&sys->cpu);
@@ -408,7 +371,7 @@ static inline uint8_t _telestrat_floating_bus(telestrat_t* sys, uint16_t addr) {
 }
 
 static inline uint8_t _telestrat_bank_read(telestrat_t* sys, uint16_t addr) {
-    const uint8_t* p = sys->rd_cur;
+    const uint8_t* p = sys->bank_rd[sys->bank];
     return p ? p[addr - 0xC000] : _telestrat_floating_bus(sys, addr);
 }
 
@@ -459,12 +422,24 @@ static inline void _telestrat_io_rw(telestrat_t* sys, uint16_t addr, bool rw) {
     }
 }
 
+static inline void _telestrat_mem_rw(telestrat_t* sys, uint16_t addr, bool rw) {
+    if ((addr & 0xFF00) == 0x0300) {
+        _telestrat_io_rw(sys, addr, rw);
+    } else if (rw) {
+        MOS6502CPU_SET_DATA(&sys->cpu, addr >= 0xC000 ? _telestrat_bank_read(sys, addr) : sys->ram[addr]);
+    } else {
+        uint8_t data = MOS6502CPU_GET_DATA(&sys->cpu);
+        if (addr < 0xC000) {
+            sys->ram[addr] = data;
+            if (addr >= 0x9800) sys->screen_dirty = true;
+        } else if (sys->bank_wr[sys->bank]) {
+            sys->bank_wr[sys->bank][addr - 0xC000] = data;
+        }
+    }
+}
 
 void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state) {
-    if (port >= 0 && port < 2 && sys->joy[port] != (state & 0x1F)) {
-        sys->joy[port] = state & 0x1F;
-        _telestrat_input_changed(sys);
-    }
+    if (port >= 0 && port < 2) sys->joy[port] = state & 0x1F;
 }
 
 // Port B du VIA 2 : PB7 sélectionne le port droit, PB6 le gauche ; les
@@ -493,264 +468,93 @@ static inline void _telestrat_update_printer(telestrat_t* sys, uint8_t pb) {
     mos6522via_set_ca1(&sys->via, sys->printer_ack > 0);
 }
 
-// Les pas de 4 cycles « au repos » ne changent que des compteurs : ils sont
-// sautés (quiet_until) et leur durée cumulée (deferred) est appliquée d'un
-// coup avant le prochain accès en $03xx ou le prochain pas complet. Le
-// résultat est identique, cycle pour cycle, au modèle de référence
-// (systems/telestrat_ref.h, vérifié par tests/replay.c).
+TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
+    MOS6502CPU_TICK(&sys->cpu);
+    _telestrat_mem_rw(sys, MOS6502CPU_GET_ADDR(&sys->cpu), sys->cpu.rw);
 
-#define TELESTRAT_QUIET_MAX 4096  // pas sautés au plus d'affilée
-
-// Applique aux compteurs la durée des pas sautés (aucune échéance franchie :
-// garanti par _telestrat_quiet_steps)
-// Effet de d/4 pas au repos sur un VIA (voir _telestrat_via_quiet)
-static inline void _telestrat_via_skip(mos6522via_t* c, uint32_t d) {
-    c->t1.counter -= (int32_t)d;
-    if (!MOS6522VIA_ACR_T2_COUNT_PB6(c)) c->t2.counter -= (int32_t)d;
-    c->t1.t_out = false;
-    c->t2.t_out = false;
-}
-
-static inline void _telestrat_catch_up(telestrat_t* sys) {
-    uint32_t d = sys->deferred;
-    if (!d) return;
-    sys->deferred = 0;
-    telestrat_fdc_tick(&sys->fdc, (int)d);
-    mos6551acia_tick(&sys->acia, (int)d);
-    _telestrat_via_skip(&sys->via, d);
-    _telestrat_via_skip(&sys->via2, d);
-}
-
-// Pas au repos pour un VIA : état stable, autant de pas que les compteurs le
-// permettent sans atteindre zéro. Deux états stables de mos6522via_tick :
-//   - sans IRQ en attente : intr.pip = 0 (son chemin rapide) ;
-//   - IRQ en attente et autorisée (65C02 sous SEI, par exemple pendant les
-//     accès disque de TELEMON) : chaque pas remet intr.pip à 0x01 et laisse
-//     l'IFR inchangé (bit 7 levé).
-// Dans les deux cas un pas ne fait que décompter les timers de 4.
-static inline uint32_t _telestrat_via_quiet(const mos6522via_t* c) {
-    if ((c->pa.c1_triggered | c->pa.c2_triggered | c->pb.c1_triggered | c->pb.c2_triggered) || c->t1.pip != 0x03 ||
-        c->t2.pip != 0x03) {
-        return 0;
-    }
-    if (c->intr.ifr & c->intr.ier) {
-        if (c->intr.pip != 0x01 || !(c->intr.ifr & 0x80)) return 0;
-    } else if (c->intr.pip != 0) {
-        return 0;
-    }
-    uint32_t k = c->t1.counter < 0 ? 0 : (uint32_t)c->t1.counter / 4;
-    if (MOS6522VIA_ACR_T2_COUNT_PB6(c)) {
-        if (c->pb6_triggered || c->t2.counter < 0) return 0;
-    } else {
-        uint32_t k2 = c->t2.counter < 0 ? 0 : (uint32_t)c->t2.counter / 4;
-        if (k2 < k) k = k2;
-    }
-    return k;
-}
-
-// Pas avant qu'un compte à rebours (décrémenté de 4 par pas) n'atteigne 0
-static inline uint32_t _telestrat_delay_quiet(int32_t d) { return d > 0 ? (uint32_t)(d + 3) / 4 - 1 : UINT32_MAX; }
-
-// Nombre de pas (à partir du prochain, qui suit le cycle t) qui ne peuvent
-// rien changer d'autre que les compteurs
-static inline uint32_t _telestrat_quiet_steps(telestrat_t* sys, uint32_t t) {
-    if (sys->inputs_dirty || sys->printer_ack > 0 || mos6522via_get_cb2(&sys->via)) return 0;
-    uint32_t k = _telestrat_via_quiet(&sys->via);
-    uint32_t k2 = _telestrat_via_quiet(&sys->via2);
-    if (k2 < k) k = k2;
-    if (!k) return 0;
-    const wd1793_t* w = &sys->fdc.wd;
-    uint32_t q = _telestrat_delay_quiet(w->int_delay);
-    if (q < k) k = q;
-    q = _telestrat_delay_quiet(w->drq_delay);
-    if (q < k) k = q;
-    const mos6551acia_t* a = &sys->acia;
-    if (a->tsr_busy) {
-        q = _telestrat_delay_quiet(a->tx_timer);
-        if (q < k) k = q;
-    }
-    // Interrogation de la réception tous les 64 cycles, si elle peut aboutir
-    if (!(a->status & MOS6551_ST_RXFULL) && (a->command & MOS6551_CMD_DTR) && a->rx_cb) {
-        q = ((64 - (t & 63)) >> 2) - 1;
-        if (q < k) k = q;
-    }
-    return k > TELESTRAT_QUIET_MAX ? TELESTRAT_QUIET_MAX : k;
-}
-
-// Pas complet de 4 cycles (identique au modèle de référence)
-TELESTRAT_SLOW static void _telestrat_step(telestrat_t* sys) {
-    _telestrat_catch_up(sys);
-    bool irq = mos6522via_tick(&sys->via, 4);
-    irq |= mos6522via_tick(&sys->via2, 4);
-    telestrat_fdc_tick(&sys->fdc, 4);
-    mos6551acia_tick(&sys->acia, 4);
-    if ((sys->system_ticks & 63) == 0) mos6551acia_poll_rx(&sys->acia);
-    // Niveau redonné à chaque pas (le VIA de reload détecte le front entre deux appels)
-    mos6522via_set_cb1(&sys->via2, sys->ring);
-    irq |= telestrat_fdc_irq(&sys->fdc);
-    irq |= mos6551acia_irq(&sys->acia);
-    MOS6502CPU_SET_IRQ(&sys->cpu, irq);
-
-    // AY-3-8912 piloté par PA / CA2 / CB2 du VIA 1
-    if (mos6522via_get_cb2(&sys->via)) {
-        const uint8_t psg_data = mos6522via_get_pa(&sys->via);
-        if (mos6522via_get_ca2(&sys->via)) {
-            ay38910psg_latch_address(&sys->psg, psg_data);
-        } else {
-            ay38910psg_write(&sys->psg, psg_data);
-        }
-    } else {
-        mos6522via_set_pa(&sys->via, ay38910psg_read(&sys->psg));
-    }
-
-    // PB0-PB2 : ligne du clavier ; PB3 : touche enfoncée
-    uint8_t pb = mos6522via_get_pb(&sys->via);
-    uint8_t line_mask = 1 << (pb & 7);
-    if (kbd_scan_lines(&sys->kbd) == line_mask) {
-        mos6522via_set_pb(&sys->via, pb | (1 << 3));
-    } else {
-        mos6522via_set_pb(&sys->via, pb & ~(1 << 3));
-    }
-
-    _telestrat_update_joysticks(sys);
-    _telestrat_update_printer(sys, pb);
-
-    sys->inputs_dirty = false;
-    sys->quiet_until = sys->system_ticks + 4 * (_telestrat_quiet_steps(sys, sys->system_ticks) + 1);
-}
-
-// Accès en $03xx : périphériques à jour, puis pas complet au prochain multiple
-// de 4 ; sauf pour le FDC et l'ACIA quand la ligne IRQ ne change pas (lecture
-// de DRQ, de données...) : seul l'horizon de repos est recalculé
-TELESTRAT_SLOW static void _telestrat_io_access(telestrat_t* sys, uint16_t addr) {
-    _telestrat_catch_up(sys);
-    const uint8_t reg = addr & 0xFF;
-    const bool fdc_acia = (reg >= 0x10 && reg <= 0x14) || reg == 0x18 || (reg >= 0x1C && reg <= 0x1F);
-    if (!fdc_acia) {
-        _telestrat_io_rw(sys, addr, sys->cpu.rw);
-        // Lecture d'un registre de VIA sans effet de bord (DDR, T1CH, latches,
-        // T2CH, SR, ACR, PCR, IFR, IER, RA sans poignée de main) : rien ne
-        // change, la fenêtre de repos reste valable (ex. : XRING qui scrute l'IFR)
-        if (sys->cpu.rw && ((0xFEEC >> (reg & 15)) & 1)) return;
-        sys->quiet_until = sys->system_ticks;
-        return;
-    }
-    const bool irq_before = telestrat_fdc_irq(&sys->fdc) || mos6551acia_irq(&sys->acia);
-    _telestrat_io_rw(sys, addr, sys->cpu.rw);
-    const bool irq_after = telestrat_fdc_irq(&sys->fdc) || mos6551acia_irq(&sys->acia);
-    const uint32_t t = sys->system_ticks;
-    if (irq_after != irq_before) {
-        sys->quiet_until = t;
-        return;
-    }
-    // Prochain pas : au cycle t s'il est multiple de 4 (après cet accès), sinon au suivant
-    const uint32_t next_step = (t + 3) & ~3u;
-    sys->quiet_until = next_step + 4 * _telestrat_quiet_steps(sys, next_step - 4);
-}
-
-// Événements de l'AY dans l'ordre du modèle de référence : canaux (tous les
-// 64 cycles), enveloppe (128), échantillon (46)
-TELESTRAT_SLOW static void _telestrat_psg_events(telestrat_t* sys) {
-    const uint32_t t = sys->system_ticks;
-    if ((t & 63) == 0) {
+    // PSG
+    if ((sys->system_ticks & 63) == 0) {
         ay38910psg_tick_channels(&sys->psg);
     }
-    if ((t & 127) == 0) {
+    if ((sys->system_ticks & 127) == 0) {
         ay38910psg_tick_envelope_generator(&sys->psg);
     }
-    if (t == sys->psg_next_sample) {
+    if (++sys->psg_sample_div == 46) {
         ay38910psg_tick_sample_generator(&sys->psg);
         if (sys->audio_callback.func) {
             sys->audio_callback.func((uint8_t)(sys->psg.sample * 255.0f), sys->audio_callback.user_data);
         }
-        sys->psg_next_sample = t + 46;
+        sys->psg_sample_div = 0;
     }
-    // Prochain événement : multiple de 64 suivant ou prochain échantillon
-    uint32_t next = (t | 63) + 1;
-    if ((int32_t)(sys->psg_next_sample - next) < 0) next = sys->psg_next_sample;
-    sys->psg_next = next;
-}
 
-TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
-    MOS6502CPU_TICK(&sys->cpu);
-    const uint16_t addr = MOS6502CPU_GET_ADDR(&sys->cpu);
-    if ((addr & 0xFF00) != 0x0300) {
-        // RAM et banques : chemin court
-        if (sys->cpu.rw) {
-            MOS6502CPU_SET_DATA(&sys->cpu, addr >= 0xC000 ? _telestrat_bank_read(sys, addr) : sys->ram[addr]);
-        } else {
-            uint8_t data = MOS6502CPU_GET_DATA(&sys->cpu);
-            if (addr < 0xC000) {
-                sys->ram[addr] = data;
-                if (addr >= 0x9800) sys->screen_dirty = true;
-            } else if (sys->wr_cur) {
-                sys->wr_cur[addr - 0xC000] = data;
+    // VIA 1 et 2, par pas de 4 cycles comme oric.h
+    if ((sys->system_ticks & 3) == 0) {
+        bool irq = mos6522via_tick(&sys->via, 4);
+        irq |= mos6522via_tick(&sys->via2, 4);
+        telestrat_fdc_tick(&sys->fdc, 4);
+        mos6551acia_tick(&sys->acia, 4);
+        if ((sys->system_ticks & 63) == 0) mos6551acia_poll_rx(&sys->acia);
+        // Niveau redonné à chaque pas (le VIA de reload détecte le front entre deux appels)
+        mos6522via_set_cb1(&sys->via2, sys->ring);
+        irq |= telestrat_fdc_irq(&sys->fdc);
+        irq |= mos6551acia_irq(&sys->acia);
+        MOS6502CPU_SET_IRQ(&sys->cpu, irq);
+
+        // AY-3-8912 piloté par PA / CA2 / CB2 du VIA 1
+        if (mos6522via_get_cb2(&sys->via)) {
+            const uint8_t psg_data = mos6522via_get_pa(&sys->via);
+            if (mos6522via_get_ca2(&sys->via)) {
+                ay38910psg_latch_address(&sys->psg, psg_data);
+            } else {
+                ay38910psg_write(&sys->psg, psg_data);
             }
-        }
-    } else {
-        _telestrat_io_access(sys, addr);
-    }
-
-    const uint32_t t = sys->system_ticks;
-    if (t == sys->psg_next) _telestrat_psg_events(sys);
-
-    // Périphériques par pas de 4 cycles, sautés au repos
-    if ((t & 3) == 0) {
-        if ((int32_t)(t - sys->quiet_until) < 0) {
-            sys->deferred += 4;
         } else {
-            _telestrat_step(sys);
+            mos6522via_set_pa(&sys->via, ay38910psg_read(&sys->psg));
         }
+
+        // PB0-PB2 : ligne du clavier ; PB3 : touche enfoncée
+        uint8_t pb = mos6522via_get_pb(&sys->via);
+        uint8_t line_mask = 1 << (pb & 7);
+        if (kbd_scan_lines(&sys->kbd) == line_mask) {
+            mos6522via_set_pb(&sys->via, pb | (1 << 3));
+        } else {
+            mos6522via_set_pb(&sys->via, pb & ~(1 << 3));
+        }
+
+        _telestrat_update_joysticks(sys);
+        _telestrat_update_printer(sys, pb);
     }
 
-    sys->system_ticks = t + 1;
+    sys->system_ticks++;
 }
 
-// Vidéo ULA : même image qu'oric_screen_update d'oric.h (vérifié contre le
-// modèle de référence par tests/replay.c), avec une table pour les pixels :
-// deux pixels (2 bits du motif) et les couleurs d'encre et de papier donnent
-// directement l'octet du tampon (deux pixels de 4 bits).
-static uint8_t telestrat_pair_lut[256];
-
-static void _telestrat_init_pair_lut(void) {
-    for (int i = 0; i < 256; i++) {
-        int b = i >> 6, f = (i >> 3) & 7, g = i & 7;
-        telestrat_pair_lut[i] = (uint8_t)((((b & 2) ? f : g) << 4) | ((b & 1) ? f : g));
-    }
-}
-
-TELESTRAT_HOT void telestrat_screen_update(telestrat_t* sys) {
+// Vidéo ULA : reprise telle quelle d'oric.h (oric_screen_update)
+void telestrat_screen_update(telestrat_t* sys) {
     bool blink_state = sys->blink_counter & 0x20;
     sys->blink_counter = (sys->blink_counter + 1) & 0x3F;
     if (!sys->screen_dirty && (sys->blink_counter & 0x1F) != 0) {
         return;
     }
-    if (!telestrat_pair_lut[0xFF]) _telestrat_init_pair_lut();
-    const uint8_t* lut = telestrat_pair_lut;
-    const uint8_t* ram = sys->ram;
 
     uint8_t pattr = sys->pattr;
-    uint8_t* p = sys->fb;
     for (int y = 0; y < TELESTRAT_SCREEN_HEIGHT; y++) {
         uint8_t lattr = 0;
         uint8_t fgcol = 7;
         uint8_t bgcol = 0;
-        const uint8_t* text = ram + 0xBB80 + (y >> 3) * 40;
-        const uint8_t* hires = ram + 0xA000 + y * 40;
-        const bool hires_row = y < 200;
+        uint8_t* p = &sys->fb[y * (TELESTRAT_SCREEN_WIDTH / 2)];
 
         for (int x = 0; x < 40; x++) {
             uint8_t ch, pat;
-            if ((pattr & TELESTRAT_PATTR_HIRES) && hires_row) {
-                ch = pat = hires[x];
+            if ((pattr & TELESTRAT_PATTR_HIRES) && y < 200) {
+                ch = pat = sys->ram[0xA000 + y * 40 + x];
             } else {
-                ch = text[x];
+                ch = sys->ram[0xBB80 + (y >> 3) * 40 + x];
                 int off = (lattr & TELESTRAT_LATTR_DSIZE ? y >> 1 : y) & 7;
                 const uint8_t* base;
                 if (pattr & TELESTRAT_PATTR_HIRES) {
-                    base = ram + ((lattr & TELESTRAT_LATTR_ALT) ? 0x9C00 : 0x9800);
+                    base = sys->ram + ((lattr & TELESTRAT_LATTR_ALT) ? 0x9C00 : 0x9800);
                 } else {
-                    base = ram + ((lattr & TELESTRAT_LATTR_ALT) ? 0xB800 : 0xB400);
+                    base = sys->ram + ((lattr & TELESTRAT_LATTR_ALT) ? 0xB800 : 0xB400);
                 }
                 pat = base[((ch & 0x7F) << 3) | off];
             }
@@ -774,11 +578,12 @@ TELESTRAT_HOT void telestrat_screen_update(telestrat_t* sys) {
             }
             if ((lattr & TELESTRAT_LATTR_BLINK) && blink_state) c_fgcol = c_bgcol;
 
-            const uint8_t k = (uint8_t)((c_fgcol << 3) | c_bgcol);
-            p[0] = lut[(((pat >> 4) & 3) << 6) | k];
-            p[1] = lut[(((pat >> 2) & 3) << 6) | k];
-            p[2] = lut[((pat & 3) << 6) | k];
-            p += 3;
+            *p = (pat & 0x20 ? c_fgcol : c_bgcol) << 4;
+            *p++ |= (pat & 0x10 ? c_fgcol : c_bgcol);
+            *p = (pat & 0x08 ? c_fgcol : c_bgcol) << 4;
+            *p++ |= (pat & 0x04 ? c_fgcol : c_bgcol);
+            *p = (pat & 0x02 ? c_fgcol : c_bgcol) << 4;
+            *p++ |= (pat & 0x01 ? c_fgcol : c_bgcol);
         }
     }
     sys->pattr = pattr;
@@ -798,7 +603,7 @@ uint32_t telestrat_exec(telestrat_t* sys, uint32_t micro_seconds) {
             sys->debug.callback.func(sys->debug.callback.user_data, 0);
         }
     }
-    telestrat_kbd_update(sys, micro_seconds);
+    kbd_update(&sys->kbd, micro_seconds);
     telestrat_screen_update(sys);
     return num_ticks;
 }

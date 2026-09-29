@@ -26,6 +26,28 @@ Dépendances reprises de reload-emulator sans copie : `mos6522via.h`,
 `ay38910psg.h`, `kbd.h`, `clk.h`, `chips_common.h`, cœurs 65C02, `hid_app.c`,
 `audio.c`, `utils.S` (rendu 3x de l'Oric), SDK Pico, PicoDVI, tinyusb.
 
+## Référence et système optimisé (sprint 4)
+
+- `src/systems/telestrat_ref.h` : **modèle de référence**, simple et figé —
+  tous les périphériques avancent tous les 4 cycles. Il n'est plus optimisé ;
+  c'est la spécification exécutable.
+- `src/systems/telestrat.h` : même comportement, cycle pour cycle, mais un pas
+  de 4 cycles « au repos » (VIA stables sans échéance, FDC et ACIA sans compte
+  à rebours échu, bus de l'AY inactif, pas d'ACK imprimante, aucune entrée
+  extérieure changée) est sauté ; sa durée est cumulée puis appliquée d'un
+  coup avant le prochain accès en `$03xx` ou le prochain pas complet. RAM et
+  banques sont servies par un chemin court ; l'AY avance par échéances.
+- Preuve d'équivalence : le banc de référence (`telestrat_headless_ref -B`)
+  enregistre des traces ; `tests/replay.c` les fait rejouer au système
+  optimisé et compare à chaque cycle l'octet placé sur le bus et la ligne IRQ,
+  ainsi que les échantillons audio, les octets série (avec leur cycle) et
+  l'empreinte de l'image de chaque trame.
+- Seul changement de la référence par rapport au sprint 3 : l'ACIA interroge
+  la ligne tous les 64 cycles au lieu de 4 (64 µs contre 8,3 ms par caractère
+  à 1200 bauds), sans quoi le système n'est jamais au repos en mode Minitel.
+- Le clavier passe par `telestrat_key_down/up` et `telestrat_kbd_update` (et
+  non `kbd_*`) pour que le système voie le changement.
+
 ## Carte mémoire
 
 | Adresses | Contenu | Source |

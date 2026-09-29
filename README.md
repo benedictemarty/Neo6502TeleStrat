@@ -9,7 +9,12 @@ le **vrai W65C02S** du Neo6502 exécute TELEMON, le **RP2040** sert la mémoire
 AY-3-8912, Microdisc intégré, ACIA 6551, vidéo ULA en DVI). Livré en
 `telestrat.uf2`, compatible avec le multi-boot du firmware Neo6502.
 
-**Version : 0.3.0 (sprint 3).** Le Telestrat démarre sur disquette (TELEMON 2.4,
+**Version : 0.4.0 (sprint 4).** Le cœur 0 du RP2040 tient désormais le
+65C02 à 1 MHz d'après la mesure sans carte (59-68 % de charge en moyenne, 76 %
+au pire, contre 150 % avant), sans aucun changement de comportement, prouvé
+par rejeu exact contre un modèle de référence (docs/PERFORMANCE.md).
+
+**Sprint 3 (0.3.x).** Le Telestrat démarre sur disquette (TELEMON 2.4,
 STRATSED V2.0c, HYPER-BASIC V2.0b, TELE-ASS, TELEMATIC V2.0b) ; HYPER-BASIC
 calcule, liste le disque, sauvegarde et recharge, imprime. **TELEMATIC fonctionne
 en serveur Minitel** : un correspondant qui appelle fait sonner la ligne,
@@ -93,7 +98,8 @@ build/telestrat_headless -c standard -0 a.dsk -L listen:3615 -R ...  # ligne Min
 connecte « appelle » le Telestrat ; `-L connect:HÔTE:PORT` : la connexion du
 Minitel émulé ouvre une connexion TCP ; `-T` trace les octets de l'ACIA.
 
-Dans `-t`, `\n` tape RETURN et `~` fait une pause de 50 trames. Les tests disque
+Dans `-t`, `\n` tape RETURN et `~` (absent du clavier) occupe un créneau de
+frappe, donc fait une pause ; `-k N` règle le nombre de trames par touche. Les tests disque
 utilisent `STRATSED.DSK` (`STRATSED_DSK=...`, voir [docs/TESTS.md](docs/TESTS.md)).
 
 Configurations : `standard` (notice), `ram64k` (cartouche RAM 64 Ko),

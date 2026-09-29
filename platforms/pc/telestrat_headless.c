@@ -13,7 +13,9 @@
 //              telemon : TELEMON seul (0 RAM, 7 TELEMON)
 //   -f N       nombre de trames de 20 ms (défaut 150)
 //   -w N       trames avant la frappe de -t (défaut 100)
-//   -t TEXTE   texte tapé (une touche toutes les 4 trames ; \n = RETURN)
+//   -t TEXTE   texte tapé (une touche toutes les 4 trames ; \n = RETURN ; ~, absent du
+//              clavier, ne fait qu'occuper un créneau : une pause d'une touche)
+//   -k N       trames par touche pour -t (défaut 4)
 //   -s         affiche l'écran texte (28 x 40 en $BB80)
 //   -b         affiche la banque courante et l'état des banques ($0200-$0207)
 //   -p FICHIER écrit l'image 240 x 224 (PPM binaire)
@@ -25,8 +27,10 @@
 //   -L LIGNE   branche un Minitel sur l'ACIA et sa ligne sur TCP :
 //              listen:PORT (appel entrant = client TCP) ou connect:HOTE:PORT
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
-//   -B PRÉFIXE enregistre la trace de bus (PRÉFIXE.trace : un mot par cycle, adresse |
-//              R/W << 16 | donnée << 24) et le clavier (PRÉFIXE.ev) pour tools/rp2040_load.py
+//   -B PRÉFIXE enregistre la trace (tests/replay.c, tools/rp2040_load.py) : PRÉFIXE.trace
+//              (un mot par cycle : adresse | R/W << 16 | IRQ << 17 | donnée << 24),
+//              .ev (clavier), .aud (échantillons audio), .ser (octets série et leur
+//              cycle), .ring (sonnerie par tranche de 1 ms)
 //
 // ## Licence zlib/libpng
 //
@@ -69,11 +73,16 @@
 #include "devices/telestrat_fdc.h"
 #include "devices/mos6551acia.h"
 #include "devices/minitel_port.h"
+#ifdef TELESTRAT_REF
+#include "systems/telestrat_ref.h"
+#define telestrat_key_down(s, c)   kbd_key_down(&(s)->kbd, c)
+#define telestrat_key_up(s, c)     kbd_key_up(&(s)->kbd, c)
+#define telestrat_kbd_update(s, u) kbd_update(&(s)->kbd, u)
+#else
 #include "systems/telestrat.h"
+#endif
 #include "line_tcp.h"
 #include <time.h>
-
-static telestrat_t sys;
 
 #define RAM(n)  {.type = TELESTRAT_BANK_RAM}
 #define ROM(p)  {.type = TELESTRAT_BANK_ROM, .rom = (p)}
@@ -106,6 +115,27 @@ static FILE* bench_trace = NULL;
 static uint32_t bench_events[4096];
 static uint32_t bench_event_count = 0;
 
+static FILE *bench_aud = NULL, *bench_ser = NULL, *bench_ring = NULL, *bench_fb = NULL;
+
+// Empreinte FNV-1a de l'image (comparée par tests/replay.c)
+static uint32_t fb_hash(const uint8_t* fb, size_t n) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < n; i++) h = (h ^ fb[i]) * 16777619u;
+    return h;
+}
+
+static void bench_audio(const uint8_t sample, void* user_data) {
+    (void)user_data;
+    if (bench_aud) fputc(sample, bench_aud);
+}
+
+static void bench_serial(uint32_t cycle, int dir, uint8_t data) {
+    if (bench_ser) {
+        uint32_t w[2] = {cycle, (uint32_t)dir << 8 | data};
+        fwrite(w, 4, 2, bench_ser);
+    }
+}
+
 static void bench_key(int frame, int down, int code) {
     if (bench_trace && bench_event_count < 4096) {
         bench_events[bench_event_count++] = ((uint32_t)frame << 16) | (down ? 0x8000u : 0) | (uint32_t)(code & 0x7FFF);
@@ -117,8 +147,11 @@ static int current_frame = 0;
 static minitel_port_t minitel;
 static bool minitel_on = false;
 
+static telestrat_t sys;
+
 static void serial_tx(uint8_t data, void* user_data) {
     (void)user_data;
+    bench_serial(sys.system_ticks, 0, data);
     if (serial_trace) fprintf(serial_trace, "%d TX %02X\n", current_frame, data);
     if (minitel_on) minitel_port_from_telestrat(&minitel, data);
 }
@@ -127,6 +160,7 @@ static int serial_rx(void* user_data) {
     (void)user_data;
     if (!minitel_on) return -1;
     int c = minitel_port_to_telestrat(&minitel);
+    if (c >= 0) bench_serial(sys.system_ticks, 1, (uint8_t)c);
     if (c >= 0 && serial_trace) fprintf(serial_trace, "%d RX %02X\n", current_frame, c);
     return c;
 }
@@ -193,11 +227,12 @@ int main(int argc, char** argv) {
     const char* printer_file = NULL;
     const char* line_spec = NULL;
     int realtime = 0;
+    int key_period = 4;
     const char* bench_prefix = NULL;
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:RB:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:RB:k:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -212,6 +247,7 @@ int main(int argc, char** argv) {
             case 'P': printer_file = optarg; break;
             case 'L': line_spec = optarg; break;
             case 'R': realtime = 1; break;
+            case 'k': key_period = atoi(optarg) < 2 ? 2 : atoi(optarg); break;
             case 'B': bench_prefix = optarg; break;
             case 'T':
                 serial_trace = fopen(optarg, "w");
@@ -250,6 +286,15 @@ int main(int argc, char** argv) {
             perror(path);
             return 1;
         }
+        snprintf(path, sizeof(path), "%s.aud", bench_prefix);
+        bench_aud = fopen(path, "wb");
+        snprintf(path, sizeof(path), "%s.ser", bench_prefix);
+        bench_ser = fopen(path, "wb");
+        snprintf(path, sizeof(path), "%s.ring", bench_prefix);
+        bench_ring = fopen(path, "wb");
+        snprintf(path, sizeof(path), "%s.fb", bench_prefix);
+        bench_fb = fopen(path, "wb");
+        desc.audio.callback.func = bench_audio;
     }
     if (line_spec) {
         if (!line_tcp_open(&line, line_spec)) {
@@ -260,7 +305,7 @@ int main(int argc, char** argv) {
         minitel_port_init(&minitel, &l);
         minitel_on = true;
     }
-    if (serial_trace || minitel_on) {
+    if (serial_trace || minitel_on || bench_prefix) {
         desc.minitel.tx = serial_tx;
         desc.minitel.rx = serial_rx;
     }
@@ -280,7 +325,7 @@ int main(int argc, char** argv) {
     size_t pos = 0, len = text ? strlen(text) : 0;
     int key_down = 0;
     for (int frame = 0; frame < frames; frame++) {
-        if (text && frame >= wait && pos < len && ((frame - wait) % 4) == 0) {
+        if (text && frame >= wait && pos < len && ((frame - wait) % key_period) == 0) {
             int c = (unsigned char)text[pos];
             if (c == '\\' && pos + 1 < len && text[pos + 1] == 'n') {
                 c = 0x0D;
@@ -288,12 +333,12 @@ int main(int argc, char** argv) {
             } else if (c == '\n') {
                 c = 0x0D;
             }
-            kbd_key_down(&sys.kbd, c);
+            telestrat_key_down(&sys, c);
             bench_key(frame, 1, c);
             key_down = c;
             pos++;
-        } else if (key_down && ((frame - wait) % 4) == 2) {
-            kbd_key_up(&sys.kbd, key_down);
+        } else if (key_down && ((frame - wait) % key_period) == key_period / 2) {
+            telestrat_key_up(&sys, key_down);
             bench_key(frame, 0, key_down);
             key_down = 0;
         }
@@ -305,14 +350,26 @@ int main(int argc, char** argv) {
             for (int i = 0; i < 1000; i++) {
                 telestrat_tick(&sys);
                 if (bench_trace) {
-                    uint32_t e = sys.cpu.addr | ((uint32_t)sys.cpu.rw << 16) | ((uint32_t)sys.cpu.data << 24);
+                    uint32_t e = sys.cpu.addr | ((uint32_t)sys.cpu.rw << 16) | ((uint32_t)(sys.cpu.irq ? 1 : 0) << 17) |
+                                 ((uint32_t)sys.cpu.data << 24);
                     fwrite(&e, 4, 1, bench_trace);
                 }
             }
-            if (minitel_on) telestrat_set_ring(&sys, minitel_port_tick(&minitel, 1000));
+            if (minitel_on) {
+                bool ring = minitel_port_tick(&minitel, 1000);
+                if (bench_ring && ring != sys.ring) {
+                    uint32_t w[2] = {(uint32_t)(frame * 20 + ms), ring};
+                    fwrite(w, 4, 2, bench_ring);
+                }
+                telestrat_set_ring(&sys, ring);
+            }
         }
-        kbd_update(&sys.kbd, 20000);
+        telestrat_kbd_update(&sys, 20000);
         telestrat_screen_update(&sys);
+        if (bench_fb) {
+            uint32_t h = fb_hash(sys.fb, sizeof(sys.fb));
+            fwrite(&h, 4, 1, bench_fb);
+        }
         if (serial_trace) fflush(serial_trace);
         if (realtime) {
             struct timespec t1;
@@ -341,6 +398,10 @@ int main(int argc, char** argv) {
         fclose(f);
     }
     if (printer) fclose(printer);
+    if (bench_aud) fclose(bench_aud);
+    if (bench_ser) fclose(bench_ser);
+    if (bench_ring) fclose(bench_ring);
+    if (bench_fb) fclose(bench_fb);
     if (bench_trace) {
         fclose(bench_trace);
         char path[512];

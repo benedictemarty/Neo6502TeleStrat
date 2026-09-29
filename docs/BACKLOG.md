@@ -41,18 +41,19 @@ HYPER-BASIC, TELE-ASS, TELEMATIC en serveur Minitel par le modem Wi-Fi.
 | US-25 | Banques vides = bus flottant (TELEMATIC démarre, banques `$10`) | ✅ |
 | US-26 | Émulation Minitel (APLIC 1) en appel sortant | ⏳ ligne prête (`connect:`), scénario non testé |
 
-## Sprint 4 (proposé) — « Tenir 1 MHz sur le RP2040 »
+## Sprint 4 — v0.4.0 — « Tenir 1 MHz sur le RP2040 » ✅ (2026-09-29, mesure sans carte)
 
-Mesure sans carte (docs/PERFORMANCE.md) : ~367 cycles M0+ par cycle 6502 pour
-un budget de 295, rendu d'écran jusqu'à 23 % d'une trame : le cœur 0 serait
-chargé à 127 % (150 % au pire). Objectif : ≤ 260 cycles, vérifié par `make charge`.
+Départ : ~398 cycles M0+ par cycle 6502 pour un budget de 295 (150 %).
+Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors budget.
 
-| US | Récit |
-|---|---|
-| US-30 | Rendu de l'écran sur le cœur 1 |
-| US-31 | VIA 2 (joysticks, sonnerie) mis à jour sur changement ; ACIA interrogée tous les 64 cycles |
-| US-32 | Chemin rapide RAM/ROM en tête de `telestrat_tick` |
-| US-33 | Reprendre les optimisations de reload (VIA inactif, bus 65C02 intégré) une fois commitées |
+| US | Récit | État |
+|---|---|---|
+| US-30 | Puces de reload figées dans le projet (`src/chips`, 462372a) | ✅ |
+| US-31 | Modèle de référence figé + rejeu exact (bus, IRQ, audio, série, image) | ✅ 2 traces, 0 différence |
+| US-32 | Pas de 4 cycles au repos sautés et rattrapés, chemin court RAM/ROM | ✅ 314 → 102 cycles |
+| US-33 | Pilote de bus intégré (même séquence GPIO que reload) | ✅ 84 → 68 cycles, ⏳ carte |
+| US-34 | Rendu de l'écran par table | ✅ 1,35 → 0,92 Mcycle au pire |
+| US-35 | Rendu de l'écran sur le cœur 1 | ⏳ plus nécessaire pour tenir 1 MHz ; à mesurer sur carte |
 
 ## Plus tard
 

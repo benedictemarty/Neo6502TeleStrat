@@ -224,15 +224,23 @@ def main():
     ap.add_argument("--every", type=int, default=15, help="mesurer une trame sur N")
     ap.add_argument("--frames", type=int, default=0, help="limiter le nombre de trames")
     ap.add_argument("--profile", action="store_true", help="cycles par fonction")
+    ap.add_argument("--config", default="oricutron", choices=("oricutron", "standard"))
     args = ap.parse_args()
 
-    # Coût du pilote de bus réel (reload : chips/wdc65C02cpu.h), depuis le firmware
+    # Coût du pilote de bus réel, depuis le firmware : sondes du pilote intégré
+    # (neo6502_bus.h : un cycle de lecture, un d'écriture, prologue compris),
+    # sinon fonctions appelées de reload (chips/wdc65C02cpu.h)
     fw = read_elf(args.firmware_elf)
-    drv = {s: straight_cost(args.firmware_elf, s, fw) for s in
-           ("wdc65C02cpu_tick", "wdc65C02cpu_get_data", "wdc65C02cpu_set_data", "wdc65C02cpu_set_irq")}
-    call = 3  # BL
-    for k in drv:
-        drv[k] += call
+    probes = "telestrat_bus_probe_read" in fw[1]
+    if probes:
+        drv = {s: straight_cost(args.firmware_elf, s, fw) for s in
+               ("telestrat_bus_probe_read", "telestrat_bus_probe_write")}
+    else:
+        drv = {s: straight_cost(args.firmware_elf, s, fw) for s in
+               ("wdc65C02cpu_tick", "wdc65C02cpu_get_data", "wdc65C02cpu_set_data", "wdc65C02cpu_set_irq")}
+        call = 3  # BL
+        for k in drv:
+            drv[k] += call
 
     segs, syms = read_elf(args.bench_elf)
     uc = unicorn.Uc(unicorn.UC_ARCH_ARM, unicorn.UC_MODE_THUMB | unicorn.UC_MODE_MCLASS)
@@ -267,7 +275,7 @@ def main():
         uc.emu_start(syms[name][0] | 1, RET_TRAP)
 
     cyc = Cycles(uc, syms if args.profile else None)
-    call_fn("bench_init", disk_size)
+    call_fn("bench_init", disk_size, 1 if args.config == "standard" else 0)
 
     # Coût de la relecture seule (bench_replay_only), à retrancher : la carte
     # réelle paie à la place le pilote de bus (compté à part)
@@ -326,7 +334,10 @@ def main():
     words.frombytes(trace[:frames * 20000 * 4])
     reads = sum(1 for w in words if (w >> 16) & 1)
     writes = len(words) - reads
-    drv_per_tick = drv["wdc65C02cpu_tick"] + (reads * drv["wdc65C02cpu_set_data"] + writes * drv["wdc65C02cpu_get_data"]) / len(words) + drv["wdc65C02cpu_set_irq"] / 4
+    if probes:
+        drv_per_tick = (reads * drv["telestrat_bus_probe_read"] + writes * drv["telestrat_bus_probe_write"]) / len(words)
+    else:
+        drv_per_tick = drv["wdc65C02cpu_tick"] + (reads * drv["wdc65C02cpu_set_data"] + writes * drv["wdc65C02cpu_get_data"]) / len(words) + drv["wdc65C02cpu_set_irq"] / 4
 
     per_tick = [c / 1000 for c in slice_costs]
     worst_slice = max(per_tick)
@@ -339,9 +350,8 @@ def main():
 
     print("Trace : %d cycles 6502 (%d trames), relecture ARM : %d cycles, %d octets différents%s" % (
         n_cycles, frames, pos, mism, "" if not mism else " (premier au cycle %d)" % first))
-    print("Pilote de bus réel (firmware) : tick %d, set_data %d, get_data %d, set_irq %d cycles"
-          " -> %.1f cycles par cycle 6502" % (drv["wdc65C02cpu_tick"], drv["wdc65C02cpu_set_data"],
-                                             drv["wdc65C02cpu_get_data"], drv["wdc65C02cpu_set_irq"], drv_per_tick))
+    print("Pilote de bus réel (firmware) : %s -> %.1f cycles par cycle 6502" % (
+        ", ".join("%s %d" % (k, v) for k, v in drv.items()), drv_per_tick))
     print("Système (telestrat_tick, relecture de %.1f cycles retranchée) : %.1f cycles par cycle 6502 en moyenne,"
           " %.1f au pire (tranche de 1 ms)" % (replay_per_tick, avg_tick, worst_slice))
     print("Fin de trame (clavier + rendu de l'écran) : %.0f cycles en moyenne, %d au pire" % (avg_end, max(end_costs)))

@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (94 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (95 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -33,7 +33,10 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - modem Hayes (faux modem) : initialisation (`AT$SP`), RING et sa fin, ATA,
   CONNECT (sans `\n` parasite), données, NO CARRIER en ligne, ATD, `+++`/ATH
   avec gardes, BUSY, pas d'appel sortant sans numéro ;
-- banque vide instable (bus flottant).
+- banque vide instable (bus flottant) ;
+- rendu de l'écran identique au rendu d'origine (copie d'oric_screen_update)
+  sur 600 écrans aléatoires : texte, HIRES, attributs série, double hauteur,
+  jeu alternatif, inversion, clignotement.
 
 ## Tests de démarrage — `tests/test_boot.sh` (33 vérifications)
 
@@ -70,6 +73,22 @@ raccroche. Vérifié : `ESC 9 o ESC 9 h` émis, `SEP $50 $59 $53` reçus, page
 d'accueil (« SERVEUR REALISE ENTIEREMENT… »), réponse à ENVOI (« taper quelque
 chose avant ENVOI »), `SEP $59 $53` au raccrochage, retour à « Attente de
 communication ».
+
+## Rejeu contre la référence — `tests/test_replay.sh` (2 traces)
+
+Le banc de référence (`build/telestrat_headless_ref`, compilé avec
+`-DTELESTRAT_REF`) enregistre, `tests/replay.c` rejoue sur le système optimisé
+et exige 0 différence : octet placé sur le bus et ligne IRQ à chaque cycle,
+échantillons audio, octets série et leur cycle, empreinte de l'image par trame.
+
+| Trace | Contenu |
+|---|---|
+| A (20 M cycles, config. `oricutron`) | démarrage STRATSED, HYPER-BASIC, PING, ZAP, DIR |
+| B (60 M cycles, config. `standard`) | serveur TELEMATIC : sonnerie, connexion, pages, ENVOI, raccrochage |
+
+## Charge du RP2040 — `make charge`
+
+Voir docs/PERFORMANCE.md (non inclus dans `make test` : unicorn et capstone).
 
 ## Firmware
 

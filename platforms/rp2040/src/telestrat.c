@@ -55,13 +55,8 @@
 // le cache de 16 Ko (même choix que le BBC de reload-emulator)
 #define TELESTRAT_HOT __attribute__((section(".time_critical.telestrat")))
 #define CHIPS_HOT     __attribute__((section(".time_critical.telestrat")))
-#define WDC65C02_HOT  __attribute__((section(".time_critical.telestrat")))
 #include "chips/chips_common.h"
-#ifdef OLIMEX_NEO6502
-#include "chips/wdc65C02cpu.h"
-#else
-#include "chips/w65c02cpu.h"
-#endif
+#include "neo6502_bus.h"  // bus du vrai 65C02 intégré au tick (Olimex Neo6502)
 #include "chips/mos6522via.h"
 #include "chips/ay38910psg.h"
 #include "chips/kbd.h"
@@ -338,12 +333,12 @@ void kbd_raw_key_down(int code) {
             telestrat_reset(sys);
             break;
         default:
-            kbd_key_down(&sys->kbd, host_to_telestrat(code));
+            telestrat_key_down(sys, host_to_telestrat(code));
             break;
     }
 }
 
-void kbd_raw_key_up(int code) { kbd_key_up(&state.telestrat.kbd, host_to_telestrat(code)); }
+void kbd_raw_key_up(int code) { telestrat_key_up(&state.telestrat, host_to_telestrat(code)); }
 
 void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_state) {
     if (index > 1) return;
@@ -429,7 +424,28 @@ void __not_in_flash_func(core1_main()) {
     __builtin_unreachable();
 }
 
+// Sondes de mesure (tools/rp2040_load.py) : un cycle de lecture et un cycle
+// d'écriture complets du pilote de bus, pour en compter les cycles
+__attribute__((noinline, section(".time_critical.telestrat"))) void telestrat_bus_probe_read(void) {
+    static neo6502bus_t c;
+    neo6502bus_tick(&c);
+    neo6502bus_set_data((uint8_t)c.addr);
+}
+
+__attribute__((noinline, section(".time_critical.telestrat"))) void telestrat_bus_probe_write(void) {
+    static neo6502bus_t c;
+    static volatile uint8_t sink __attribute__((unused));
+    neo6502bus_tick(&c);
+    sink = neo6502bus_get_data();
+}
+
 int main() {
+    // Jamais vrai : garde les sondes à l'édition de liens
+    if (time_us_32() == 0xFFFFFFFFu) {
+        telestrat_bus_probe_read();
+        telestrat_bus_probe_write();
+    }
+
     vreg_set_voltage(VREG_VSEL);
     sleep_ms(10);
     set_sys_clock_khz(DVI_TIMING.bit_clk_khz, true);
@@ -467,7 +483,7 @@ int main() {
         }
 
         telestrat_screen_update(&state.telestrat);
-        kbd_update(&state.telestrat.kbd, num_ticks);
+        telestrat_kbd_update(&state.telestrat, num_ticks);
         tuh_task();
         usb_poll();
 

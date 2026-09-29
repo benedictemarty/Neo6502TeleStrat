@@ -223,8 +223,16 @@ static inline void mos6551acia_tick(mos6551acia_t* a, int cycles) {
             _mos6551acia_load_tsr(a);
         }
     }
-    // Réception (seulement récepteur actif : DTR)
+    // Réception : le temps passe ; l'arrivée d'un octet est testée par
+    // mos6551acia_poll_rx()
     if (a->rx_timer > 0) a->rx_timer -= cycles;
+}
+
+// Interroge le correspondant (récepteur actif, octet précédent lu, durée d'un
+// caractère écoulée). Le système l'appelle tous les 64 cycles : assez fin
+// devant la durée d'un caractère (8,3 ms à 1200 bauds), et cela laisse le
+// système au repos entre deux interrogations.
+static inline void mos6551acia_poll_rx(mos6551acia_t* a) {
     if (a->rx_timer <= 0 && !(a->status & MOS6551_ST_RXFULL) && (a->command & MOS6551_CMD_DTR) && a->rx_cb) {
         int c = a->rx_cb(a->user_data);
         if (c >= 0) {
