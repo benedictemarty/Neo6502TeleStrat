@@ -103,7 +103,8 @@ le RP2040 ; le Telestrat ne la voit pas directement mais par ce qu'on y prend
 
 **Menu (F1)** : disquettes des lecteurs A à D, cassette (position, moteur),
 cartouches des banques 7 à 1 (ROM intégrée, `.rom` de la clé ou contenu
-d'origine), Redémarrer (à froid, pour que TELEMON inventorie les
+d'origine), périphériques (imprimante et modem : activés ou coupés par
+Entrée, état du modem), Redémarrer (à froid, pour que TELEMON inventorie les
 cartouches), Enregistrer la configuration dans `TELESTRA.CFG`, Reprendre.
 L'émulation est en pause tant qu'il est ouvert. Flèches, Entrée, Suppr
 (éjecter / contenu d'origine), une lettre (aller au fichier), Échap.
@@ -154,6 +155,8 @@ a=STRATSED.DSK         # lecteurs A à D (a= … d=), écrits par le menu
 bank5=orix.rom         # cartouches de la clé (bank1= … bank7=), écrites par le menu
 bank7=@stratoric       # ROM intégrée : STRATORIC (banques 7, 6, 5) ; @atmos : BASIC 1.1 seul
 imprimante=IMPRIM.TXT  # sortie de l'imprimante, ajoutée à ce fichier (vide : pas d'impression)
+impression=oui         # imprimante activée (non : coupée) ; écrit par le menu
+modem=oui              # modem activé (non : ligne coupée) ; écrit par le menu
 ```
 
 Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour

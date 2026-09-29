@@ -121,6 +121,7 @@ static inline uint8_t osd_next_char(const char** p) {
     *p += n;
     if (c == 0x2014 || c == 0x2013) return OSD_EMDASH;  // — –
     if (c == 0x2026) return OSD_ELLIPSIS;               // …
+    if (c == 0x2192) return OSD_ARROW_R;                // →
     return c < 256 ? (uint8_t)c : '?';
 }
 

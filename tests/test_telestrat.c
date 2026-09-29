@@ -1126,6 +1126,23 @@ static void test_osd_tape_menu(void) {
     osd_menu_key(&osd_m, 'O');
     a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
     CHECK(a.type == OSD_ACT_LOAD_ROM && a.file == 2, "lettre O encore : orix.rom");
+    // Périphériques : imprimante, modem
+    osd_m.cursor = OSD_ITEM_BANK7 + 6;  // banque 1
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    CHECK(osd_m.cursor == OSD_ITEM_PRINTER, "sous la banque 1 : l'imprimante");
+    CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_PRINTER, "Entrée : imprimante activée / coupée");
+    osd_menu_key(&osd_m, OSD_KEY_RIGHT);
+    CHECK(osd_m.cursor == OSD_ITEM_MODEM && osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_MODEM,
+          "droite : modem, Entrée : activé / coupé");
+    osd_menu_key(&osd_m, OSD_KEY_LEFT);
+    CHECK(osd_m.cursor == OSD_ITEM_PRINTER, "gauche : imprimante");
+    osd_m.printer_on = false;
+    osd_m.modem_on = true;
+    osd_m.modem_state = "en ligne";
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(!memcmp(&osd_s.ch[25][20], "coup", 4) && !memcmp(&osd_s.ch[25][72], "activ", 5) &&
+              !memcmp(&osd_s.ch[25][99], "en ligne", 8),
+          "panneau : imprimante coupée, modem activé, état");
     osd_m.tape_percent = 50;
     osd_m.tape_motor = true;
     osd_menu_draw(&osd_m, &osd_s);
@@ -1160,6 +1177,17 @@ static void test_osd_config(void) {
                                            "d=Jeux 1987.dsk\nbank5=orix.rom\n"),
           "TELESTRA.CFG fusionné :\n%s", out);
     CHECK(osd_config_merge(old, drives, banks, out, 20) == 0, "tampon trop petit : 0");
+    // Options du menu : impression, modem
+    const char* old2 = "impression=oui\nmodem=oui\ndial=x:1\n";
+    n = osd_config_merge_ex(old2, drives, banks, 0, 1, out, sizeof(out));
+    CHECK(strstr(out, "impression=non\n") && strstr(out, "modem=oui\n") && !strstr(out, "impression=oui") &&
+              strstr(out, "dial=x:1"),
+          "impression=non, modem=oui écrits, anciennes lignes remplacées :\n%s", out);
+    n = osd_config_merge(old2, drives, banks, out, sizeof(out));
+    CHECK(strstr(out, "impression=oui\n") && strstr(out, "modem=oui\n"), "sans options : lignes gardées");
+    CHECK(osd_config_yes("non", true) == false && osd_config_yes("oui", false) && osd_config_yes(NULL, true) &&
+              osd_config_yes("peut-être", false) == false,
+          "valeurs oui / non");
 }
 
 static void osd_sample(void) {

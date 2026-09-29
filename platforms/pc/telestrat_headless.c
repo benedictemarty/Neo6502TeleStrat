@@ -133,7 +133,11 @@ static int config_banks(const char* name, telestrat_desc_t* d) {
     return 1;
 }
 
-static void printer_out(uint8_t data, void* user_data) { fputc(data, (FILE*)user_data); }
+// Imprimante et ligne coupées par le menu (-U : impression=non, modem=non)
+static bool printer_enabled = true, modem_enabled = true;
+static void printer_out(uint8_t data, void* user_data) {
+    if (printer_enabled) fputc(data, (FILE*)user_data);
+}
 
 // Trace de bus pour la mesure de charge du RP2040
 static FILE* bench_trace = NULL;
@@ -175,6 +179,7 @@ static bool minitel_on = false;
 static telestrat_t sys;
 
 static void serial_tx(uint8_t data, void* user_data) {
+    if (!modem_enabled) return;
     (void)user_data;
     bench_serial(sys.system_ticks, 0, data);
     if (serial_trace) fprintf(serial_trace, "%d TX %02X\n", current_frame, data);
@@ -182,6 +187,7 @@ static void serial_tx(uint8_t data, void* user_data) {
 }
 
 static int serial_rx(void* user_data) {
+    if (!modem_enabled) return -1;
     (void)user_data;
     if (!minitel_on) return -1;
     int c = minitel_port_to_telestrat(&minitel);
@@ -468,7 +474,13 @@ int main(int argc, char** argv) {
         }
     }
 #ifndef TELESTRAT_REF
-    if (usb_dir) menu_pc_init(&menu_pc, &sys, usb_dir, "banc PC");
+    if (usb_dir) {
+        menu_pc.printer_file = printer_file;
+        menu_pc.line_present = minitel_on;
+        menu_pc_init(&menu_pc, &sys, usb_dir, "banc PC");
+        printer_enabled = menu_pc.printer_on;
+        modem_enabled = menu_pc.modem_on;
+    }
 #else
     (void)usb_dir;
     (void)menu_ppm;
@@ -538,6 +550,8 @@ int main(int argc, char** argv) {
 #ifndef TELESTRAT_REF
         if (frame == menu_frame) {
             menu_pc_script(&menu_pc, &sys, menu_script);
+            printer_enabled = menu_pc.printer_on;
+            modem_enabled = menu_pc.modem_on;
             if (menu_ppm) menu_pc_ppm(&menu_pc, menu_ppm);
         }
 #endif
@@ -560,7 +574,7 @@ int main(int argc, char** argv) {
                 prise = p;
             }
             if (minitel_on) {
-                bool ring = minitel_port_tick(&minitel, 1000);
+                bool ring = modem_enabled && minitel_port_tick(&minitel, 1000);
                 if (bench_ring && ring != sys.ring) {
                     uint32_t w[2] = {(uint32_t)(frame * 20 + ms), ring};
                     fwrite(w, 4, 2, bench_ring);

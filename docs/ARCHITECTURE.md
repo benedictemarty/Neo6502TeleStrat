@@ -317,6 +317,20 @@ Annexes II (matrice du clavier), V (carte mémoire), VI (structure) et VII
 | ACIA : DCD « arrêt d'émission », DTR « ACIA active » | idem | idem (émission si /DCD bas) | concordant |
 | MIDI (VIA 2 CA1, CB2, PA3, PA6), souris | décrits | non émulés | — |
 
+## Périphériques dans le menu (sprint 11)
+
+Panneau « Périphériques » : imprimante et modem, activés ou coupés par
+Entrée, enregistrés par « Enregistrer » (`impression=oui|non`,
+`modem=oui|non`, `osd_config_merge_ex`). Imprimante coupée : octets jetés
+(TELEMON ne voit pas la différence). Modem coupé : une communication en
+cours est raccrochée (`hayes_line_hangup` : `+++`, `ATH`), puis la ligne ne
+sonne plus, ne compose plus, n'émet ni ne reçoit (prise Minitel, et prise
+RS232 quand elle passe par le modem) ; réactivé : modem réinitialisé. État
+affiché : absent, prêt, sonnerie, en ligne, prise RS232. Au banc : `-P`
+(imprimante) et `-L` (ligne TCP) suivent les mêmes options.
+
+RAM : 13,6 Ko libres (standard), **88 octets** (RAM 64 Ko).
+
 ## Imprimante et clé retirée (sprint 9)
 
 **Imprimante** : le système appelle `printer_out` à chaque octet (STROBE,

@@ -7,7 +7,9 @@
 #      TELESTRA.CFG a=, bank6= (emplacement de HYPER-BASIC réutilisé), bank5=
 #      (emplacement supplémentaire) relu au démarrage : TELE-ASS deux fois ;
 #   3. SAVE sur la disquette de la clé : réécrite dans le fichier ;
-#   4. .rom de taille invalide refusée ; une cartouche de trop refusée (un
+#   4. périphériques : imprimante coupée par le menu et enregistrée
+#      (impression=non) : LPRINT n'écrit rien ; impression=oui : il écrit ;
+#   5. .rom de taille invalide refusée ; une cartouche de trop refusée (un
 #      seul emplacement supplémentaire) ; image du menu (-O) produite.
 set -u
 BIN=${1:-build/telestrat_headless}
@@ -40,6 +42,17 @@ echo "bank5=teleass.rom" >> "$TMP/cle/TELESTRA.CFG"
 rm "$TMP/cle/TELESTRA.CFG"
 "$BIN" -c telemon -U "$TMP/cle" -M "10:hrddeAeeTedeHe" -O "$TMP/menu.ppm" -f 20 > /dev/null 2> "$TMP/menu3.txt"
 
+# Périphériques : u u u u = imprimante, e = coupée ; z u e = Enregistrer
+mkdir "$TMP/prn"
+cp "$DSK" "$TMP/prn/a.dsk"
+"$BIN" -c standard -U "$TMP/prn" -P "$TMP/lp0.txt" -M "5:uuuuezuex" -f 10 > /dev/null 2> "$TMP/prn_msg.txt"
+cp "$TMP/prn/TELESTRA.CFG" "$TMP/cfg_prn"
+"$BIN" -c standard -U "$TMP/prn" -0 "$TMP/prn/a.dsk" -P "$TMP/lp1.txt" -f 1500 -w 1200 -k 8 \
+    -t '1~~~~~~LPRINT "IMPRIME"\n' > /dev/null 2>&1
+sed -i 's/^impression=non/impression=oui/' "$TMP/prn/TELESTRA.CFG"
+"$BIN" -c standard -U "$TMP/prn" -0 "$TMP/prn/a.dsk" -P "$TMP/lp2.txt" -f 1500 -w 1200 -k 8 \
+    -t '1~~~~~~LPRINT "IMPRIME"\n' > /dev/null 2>&1
+
 fail=0
 n=0
 check() {
@@ -56,6 +69,9 @@ check "après RESET : STRATSED et HYPER BASIC" "grep -q 'STRATSED V2.0c' '$TMP/e
 check "TELESTRA.CFG écrit" "grep -qx 'a=STRATSED.DSK' '$TMP/cfg1' && grep -qx 'bank6=hyperbas.rom' '$TMP/cfg1'"
 check "TELESTRA.CFG relu au démarrage : TELE-ASS en banques 2 et 5" "[ \$(grep -c 'TELEASS V1.0a' '$TMP/ecran2.txt') -eq 2 ]"
 check "SAVE réécrit dans le fichier de la clé" "grep -q 'MENUOK' '$TMP/cle/STRATSED.DSK'"
+check "menu : imprimante coupée, enregistrée" "grep -q 'Imprimante coupée' '$TMP/prn_msg.txt' && grep -qx 'impression=non' '$TMP/cfg_prn' && grep -qx 'modem=oui' '$TMP/cfg_prn'"
+check "impression=non : LPRINT n'écrit rien" "! grep -q IMPRIME '$TMP/lp1.txt'"
+check "impression=oui : LPRINT écrit" "grep -q IMPRIME '$TMP/lp2.txt'"
 check ".rom de 1000 octets refusée" "grep -q 'abime.rom : taille invalide' '$TMP/menu3.txt'"
 check "emplacement supplémentaire pris (banque 5)" "grep -q 'Banque 5 : teleass.rom' '$TMP/menu3.txt'"
 check "cartouche de trop refusée (banque 4)" "grep -q 'hyperbas.rom : plus de place' '$TMP/menu3.txt'"

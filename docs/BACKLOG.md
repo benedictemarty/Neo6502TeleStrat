@@ -124,6 +124,13 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-101 | Disquettes SEDORIC (jeux Oric/Atmos) | ✅ 3D Munch, démo 1337 au banc |
 | US-102 | Démarrage de la variante RAM 64 Ko sans `BONJOUR.COM` expliqué (appel d'HYPER-BASIC à la banque 5 vide) | ✅ expliqué ; ⏳ lecture d'une banque vide sur le vrai matériel |
 
+## Sprint 11 — v0.11.0 — « Périphériques dans le menu » ✅ au banc (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-110 | Menu : imprimante activée / coupée, enregistrée (`impression=`) | ✅ banc (`test_menu`), ⏳ carte |
+| US-111 | Menu : modem activé / coupé (ligne raccrochée), état affiché, enregistré (`modem=`) | ✅ code + tests unitaires, ⏳ carte |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
@@ -144,8 +151,8 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
   l'arrêt après la liste des ROM est reproduit par Oricutron : v0.8.1.)
 - Clé retirée puis rebranchée : non gérée (montage au premier branchement).
 - Variante RAM 64 Ko : ≈ 0,5 Ko de RAM libre.
-- Variante RAM 64 Ko : 208 octets de RAM libres ; toute évolution devra en
-  regagner.
+- Variante RAM 64 Ko : 88 octets de RAM libres ; toute évolution devra en
+  regagner (liste de fichiers du menu, file d'impression…).
 - Instantanés (savestates), sélecteur de ROM au démarrage.
 - Test « golden » image contre Oricutron (PPM), ROM ORIX.
 

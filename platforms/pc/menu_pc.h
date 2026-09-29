@@ -25,6 +25,10 @@
 
 typedef struct {
     const char* dir;
+    // Périphériques (menu, TELESTRA.CFG impression= et modem=)
+    bool printer_on, modem_on;
+    const char* printer_file;  // -P (NULL : pas d'imprimante branchée au banc)
+    bool line_present;         // -L
     osd_menu_t menu;
     osd_surface_t surf;
     uint8_t* tape;
@@ -205,6 +209,12 @@ static bool menu_pc_tape(menu_pc_t* p, telestrat_t* sys, const char* name) {
 
 static void menu_pc_refresh(menu_pc_t* p, telestrat_t* sys) {
     osd_menu_t* m = &p->menu;
+    m->printer_on = p->printer_on;
+    const char* pf = p->printer_file ? p->printer_file : "";
+    const char* base = strrchr(pf, '/');
+    snprintf(m->printer_file, sizeof(m->printer_file), "%s", base ? base + 1 : pf);
+    m->modem_on = p->modem_on;
+    m->modem_state = p->line_present ? "ligne TCP (banc)" : "absent";
     snprintf(m->tape, sizeof(m->tape), "%s", sys->tape.inserted ? p->tape_name : "");
     m->tape_percent = oric_tape_percent(&sys->tape);
     m->tape_motor = sys->tape.motor && sys->tape.inserted;
@@ -239,12 +249,15 @@ static char* _menu_pc_read_cfg(const menu_pc_t* p) {
 // et telestrat_init)
 static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const char* version) {
     p->dir = dir;
+    p->printer_on = p->modem_on = true;
     osd_menu_init(&p->menu);
     p->menu.version = version;
     menu_pc_scan(p);
     char* cfg = _menu_pc_read_cfg(p);
     for (char* line = cfg ? strtok(cfg, "\r\n") : NULL; line; line = strtok(NULL, "\r\n")) {
         const char* v;
+        if ((v = osd_config_value(line, "impression"))) p->printer_on = osd_config_yes(v, true);
+        if ((v = osd_config_value(line, "modem"))) p->modem_on = osd_config_yes(v, true);
         for (int d = 0; d < 4; d++) {
             const char key[2] = {(char)('a' + d), 0};
             if ((v = osd_config_value(line, key)) && !menu_pc_insert(p, sys, d, v))
@@ -271,7 +284,7 @@ static void menu_pc_save(menu_pc_t* p) {
     for (int d = 0; d < 4; d++) drives[d] = p->disk[d] ? p->disk_name[d] : NULL;
     for (int b = 0; b < 8; b++) banks[b] = p->pool.name[b];
     static char out[4096];
-    size_t n = osd_config_merge(old, drives, banks, out, sizeof(out));
+    size_t n = osd_config_merge_ex(old, drives, banks, p->printer_on, p->modem_on, out, sizeof(out));
     free(old);
     char path[512];
     _menu_pc_path(p, "TELESTRA.CFG", path, sizeof(path));
@@ -321,6 +334,14 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
             telestrat_cold_reset(sys);
             return true;
         case OSD_ACT_SAVE: menu_pc_save(p); break;
+        case OSD_ACT_PRINTER:
+            p->printer_on = !p->printer_on;
+            osd_menu_message(m, false, p->printer_on ? "Imprimante activée" : "Imprimante coupée");
+            break;
+        case OSD_ACT_MODEM:
+            p->modem_on = !p->modem_on;
+            osd_menu_message(m, false, p->modem_on ? "Modem activé" : "Modem coupé (ligne raccrochée)");
+            break;
         case OSD_ACT_TAPE_INSERT:
             if (menu_pc_tape(p, sys, m->files[a.file].name)) {
                 snprintf(msg, sizeof(msg), "Cassette : %s (au début)", m->files[a.file].name);

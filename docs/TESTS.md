@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (201 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (209 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -65,6 +65,9 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   640 cycles, trames de 13 bits) : fichier `JEU1.TAP` (nom nettoyé), `.tap`
   complet et fermé après le dernier octet, trame à parité fausse rejetée sans
   perdre la suite, nom vide (`SANSNOM.TAP`), moteur arrêté, silence ;
+- menu : périphériques (imprimante sous la banque 1, modem à droite, Entrée :
+  actions, panneau : état) ; `TELESTRA.CFG` : `impression=`, `modem=`,
+  valeurs oui / non ;
 - menu : ligne Cassette (sélecteur des `.tap`, insertion, éjection, barre),
   ROM intégrées d'abord dans le choix d'une banque, lettre, bandeau (icône,
   nom, barre, fond tramé) ;
@@ -132,7 +135,7 @@ lettres doublées se perdent) :
 | `SOUT 33:SLOAD` (le correspondant renvoie le fichier au « ! »), puis lecture de `#9000` | nom « ESSAI    COM » affiché ; mémoire restituée |
 | `CONSOLE`, « HELLO » tapé | « HELLO » reçu ; réponse « SALUT » affichée |
 
-## Menu et clé USB — `tests/test_menu.sh` (11 vérifications)
+## Menu et clé USB — `tests/test_menu.sh` (14 vérifications)
 
 Un répertoire tient lieu de clé (`-U`) : `STRATSED.DSK`, `hyperbas.rom`,
 `teleass.rom`, une `.rom` de 1000 octets. Configuration `telemon` (TELEMON
@@ -142,6 +145,7 @@ seul) :
 |---|---|
 | menu (`-M 400:heSerdeHezueue`) : STRATSED en A, hyperbas.rom en banque 6, Enregistrer, RESET | messages du menu ; « 32 Ko ROM », STRATSED V2.0c et HYPER BASIC V2.0b après le RESET (à froid) ; `TELESTRA.CFG` = `a=`, `bank6=` |
 | configuration `standard`, `TELESTRA.CFG` du menu plus `bank5=teleass.rom` | TELEASS deux fois (banques 2 et 5) ; `SAVE "MENUOK"` réécrit dans le fichier de la clé |
+| menu : imprimante coupée (`uuuue`), Enregistrer ; puis `LPRINT "IMPRIME"` (`-P`) | « Imprimante coupée », `impression=non` et `modem=oui` écrits ; rien d'imprimé ; avec `impression=oui`, « IMPRIME » imprimé |
 | `telemon` : `.rom` de 1000 octets puis teleass.rom en banque 5, hyperbas.rom en banque 4, image du menu (`-O`) | « taille invalide » ; banque 5 prise (emplacement supplémentaire) ; « plus de place » ; PPM 960 x 544 |
 
 ## Cassette — `tests/test_tape.sh` (12 vérifications)

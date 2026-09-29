@@ -65,6 +65,8 @@ enum {
     OSD_ACT_TAPE_INSERT,  // file = index (la cassette en place : rembobinée)
     OSD_ACT_TAPE_EJECT,
     OSD_ACT_LOAD_BUILTIN, // target = banque, file = ROM intégrée
+    OSD_ACT_PRINTER,      // imprimante activée / coupée
+    OSD_ACT_MODEM,        // modem activé / coupé
 };
 
 typedef struct {
@@ -83,10 +85,12 @@ typedef struct {
 #define OSD_ITEM_DRIVE0  0   // 0-3 : lecteurs A-D
 #define OSD_ITEM_TAPE    4   // cassette
 #define OSD_ITEM_BANK7   5   // 5-11 : banques 7 à 1
-#define OSD_ITEM_RESET   12
-#define OSD_ITEM_SAVE    13
-#define OSD_ITEM_RESUME  14
-#define OSD_ITEMS        15
+#define OSD_ITEM_PRINTER 12  // périphériques
+#define OSD_ITEM_MODEM   13
+#define OSD_ITEM_RESET   14
+#define OSD_ITEM_SAVE    15
+#define OSD_ITEM_RESUME  16
+#define OSD_ITEMS        17
 
 typedef struct {
     // --- Rempli par la plate-forme ---
@@ -98,6 +102,10 @@ typedef struct {
     int tape_percent;
     bool tape_motor;
     const char* builtin[OSD_BUILTINS];  // ROM intégrées proposées (NULL : fin)
+    bool printer_on;              // impression vers le fichier printer_file
+    char printer_file[OSD_NAME_LEN];
+    bool modem_on;                // modem utilisé (sinon ligne coupée)
+    const char* modem_state;      // « absent », « branché », « sonnerie », « en ligne »…
     bool usb_present;
     char usb_label[OSD_NAME_LEN];
     osd_file_t files[OSD_MENU_FILES];
@@ -126,7 +134,7 @@ static inline int _osd_item_bank(int item) { return 7 - (item - OSD_ITEM_BANK7);
 
 static inline bool _osd_item_is_drive(int item) { return item >= OSD_ITEM_DRIVE0 && item < OSD_ITEM_TAPE; }
 
-static inline bool _osd_item_is_bank(int item) { return item >= OSD_ITEM_BANK7 && item < OSD_ITEM_RESET; }
+static inline bool _osd_item_is_bank(int item) { return item >= OSD_ITEM_BANK7 && item < OSD_ITEM_BANK7 + 7; }
 
 // Ouverture du sélecteur pour un lecteur ou une banque
 // Nom d'un élément de la liste du sélecteur
@@ -215,11 +223,14 @@ static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
         case OSD_KEY_UP: c = (c + OSD_ITEMS - 1) % OSD_ITEMS; break;
         case OSD_KEY_DOWN: c = (c + 1) % OSD_ITEMS; break;
         case OSD_KEY_LEFT:
-            if (_osd_item_is_bank(c)) c = OSD_ITEM_DRIVE0 + (c - OSD_ITEM_BANK7 < 5 ? c - OSD_ITEM_BANK7 : 4);
+            if (c == OSD_ITEM_MODEM) c = OSD_ITEM_PRINTER;
+            else if (c == OSD_ITEM_PRINTER) break;
+            else if (_osd_item_is_bank(c)) c = OSD_ITEM_DRIVE0 + (c - OSD_ITEM_BANK7 < 5 ? c - OSD_ITEM_BANK7 : 4);
             else if (c > OSD_ITEM_RESET) c--;
             break;
         case OSD_KEY_RIGHT:
             if (c <= OSD_ITEM_TAPE) c = OSD_ITEM_BANK7 + (c - OSD_ITEM_DRIVE0);
+            else if (c == OSD_ITEM_PRINTER) c = OSD_ITEM_MODEM;
             else if (c >= OSD_ITEM_RESET && c < OSD_ITEM_RESUME) c++;
             break;
         case OSD_KEY_HOME: c = 0; break;
@@ -238,6 +249,8 @@ static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
             break;
         case OSD_KEY_ENTER:
             if (c <= OSD_ITEM_TAPE || _osd_item_is_bank(c)) _osd_open_browser(m, c);
+            else if (c == OSD_ITEM_PRINTER) a.type = OSD_ACT_PRINTER;
+            else if (c == OSD_ITEM_MODEM) a.type = OSD_ACT_MODEM;
             else if (c == OSD_ITEM_RESET) a.type = OSD_ACT_RESET;
             else if (c == OSD_ITEM_SAVE) a.type = OSD_ACT_SAVE;
             else a.type = OSD_ACT_RESUME;
@@ -355,7 +368,7 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
     }
 
     // Cartouches
-    _osd_panel(s, 5, 61, 18, 57, OSD_CART_L, "Cartouches");
+    _osd_panel(s, 5, 61, 17, 57, OSD_CART_L, "Cartouches");
     static const char* const origin[4] = {"", "RAM", "ROM", "clé USB"};
     for (int i = 0; i < 7; i++) {
         const int bank = 7 - i, row = 7 + 2 * i;
@@ -373,7 +386,7 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
     }
 
     // Clé USB
-    _osd_panel(s, 18, 2, 5, 56, OSD_USB_L, "Clé USB");
+    _osd_panel(s, 18, 2, 4, 56, OSD_USB_L, "Clé USB");
     if (m->usb_present) {
         int ndsk = 0, nrom = 0, ntap = 0;
         for (int i = 0; i < m->nfiles; i++) {
@@ -389,8 +402,37 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
         osd_puts(s, 20, 5, "Brancher une clé FAT : .dsk, .tap, .rom à la racine", OSD_PANEL_DIM, -1);
     }
 
+    // Périphériques : imprimante, modem (Entrée : activer / couper)
+    _osd_panel(s, 23, 2, 5, 116, 0, "Périphériques");
+    {
+        const bool sel_p = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_PRINTER;
+        const bool sel_m = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_MODEM;
+        _osd_item_bar(s, 25, 4, 55, sel_p);
+        _osd_item_bar(s, 25, 61, 55, sel_m);
+        const uint8_t acc_p = sel_p ? OSD_SEL_ACC : OSD_PANEL_ACC, dim_p = sel_p ? OSD_SEL_DIM : OSD_PANEL_DIM;
+        const uint8_t acc_m = sel_m ? OSD_SEL_ACC : OSD_PANEL_ACC, dim_m = sel_m ? OSD_SEL_DIM : OSD_PANEL_DIM;
+        const uint8_t on_p = sel_p ? OSD_ATTR(OSD_GREEN, OSD_BLUE) : OSD_PANEL_OK;
+        const uint8_t off_p = sel_p ? OSD_ATTR(OSD_RED, OSD_BLUE) : OSD_PANEL_ERR;
+        const uint8_t on_m = sel_m ? OSD_ATTR(OSD_GREEN, OSD_BLUE) : OSD_PANEL_OK;
+        const uint8_t off_m = sel_m ? OSD_ATTR(OSD_RED, OSD_BLUE) : OSD_PANEL_ERR;
+        osd_puts(s, 25, 6, "Imprimante", acc_p, -1);
+        osd_putc(s, 25, 18, m->printer_on ? OSD_DOT : OSD_CROSS, m->printer_on ? on_p : off_p);
+        osd_puts(s, 25, 20, m->printer_on ? "activée" : "coupée", m->printer_on ? on_p : off_p, -1);
+        if (m->printer_on && m->printer_file[0]) {
+            snprintf(buf, sizeof(buf), "→ %.28s", m->printer_file);
+            osd_puts(s, 25, 29, buf, dim_p, -1);
+        }
+        osd_puts(s, 25, 63, "Modem", acc_m, -1);
+        osd_putc(s, 25, 70, m->modem_on ? OSD_DOT : OSD_CROSS, m->modem_on ? on_m : off_m);
+        osd_puts(s, 25, 72, m->modem_on ? "activé" : "coupé", m->modem_on ? on_m : off_m, -1);
+        if (m->modem_state) {
+            snprintf(buf, sizeof(buf), "PicoWiFiModemUSB : %s", m->modem_state);
+            osd_puts(s, 25, 80, buf, dim_m, 35);
+        }
+    }
+
     // Actions
-    const int btn_row = 25;
+    const int btn_row = 29;
     const char* const labels[3] = {"Redémarrer (RESET)", "Enregistrer la configuration", "Reprendre"};
     const int cols[3] = {2, 40, 82}, widths[3] = {34, 38, 36};
     for (int i = 0; i < 3; i++)
@@ -398,15 +440,15 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
 
     // Message
     if (m->message[0]) {
-        osd_putc(s, 28, 3, m->message_error ? OSD_CROSS : OSD_CHECK,
+        osd_putc(s, 31, 3, m->message_error ? OSD_CROSS : OSD_CHECK,
                  OSD_ATTR(m->message_error ? OSD_RED : OSD_GREEN, OSD_BLACK));
-        osd_puts(s, 28, 5, m->message, OSD_ATTR(m->message_error ? OSD_RED : OSD_YELLOW, OSD_BLACK), -1);
+        osd_puts(s, 31, 5, m->message, OSD_ATTR(m->message_error ? OSD_RED : OSD_YELLOW, OSD_BLACK), -1);
     }
 
     // Pied : aide des touches
     osd_fill(s, 32, 0, 2, OSD_COLS, OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER));
     const uint8_t key = OSD_ATTR(OSD_BLACK, OSD_CYAN), txt = OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER);
-    const char* const help_main[][2] = {{" Flèches ", "choisir"}, {" Entrée ", "ouvrir"}, {" Suppr ", "éjecter / d'origine"},
+    const char* const help_main[][2] = {{" Flèches ", "choisir"}, {" Entrée ", "ouvrir, activer"}, {" Suppr ", "éjecter, d'origine"},
                                        {" Échap ", "reprendre"}};
     const char* const help_browse[][2] = {{" Flèches ", "choisir"}, {" Entrée ", "valider"}, {" Lettre ", "aller à"},
                                          {" Échap ", "retour"}};
@@ -414,7 +456,7 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
     int c = 3;
     for (int i = 0; i < 4; i++) {
         c += osd_puts(s, 32, c, help[i][0], key, -1) + 1;
-        c += osd_puts(s, 32, c, help[i][1], txt, -1) + 4;
+        c += osd_puts(s, 32, c, help[i][1], txt, -1) + 3;
     }
     osd_puts(s, 32, OSD_COLS - 22, "F1 : ouvrir ce menu", OSD_ATTR(OSD_CYAN, OSD_BLUE | OSD_DITHER), -1);
 

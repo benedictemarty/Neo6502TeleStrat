@@ -155,6 +155,13 @@ void tuh_cdc_umount_cb(uint8_t idx) {
     }
 }
 
+// Périphériques activés (menu, TELESTRA.CFG « impression=oui|non »,
+// « modem=oui|non ») : modem coupé = ligne coupée (ni sonnerie, ni appel,
+// ni données, prise Minitel et RS232 vers le modem) ; imprimante coupée =
+// sortie jetée
+static bool modem_enabled = true;
+static bool printer_enabled = true;
+
 static void modem_poll(void) {
     if (modem_idx < 0) return;
     uint8_t buf[64];
@@ -227,7 +234,7 @@ static void rs232_tx(uint8_t data, void *user_data) {
         return;
     }
 #endif
-    modem_mux_rs232_send(&mux, data);
+    if (modem_enabled) modem_mux_rs232_send(&mux, data);
 }
 
 static int rs232_rx(void *user_data) {
@@ -238,7 +245,7 @@ static int rs232_rx(void *user_data) {
         return uart_is_readable(RS232_UART) ? (uint8_t)uart_getc(RS232_UART) : -1;
     }
 #endif
-    return modem_mux_rs232_recv(&mux);
+    return modem_enabled ? modem_mux_rs232_recv(&mux) : -1;
 }
 
 /*-- Imprimante : fichier de la clé -------------------------------------------*/
@@ -252,6 +259,7 @@ static bool printer_open = false;
 
 static void printer_out(uint8_t data, void *user_data) {
     (void)user_data;
+    if (!printer_enabled) return;
     byte_fifo_push(&printer_fifo, data);
 }
 
@@ -512,6 +520,14 @@ static void banner_update(void) {
 
 static void menu_refresh(void) {
     const telestrat_t *sys = &state.telestrat;
+    menu.printer_on = printer_enabled;
+    snprintf(menu.printer_file, sizeof(menu.printer_file), "%s", cfg_printer);
+    menu.modem_on = modem_enabled;
+    menu.modem_state = modem_idx < 0            ? "absent"
+                       : mux.rs232              ? "prise RS232"
+                       : hayes_line_carrier(&modem) ? "en ligne"
+                       : hayes_line_incoming(&modem) ? "sonnerie"
+                                                    : "prêt";
     snprintf(menu.tape, sizeof(menu.tape), "%.47s", sys->tape.inserted ? tape_name : "");
     menu.tape_percent = oric_tape_percent(&sys->tape);
     menu.tape_motor = sys->tape.inserted && sys->tape.motor;
@@ -550,7 +566,7 @@ static void config_save(void) {
     const char *drives[4], *banks[8];
     for (int d = 0; d < 4; d++) drives[d] = strcmp(drive_name[d], FLASH_NAME) ? drive_name[d] : NULL;
     for (int b = 0; b < 8; b++) banks[b] = pool.name[b];
-    const size_t len = osd_config_merge(old, drives, banks, out, 2048);
+    const size_t len = osd_config_merge_ex(old, drives, banks, printer_enabled, modem_enabled, out, 2048);
     bool ok = len > 0 && f_open(&f, "TELESTRA.CFG", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
     if (ok) {
         ok = f_write(&f, out, (UINT)len, &n) == FR_OK && n == len;
@@ -613,6 +629,20 @@ static void menu_action(osd_action_t a) {
             menu_close();
             return;
         case OSD_ACT_SAVE: config_save(); break;
+        case OSD_ACT_PRINTER:
+            printer_enabled = !printer_enabled;
+            osd_menu_message(&menu, false, printer_enabled ? "Imprimante activée" : "Imprimante coupée");
+            break;
+        case OSD_ACT_MODEM:
+            if (modem_enabled) {
+                hayes_line_hangup(&modem);  // communication en cours raccrochée (+++, ATH)
+                modem_enabled = false;
+            } else {
+                modem_enabled = true;
+                if (modem_idx >= 0) modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
+            }
+            osd_menu_message(&menu, false, modem_enabled ? "Modem activé" : "Modem coupé (ligne raccrochée)");
+            break;
         case OSD_ACT_TAPE_INSERT:
             if (tape_insert(menu.files[a.file].name)) {
                 snprintf(msg, sizeof(msg), "Cassette : %s (au début)", menu.files[a.file].name);
@@ -773,6 +803,10 @@ static void read_config(void) {
             snprintf(cfg_dial, sizeof(cfg_dial), "%.63s", line + 5);
         } else if (!strncmp(line, "listen=", 7)) {
             cfg_listen = atoi(line + 7);
+        } else if ((v = osd_config_value(line, "impression"))) {
+            printer_enabled = osd_config_yes(v, true);
+        } else if ((v = osd_config_value(line, "modem"))) {
+            modem_enabled = osd_config_yes(v, true);
         } else if ((v = osd_config_value(line, "imprimante"))) {
             snprintf(cfg_printer, sizeof(cfg_printer), "%.47s", v);
         } else if (!strncmp(line, "rs232=", 6)) {
@@ -809,13 +843,13 @@ volatile uint32_t diag_tx_n;  // octets émis depuis le début (diag_tx circulai
 static minitel_line_t hayes;  // ligne du modem
 
 static bool line_dial(void *ctx) {
-    if (!diag_line_on) return hayes.dial(hayes.ctx);
+    if (!diag_line_on) return modem_enabled && hayes.dial(hayes.ctx);
     diag_line_carrier = 1;
     return true;
 }
 static void line_answer(void *ctx) {
     if (!diag_line_on) {
-        hayes.answer(hayes.ctx);
+        if (modem_enabled) hayes.answer(hayes.ctx);
         return;
     }
     diag_line_ring = 0;
@@ -828,16 +862,20 @@ static void line_hangup(void *ctx) {
     }
     diag_line_carrier = 0;
 }
-static bool line_incoming(void *ctx) { return diag_line_on ? diag_line_ring != 0 : hayes.incoming(hayes.ctx); }
-static bool line_carrier(void *ctx) { return diag_line_on ? diag_line_carrier != 0 : hayes.carrier(hayes.ctx); }
+static bool line_incoming(void *ctx) {
+    return diag_line_on ? diag_line_ring != 0 : modem_enabled && hayes.incoming(hayes.ctx);
+}
+static bool line_carrier(void *ctx) {
+    return diag_line_on ? diag_line_carrier != 0 : modem_enabled && hayes.carrier(hayes.ctx);
+}
 static int line_recv(void *ctx) {
-    if (!diag_line_on) return hayes.recv(hayes.ctx);
+    if (!diag_line_on) return modem_enabled ? hayes.recv(hayes.ctx) : -1;
     if (diag_rx_head == diag_rx_tail) return -1;
     return diag_rx[diag_rx_head++ & 255];
 }
 static void line_send(void *ctx, uint8_t data) {
     if (!diag_line_on) {
-        hayes.send(hayes.ctx, data);
+        if (modem_enabled) hayes.send(hayes.ctx, data);
         return;
     }
     diag_tx[diag_tx_n & 4095] = data;
