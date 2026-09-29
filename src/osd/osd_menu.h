@@ -103,7 +103,8 @@ typedef struct {
     bool tape_motor;
     const char* builtin[OSD_BUILTINS];  // ROM intégrées proposées (NULL : fin)
     bool printer_on;              // impression vers le fichier printer_file
-    char printer_file[OSD_NAME_LEN];
+    const char* printer_model;    // « Texte », « Epson FX-80 »… (NULL : non affiché)
+    char printer_file[OSD_NAME_LEN];  // fichier texte ou dernière page écrite
     bool modem_on;                // modem utilisé (sinon ligne coupée)
     const char* modem_state;      // « absent », « branché », « sonnerie », « en ligne »…
     bool usb_present;
@@ -417,10 +418,11 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
         const uint8_t off_m = sel_m ? OSD_ATTR(OSD_RED, OSD_BLUE) : OSD_PANEL_ERR;
         osd_puts(s, 25, 6, "Imprimante", acc_p, -1);
         osd_putc(s, 25, 18, m->printer_on ? OSD_DOT : OSD_CROSS, m->printer_on ? on_p : off_p);
-        osd_puts(s, 25, 20, m->printer_on ? "activée" : "coupée", m->printer_on ? on_p : off_p, -1);
+        const char* pstate = !m->printer_on ? "coupée" : m->printer_model ? m->printer_model : "activée";
+        const int pn = osd_puts(s, 25, 20, pstate, m->printer_on ? on_p : off_p, -1);
         if (m->printer_on && m->printer_file[0]) {
-            snprintf(buf, sizeof(buf), "→ %.28s", m->printer_file);
-            osd_puts(s, 25, 29, buf, dim_p, -1);
+            snprintf(buf, sizeof(buf), "→ %s", m->printer_file);
+            osd_puts(s, 25, 21 + pn, buf, dim_p, 58 - 21 - pn);
         }
         osd_puts(s, 25, 63, "Modem", acc_m, -1);
         osd_putc(s, 25, 70, m->modem_on ? OSD_DOT : OSD_CROSS, m->modem_on ? on_m : off_m);

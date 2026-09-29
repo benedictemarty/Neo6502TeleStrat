@@ -26,6 +26,8 @@
 #include "devices/modem_mux.h"
 #include "devices/drive_set.h"
 #include "devices/byte_fifo.h"
+#include "devices/printer_fx80.h"
+#include "devices/plotter_mcp40.h"
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
 #include "systems/telestrat.h"
@@ -1143,6 +1145,16 @@ static void test_osd_tape_menu(void) {
     CHECK(!memcmp(&osd_s.ch[25][20], "coup", 4) && !memcmp(&osd_s.ch[25][72], "activ", 5) &&
               !memcmp(&osd_s.ch[25][99], "en ligne", 8),
           "panneau : imprimante coupée, modem activé, état");
+    osd_m.printer_on = true;
+    osd_m.printer_model = osd_printer_names[OSD_PRINTER_FX80];
+    strcpy(osd_m.printer_file, "IMPR0003.PNG");
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(!memcmp(&osd_s.ch[25][20], "Epson FX-80", 11) && osd_s.ch[25][32] == OSD_ARROW_R &&
+              !memcmp(&osd_s.ch[25][34], "IMPR0003.PNG", 12),
+          "panneau : modèle d'imprimante et dernière page");
+    osd_m.printer_on = false;
+    osd_m.printer_model = NULL;
+    osd_m.printer_file[0] = 0;
     osd_m.tape_percent = 50;
     osd_m.tape_motor = true;
     osd_menu_draw(&osd_m, &osd_s);
@@ -1179,12 +1191,32 @@ static void test_osd_config(void) {
     CHECK(osd_config_merge(old, drives, banks, out, 20) == 0, "tampon trop petit : 0");
     // Options du menu : impression, modem
     const char* old2 = "impression=oui\nmodem=oui\ndial=x:1\n";
-    n = osd_config_merge_ex(old2, drives, banks, 0, 1, out, sizeof(out));
+    n = osd_config_merge_ex(old2, drives, banks, 0, -1, 1, out, sizeof(out));
     CHECK(strstr(out, "impression=non\n") && strstr(out, "modem=oui\n") && !strstr(out, "impression=oui") &&
               strstr(out, "dial=x:1"),
           "impression=non, modem=oui écrits, anciennes lignes remplacées :\n%s", out);
     n = osd_config_merge(old2, drives, banks, out, sizeof(out));
     CHECK(strstr(out, "impression=oui\n") && strstr(out, "modem=oui\n"), "sans options : lignes gardées");
+    const char* old3 = "impression=oui\nimprimante_type=texte\n";
+    osd_config_merge_ex(old3, drives, banks, 1, OSD_PRINTER_MCP40, 0, out, sizeof(out));
+    CHECK(strstr(out, "impression=oui\nimprimante_type=mcp40\n") && !strstr(out, "=texte"),
+          "imprimante_type=mcp40 écrit :\n%s", out);
+    CHECK(osd_printer_type("fx80", -1) == OSD_PRINTER_FX80 && osd_printer_type("mcp40", -1) == OSD_PRINTER_MCP40 &&
+              osd_printer_type("texte", -1) == OSD_PRINTER_TEXT && osd_printer_type("laser", 7) == 7,
+          "valeurs de imprimante_type");
+    {
+        bool on = false;
+        int type = 2, seen = 0;
+        for (int i = 0; i < 4; i++) {
+            osd_printer_cycle(&on, &type, 3);
+            seen = seen * 10 + (on ? type + 1 : 0);
+        }
+        CHECK(seen == 1230, "Entrée : texte, FX-80, MCP-40, coupée (%d)", seen);
+        on = false;
+        osd_printer_cycle(&on, &type, 1);
+        osd_printer_cycle(&on, &type, 1);
+        CHECK(!on, "un seul modèle : activée puis coupée");
+    }
     CHECK(osd_config_yes("non", true) == false && osd_config_yes("oui", false) && osd_config_yes(NULL, true) &&
               osd_config_yes("peut-être", false) == false,
           "valeurs oui / non");
@@ -1390,6 +1422,278 @@ static void test_acia(void) {
     CHECK(!mos6551acia_irq(&a), "pas d'IRQ ACIA");
 }
 
+/*-- Imprimantes émulées -------------------------------------------------------*/
+
+// Fichier en mémoire (avec retour en arrière)
+typedef struct {
+    uint8_t* data;
+    uint32_t len, pos, cap;
+    int opens, closes;
+    char ext[4];
+    bool refuse;
+} mem_file_t;
+
+static bool mem_open(void* ctx, const char* ext) {
+    mem_file_t* m = (mem_file_t*)ctx;
+    if (m->refuse) return false;
+    m->opens++;
+    m->len = m->pos = 0;
+    snprintf(m->ext, sizeof(m->ext), "%s", ext);
+    return true;
+}
+
+static void mem_write(void* ctx, const void* d, uint32_t n) {
+    mem_file_t* m = (mem_file_t*)ctx;
+    if (m->pos + n > m->cap) return;
+    memcpy(m->data + m->pos, d, n);
+    m->pos += n;
+    if (m->pos > m->len) m->len = m->pos;
+}
+
+static void mem_seek(void* ctx, uint32_t pos) { ((mem_file_t*)ctx)->pos = pos; }
+static void mem_close(void* ctx) { ((mem_file_t*)ctx)->closes++; }
+
+static uint32_t be32(const uint8_t* p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
+
+// PNG de la FX-80 : blocs vérifiés (CRC, Adler), lignes décodées dans rows
+// (1 bit par pixel, 0 = encre) ; retourne le nombre de lignes, -1 si invalide
+static int png_decode(const mem_file_t* m, uint8_t* rows, int max_rows) {
+    static const uint8_t sig[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+    if (m->len < 8 || memcmp(m->data, sig, 8)) return -1;
+    uint32_t i = 8;
+    int height = -1;
+    bool iend = false;
+    while (i + 12 <= m->len) {
+        const uint32_t l = be32(m->data + i);
+        const uint8_t* t = m->data + i + 4;
+        if (i + 12 + l > m->len) return -1;
+        if (printer_crc32(0, t, 4 + l) != be32(t + 4 + l)) return -1;
+        if (!memcmp(t, "IHDR", 4)) {
+            if (be32(t + 4) != FX80_WIDTH || t[12] != 1 || t[13] != 0) return -1;
+            height = (int)be32(t + 8);
+        } else if (!memcmp(t, "IDAT", 4)) {
+            const uint8_t* z = t + 4;
+            if (z[0] != 0x78 || ((z[0] << 8) | z[1]) % 31) return -1;
+            uint32_t k = 2, out = 0, adler = 1;
+            const uint32_t row_len = FX80_ROW_BYTES + 1;
+            for (;;) {
+                const uint8_t final = z[k];
+                const uint32_t n = z[k + 1] | z[k + 2] << 8;
+                if ((uint16_t)~n != (z[k + 3] | z[k + 4] << 8)) return -1;
+                k += 5;
+                adler = printer_adler32(adler, z + k, n);
+                for (uint32_t j = 0; j < n; j++, out++) {
+                    const uint32_t r = out / row_len, c = out % row_len;
+                    if (c == 0) {
+                        if (z[k + j] != 0) return -1;  // filtre 0
+                    } else if ((int)r < max_rows) {
+                        rows[r * FX80_ROW_BYTES + c - 1] = z[k + j];
+                    }
+                }
+                k += n;
+                if (final & 1) break;
+            }
+            if (be32(z + k) != adler || k + 4 != l) return -1;
+            if (height < 0 || out != (uint32_t)height * row_len) return -1;
+        } else if (!memcmp(t, "IEND", 4)) {
+            iend = true;
+        }
+        i += 12 + l;
+    }
+    return iend ? height : -1;
+}
+
+static bool png_ink(const uint8_t* rows, int y, int x) { return !(rows[y * FX80_ROW_BYTES + x / 8] & (0x80 >> (x & 7))); }
+
+static int png_ink_count(const uint8_t* rows, int y0, int y1, int x0, int x1) {
+    int n = 0;
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) n += png_ink(rows, y, x);
+    return n;
+}
+
+static void fx80_send(fx80_t* p, const char* s, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        while (fx80_busy(p)) fx80_service(p, 64);
+        fx80_feed(p, (uint8_t)s[i]);
+    }
+}
+
+static void fx80_end(fx80_t* p) {
+    while (fx80_busy(p)) fx80_service(p, 64);
+    fx80_finish(p);
+    while (fx80_busy(p)) fx80_service(p, 64);
+}
+
+static void test_printer_fx80(void) {
+    // Sommes de contrôle : valeurs de référence
+    CHECK(printer_crc32(0, (const uint8_t*)"123456789", 9) == 0xCBF43926, "CRC-32 de référence");
+    CHECK(printer_adler32(1, (const uint8_t*)"Wikipedia", 9) == 0x11E60398, "Adler-32 de référence");
+
+    static uint8_t buf[600000];
+    static uint8_t rows[1600 * FX80_ROW_BYTES];
+    static fx80_t p;
+    mem_file_t m = {.data = buf, .cap = sizeof(buf)};
+    const printer_out_t out = {mem_open, mem_write, mem_seek, mem_close, &m};
+
+    // Sauts de ligne seuls : aucune page
+    fx80_init(&p, &out, osd_font);
+    fx80_send(&p, "\r\n\r\n\f", 5);
+    fx80_end(&p);
+    CHECK(m.opens == 0 && p.pages == 0, "page blanche écrite (%d)", m.opens);
+
+    // « A », deux lignes plus bas « B » (interligne 1/6 : 36/216 = 24 pixels)
+    fx80_init(&p, &out, osd_font);
+    fx80_send(&p, "A\r\n\r\nB", 6);
+    CHECK(m.opens == 1 && !strcmp(m.ext, "PNG"), "page ouverte au premier point (%d, %s)", m.opens, m.ext);
+    fx80_end(&p);
+    CHECK(m.closes == 1 && p.pages == 1, "page fermée (%d, %u)", m.closes, (unsigned)p.pages);
+    memset(rows, 0xFF, sizeof(rows));
+    int h = png_decode(&m, rows, 1600);
+    CHECK(h == 1584, "PNG valide de 1584 lignes (%d)", h);
+    if (h == 1584) {
+        // Première colonne à 1/4 pouce : 36 pixels ; « A » : lignes 0-17
+        CHECK(png_ink_count(rows, 0, 18, 36, 52) > 20, "« A » imprimé");
+        CHECK(png_ink_count(rows, 0, 18, 0, 36) == 0, "rien dans la marge");
+        CHECK(png_ink_count(rows, 48, 66, 36, 52) > 20, "« B » deux lignes plus bas");
+        CHECK(png_ink_count(rows, 18, 48, 0, FX80_WIDTH) == 0, "interligne vide");
+        CHECK(png_ink_count(rows, 66, 1584, 0, FX80_WIDTH) == 0, "bas de page vide");
+    }
+
+    // Graphiques ESC K : colonne 0x80 (aiguille du haut) puis 0x01 (8e)
+    m.opens = m.closes = 0;
+    fx80_init(&p, &out, osd_font);
+    fx80_send(&p, "\x1bK\x02\x00\x80\x01", 6);
+    fx80_end(&p);
+    memset(rows, 0xFF, sizeof(rows));
+    h = png_decode(&m, rows, 1600);
+    CHECK(h == 1584 && png_ink(rows, 0, 36) && png_ink(rows, 1, 37), "ESC K : aiguille 1 en haut");
+    // Colonne suivante : 1/60 pouce = 2,4 pixels plus loin ; aiguille 8 : 7/72 pouce = 14 lignes
+    CHECK(h == 1584 && png_ink(rows, 14, 38) && !png_ink(rows, 0, 39), "ESC K : aiguille 8, colonne suivante");
+
+    // ESC & (caractères de l'utilisateur) : données sautées, pas imprimées
+    fx80_init(&p, &out, osd_font);
+    fx80_send(&p, "\x1b&\x00" "AA" "XXXXXXXXXXXX" "B", 18);
+    CHECK(p.parse == FX80_P_NONE && p.h == 144, "ESC & : 12 octets sautés (h = %d)", (int)p.h);
+    // Modes : ESC ! , élite, condensé, élargi une ligne
+    fx80_send(&p, "\r\x1b!\x01", 4);
+    CHECK(p.mode == FX80_ELITE && _fx80_adv(&p) == 120, "ESC ! 1 : élite");
+    fx80_send(&p, "\x1b!\x00\x0f", 4);
+    CHECK(_fx80_adv(&p) == 84, "SI : condensé");
+    fx80_send(&p, "\x12\x0e", 2);
+    CHECK(_fx80_adv(&p) == 288, "SO : élargi");
+    fx80_send(&p, "\n", 1);
+    CHECK(_fx80_adv(&p) == 144, "SO annulé par le saut de ligne");
+    // Interlignes
+    const int32_t v0 = p.v;
+    fx80_send(&p, "\x1b" "3\x10\n", 4);
+    CHECK(p.v == v0 + 16, "ESC 3 16 : 16/216 (%d)", (int)(p.v - v0));
+    fx80_send(&p, "\x1b" "A\x0c\n", 4);
+    CHECK(p.v == v0 + 16 + 36, "ESC A 12 : 12/72");
+    fx80_send(&p, "\x1bJ\x05", 3);
+    CHECK(p.v == v0 + 16 + 36 + 5, "ESC J 5");
+    // Tabulations : ESC D 5 10 0 puis HT
+    fx80_send(&p, "\x1b@\r\x1b" "D\x05\x0a\x00\t", 9);
+    CHECK(p.h == 5 * 144, "HT : 5e colonne (%d)", (int)p.h);
+    fx80_send(&p, "\t\t", 2);
+    CHECK(p.h == 10 * 144, "HT : dernière tabulation (%d)", (int)p.h);
+    fx80_end(&p);
+
+    // Retour à la ligne automatique après 80 colonnes, sans perte
+    fx80_init(&p, &out, osd_font);
+    char line[81];
+    memset(line, 'X', 81);
+    fx80_send(&p, line, 81);
+    while (fx80_busy(&p)) fx80_service(&p, 64);
+    CHECK(p.h == 144 && p.v == 36, "81e caractère sur la ligne suivante (h %d v %d)", (int)p.h, (int)p.v);
+    fx80_end(&p);
+    memset(rows, 0xFF, sizeof(rows));
+    h = png_decode(&m, rows, 1600);
+    CHECK(h == 1584 && png_ink_count(rows, 24, 42, 36, 52) > 20, "81e caractère imprimé");
+
+    // Deux pages : 70 lignes de texte (66 par page)
+    m.opens = m.closes = 0;
+    fx80_init(&p, &out, osd_font);
+    for (int i = 0; i < 70; i++) fx80_send(&p, "L\r\n", 3);
+    fx80_end(&p);
+    CHECK(p.pages == 2 && m.opens == 2 && m.closes == 2, "deux pages (%u)", (unsigned)p.pages);
+    memset(rows, 0xFF, sizeof(rows));
+    h = png_decode(&m, rows, 1600);
+    CHECK(h == 1584 && png_ink_count(rows, 0, 18, 36, 52) > 20 && png_ink_count(rows, 3 * 24, 3 * 24 + 18, 36, 52) > 20 &&
+              png_ink_count(rows, 3 * 24 + 18, 1584, 0, FX80_WIDTH) == 0,
+          "page 2 : lignes 67 à 70");
+
+    // Écriture limitée par appel : une page blanche après un point
+    fx80_init(&p, &out, osd_font);
+    fx80_send(&p, ".", 1);
+    CHECK(fx80_finish(&p), "fin de travail acceptée");
+    int calls = 0;
+    while (fx80_busy(&p)) {
+        CHECK(fx80_service(&p, 16) <= 16, "au plus 16 lignes par appel");
+        calls++;
+    }
+    CHECK(calls >= 1584 / 16, "écriture étalée (%d appels)", calls);
+
+    // Ouverture refusée : rien n'est écrit, la suite continue
+    m.refuse = true;
+    m.opens = 0;
+    fx80_init(&p, &out, osd_font);
+    fx80_send(&p, "A\r\n", 3);
+    fx80_end(&p);
+    CHECK(m.opens == 0 && p.pages == 0 && !fx80_busy(&p), "clé absente : page perdue sans blocage");
+    m.refuse = false;
+}
+
+static void mcp40_send(mcp40_t* p, const char* s) {
+    while (*s) mcp40_feed(p, (uint8_t)*s++);
+}
+
+static void test_plotter_mcp40(void) {
+    static uint8_t buf[65536];
+    static mcp40_t p;
+    mem_file_t m = {.data = buf, .cap = sizeof(buf) - 1};
+    const printer_out_t out = {mem_open, mem_write, mem_seek, mem_close, &m};
+
+    // Carré du manuel (commande D), en noir
+    mcp40_init(&p, &out);
+    mcp40_send(&p, "\x12" "D0,100,100,100,100,0,0,0\rA\r");
+    mcp40_finish(&p);
+    buf[m.len] = 0;
+    const char* s = (const char*)buf;
+    CHECK(m.opens == 1 && m.closes == 1 && !strcmp(m.ext, "SVG"), "un fichier SVG");
+    CHECK(!strncmp(s, "<?xml", 5) && strstr(s, "</svg>\n") && !strcmp(s + m.len - 7, "</svg>\n"), "SVG complet");
+    CHECK(strstr(s, "stroke=\"#000000\"") && strstr(s, "d=\"M0 0L0 -100L100 -100L100 0L0 0\""), "carré tracé : %s", s);
+    // En-tête complété : hauteur 100 + marges 16
+    CHECK(strstr(s, "viewBox=\"-8 -0000000108 496 000000116\""), "étendue du tracé dans l'en-tête");
+    CHECK(strstr(s, "height=\"0000023.2mm\""), "hauteur en mm");
+
+    // Traits relatifs, couleurs, pointillés, origine
+    mcp40_init(&p, &out);
+    mcp40_send(&p, "\x12" "C1\rL2\rM10,10\rJ5,0,0,5\rC3\rL0\rI\rD1,1\r");
+    mcp40_finish(&p);
+    buf[m.len] = 0;
+    CHECK(strstr(s, "stroke=\"#1f3fbf\"") && strstr(s, "stroke-dasharray=\"4 4\"") && strstr(s, "M10 -10L15 -10L15 -15"),
+          "C1 L2 J : %s", s);
+    CHECK(strstr(s, "stroke=\"#d42020\"") && strstr(s, "M15 -15L16 -16"), "C3 I D : origine déplacée");
+
+    // Texte : mode texte et commande P, caractères échappés
+    mcp40_init(&p, &out);
+    mcp40_send(&p, "AB\r\n\x12S1\rP<&>\rQ1\rPZ\r");
+    mcp40_finish(&p);
+    buf[m.len] = 0;
+    CHECK(strstr(s, "textLength=\"24\" lengthAdjust=\"spacingAndGlyphs\">AB</text>"), "mode texte, 40 colonnes : %s", s);
+    CHECK(strstr(s, ">&lt;&amp;&gt;</text>") && strstr(s, "textLength=\"36\""), "P : taille S1 (12 pas), échappement");
+    CHECK(strstr(s, "transform=\"rotate(90"), "Q1 : haut en bas");
+    CHECK(p.x == 36 && p.y == -18 - 12, "plume après le texte (%d, %d)", (int)p.x, (int)p.y);
+
+    // Rien d'imprimé : pas de fichier
+    m.opens = 0;
+    mcp40_init(&p, &out);
+    mcp40_send(&p, "\r\n\x12M5,5\rA\r");
+    mcp40_finish(&p);
+    CHECK(m.opens == 0, "déplacements seuls : pas de fichier");
+}
+
 int main(void) {
     test_reset_bank();
     test_bank_hot_swap();
@@ -1411,6 +1715,8 @@ int main(void) {
     test_modem_mux();
     test_drive_set();
     test_byte_fifo();
+    test_printer_fx80();
+    test_plotter_mcp40();
     test_oric_tape();
     test_oric_tape_rec();
     test_osd_render();

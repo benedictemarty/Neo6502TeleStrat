@@ -23,7 +23,10 @@
 //   -r FICHIER écrit les 48 Ko de RAM de base
 //   -0..-3 F   insère l'image MFM_DISK F dans le lecteur A..D (copie en mémoire)
 //   -W FICHIER écrit l'image du lecteur A (éventuellement modifiée) en fin d'exécution
-//   -P FICHIER branche une imprimante dont la sortie va dans FICHIER
+//   -P FICHIER branche une imprimante dont la sortie va dans FICHIER (octets bruts)
+//   -G TYPE:RÉP branche une imprimante rendue : fx80 (Epson FX-80, pages PNG) ou
+//              mcp40 (table traçante MCP-40, SVG), fichiers RÉP/IMPR0001.PNG… ;
+//              avec -U, le menu propose texte, fx80 et mcp40 (imprimante_type=)
 //   -T FICHIER trace les octets émis par l'ACIA (hexadécimal, avec le numéro de trame)
 //   -L LIGNE   branche un Minitel sur l'ACIA et sa ligne sur TCP :
 //              listen:PORT (appel entrant = client TCP) ou connect:HOTE:PORT
@@ -102,6 +105,9 @@
 #ifndef TELESTRAT_REF  // la référence figée n'a pas de menu
 #include "menu_pc.h"
 #include "telestrat_frame.h"
+#include "devices/printer_fx80.h"
+#include "devices/plotter_mcp40.h"
+#include "printer_files.h"
 #endif
 #include <time.h>
 
@@ -135,8 +141,51 @@ static int config_banks(const char* name, telestrat_desc_t* d) {
 
 // Imprimante et ligne coupées par le menu (-U : impression=non, modem=non)
 static bool printer_enabled = true, modem_enabled = true;
+
+#ifndef TELESTRAT_REF
+// Rendu de l'imprimante (-G) : Epson FX-80 (pages PNG) ou table traçante
+// MCP-40 (SVG) ; fin de travail après 10 s sans octet, comme le firmware
+#define PRINTER_IDLE_FRAMES 500
+static int printer_type = OSD_PRINTER_TEXT;
+static bool printer_render_on = false;
+static printer_files_t printer_files;
+static fx80_t printer_fx;
+static mcp40_t printer_mcp;
+static int printer_idle = -1;  // trames depuis le dernier octet (-1 : pas de travail)
+
+static void printer_job_end(void) {
+    if (printer_idle < 0) return;
+    printer_idle = -1;
+    if (printer_type == OSD_PRINTER_FX80) {
+        while (fx80_busy(&printer_fx)) fx80_service(&printer_fx, 1 << 30);
+        fx80_finish(&printer_fx);
+        while (fx80_busy(&printer_fx)) fx80_service(&printer_fx, 1 << 30);
+    } else if (printer_type == OSD_PRINTER_MCP40) {
+        mcp40_finish(&printer_mcp);
+    }
+}
+
+// Modèle choisi (menu) : le travail en cours de l'autre modèle est terminé
+static void printer_select(int type) {
+    if (type == printer_type) return;
+    printer_job_end();
+    printer_type = type;
+}
+#endif
+
 static void printer_out(uint8_t data, void* user_data) {
-    if (printer_enabled) fputc(data, (FILE*)user_data);
+    if (!printer_enabled) return;
+    if (user_data) fputc(data, (FILE*)user_data);
+#ifndef TELESTRAT_REF
+    if (!printer_render_on || printer_type == OSD_PRINTER_TEXT) return;
+    printer_idle = 0;
+    if (printer_type == OSD_PRINTER_FX80) {
+        while (fx80_busy(&printer_fx)) fx80_service(&printer_fx, 1 << 30);
+        fx80_feed(&printer_fx, data);
+    } else {
+        mcp40_feed(&printer_mcp, data);
+    }
+#endif
 }
 
 // Trace de bus pour la mesure de charge du RP2040
@@ -341,6 +390,7 @@ int main(int argc, char** argv) {
     const char* disks[4] = {NULL, NULL, NULL, NULL};
     const char* write_disk = NULL;
     const char* printer_file = NULL;
+    const char* render_spec = NULL;
     const char* line_spec = NULL;
     const char* rs232_spec = NULL;
     const char* usb_dir = NULL;
@@ -359,7 +409,7 @@ int main(int argc, char** argv) {
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:S:U:M:O:K:D:C:RB:k:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -372,6 +422,7 @@ int main(int argc, char** argv) {
             case '0': case '1': case '2': case '3': disks[opt - '0'] = optarg; break;
             case 'W': write_disk = optarg; break;
             case 'P': printer_file = optarg; break;
+            case 'G': render_spec = optarg; break;
             case 'L': line_spec = optarg; break;
             case 'S': rs232_spec = optarg; break;
             case 'U': usb_dir = optarg; break;
@@ -415,6 +466,25 @@ int main(int argc, char** argv) {
         desc.printer.func = printer_out;
         desc.printer.user_data = printer;
     }
+#ifndef TELESTRAT_REF
+    if (render_spec) {
+        const char* dir = strchr(render_spec, ':');
+        char type[8] = "";
+        if (dir && dir - render_spec < (int)sizeof(type)) memcpy(type, render_spec, (size_t)(dir - render_spec));
+        const int t = osd_printer_type(type, -1);
+        if (!dir || t < 0) {
+            fprintf(stderr, "-G fx80:RÉP ou mcp40:RÉP\n");
+            return 2;
+        }
+        const printer_out_t out = printer_files_out(&printer_files, dir + 1);
+        fx80_init(&printer_fx, &out, osd_font);
+        mcp40_init(&printer_mcp, &out);
+        printer_type = t;
+        printer_render_on = true;
+        desc.printer.func = printer_out;
+        desc.printer.user_data = printer;
+    }
+#endif
     if (bench_prefix) {
         char path[512];
         snprintf(path, sizeof(path), "%s.trace", bench_prefix);
@@ -476,14 +546,19 @@ int main(int argc, char** argv) {
 #ifndef TELESTRAT_REF
     if (usb_dir) {
         menu_pc.printer_file = printer_file;
+        menu_pc.printer_type = printer_type;
+        menu_pc.printer_types = printer_render_on ? OSD_PRINTER_TYPES : 1;
+        menu_pc.printer_last = printer_files.name;
         menu_pc.line_present = minitel_on;
         menu_pc_init(&menu_pc, &sys, usb_dir, "banc PC");
         printer_enabled = menu_pc.printer_on;
+        printer_select(menu_pc.printer_type);
         modem_enabled = menu_pc.modem_on;
     }
 #else
     (void)usb_dir;
     (void)menu_ppm;
+    (void)render_spec;
     (void)menu_frame;
     if (menu_script) {
         fprintf(stderr, "menu absent de la référence\n");
@@ -548,9 +623,12 @@ int main(int argc, char** argv) {
         }
         current_frame = frame;
 #ifndef TELESTRAT_REF
+        if (printer_idle >= 0 && ++printer_idle >= PRINTER_IDLE_FRAMES) printer_job_end();
         if (frame == menu_frame) {
             menu_pc_script(&menu_pc, &sys, menu_script);
             printer_enabled = menu_pc.printer_on;
+            printer_select(menu_pc.printer_type);
+            if (!printer_enabled) printer_job_end();
             modem_enabled = menu_pc.modem_on;
             if (menu_ppm) menu_pc_ppm(&menu_pc, menu_ppm);
         }
@@ -608,6 +686,7 @@ int main(int argc, char** argv) {
     }
     if (ppm) write_ppm(ppm);
 #ifndef TELESTRAT_REF
+    printer_job_end();
     if (usb_dir) menu_pc_finish(&menu_pc, &sys);
     if (dvi_file) write_dvi(dvi_file, tape_file ? tape_file : menu_pc.tape_name);
 #else

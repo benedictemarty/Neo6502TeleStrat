@@ -82,6 +82,8 @@ volatile uint32_t diag_io_n;
 #include "devices/modem_mux.h"
 #include "devices/drive_set.h"
 #include "devices/byte_fifo.h"
+#include "devices/printer_fx80.h"
+#include "devices/plotter_mcp40.h"
 // Police du menu en RAM : lue par le cœur 1 à chaque ligne affichée
 #define OSD_FONT_SECTION __attribute__((section(".time_critical.osd_font")))
 #include "osd/osd_menu.h"
@@ -263,6 +265,103 @@ static void printer_out(uint8_t data, void *user_data) {
     byte_fifo_push(&printer_fifo, data);
 }
 
+// File presque pleine : ACK retenu, l'Oric attend (telestrat_printer_resume)
+#define PRINTER_FIFO_HIGH (BYTE_FIFO_SIZE - 16)
+static bool printer_busy(void *user_data) {
+    (void)user_data;
+    return byte_fifo_count(&printer_fifo) >= PRINTER_FIFO_HIGH;
+}
+
+/*-- Imprimante rendue : Epson FX-80 (PNG), table traçante MCP-40 (SVG) --------*/
+// TELESTRA.CFG « imprimante_type=texte|fx80|mcp40 » (menu : Entrée sur
+// Imprimante). Fichiers IMPR0001.PNG, IMPR0002.SVG… à la racine de la clé,
+// écrits au fil de l'eau ; fin de travail (page ou tracé terminé) au saut de
+// page, après 10 s sans octet, à l'ouverture du menu. Variante RAM 64 Ko :
+// texte seulement (la bande de la FX-80 prend 5 Ko).
+#ifdef TELESTRAT_RAM64K
+#define PRINTER_TYPES 1
+#else
+#define PRINTER_TYPES OSD_PRINTER_TYPES
+#define PRINTER_RENDER
+#endif
+#define PRINTER_IDLE_FRAMES 500
+static int printer_type = OSD_PRINTER_TEXT;
+#ifdef PRINTER_RENDER
+static union {
+    fx80_t fx;
+    mcp40_t mcp;
+} prn;
+static FIL render_fil;
+static bool render_open = false;
+static char render_name[16];    // dernier fichier ouvert
+static uint16_t render_next = 1;
+static int printer_idle = -1;   // trames sans octet (-1 : pas de travail en cours)
+
+static bool render_file_open(void *ctx, const char *ext) {
+    (void)ctx;
+    for (; render_next <= 9999; render_next++) {
+        char png[16], svg[16];
+        FILINFO fi;
+        snprintf(png, sizeof(png), "IMPR%04u.PNG", render_next);
+        snprintf(svg, sizeof(svg), "IMPR%04u.SVG", render_next);
+        if (f_stat(png, &fi) == FR_OK || f_stat(svg, &fi) == FR_OK) continue;
+        snprintf(render_name, sizeof(render_name), "IMPR%04u.%s", render_next, ext);
+        render_next++;
+        render_open = f_open(&render_fil, render_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
+        if (!render_open) render_name[0] = 0;
+        return render_open;
+    }
+    return false;
+}
+
+static void render_file_write(void *ctx, const void *data, uint32_t len) {
+    (void)ctx;
+    UINT w;
+    if (render_open) f_write(&render_fil, data, len, &w);
+}
+
+static void render_file_seek(void *ctx, uint32_t pos) {
+    (void)ctx;
+    if (render_open) f_lseek(&render_fil, pos);
+}
+
+static void render_file_close(void *ctx) {
+    (void)ctx;
+    if (render_open) f_close(&render_fil);
+    render_open = false;
+}
+
+static const printer_out_t render_out = {render_file_open, render_file_write, render_file_seek, render_file_close, NULL};
+
+static void render_init(void) {
+    if (printer_type == OSD_PRINTER_FX80) fx80_init(&prn.fx, &render_out, osd_font);
+    else if (printer_type == OSD_PRINTER_MCP40) mcp40_init(&prn.mcp, &render_out);
+    printer_idle = -1;
+}
+
+// Fin de travail ; false : la FX-80 écrit encore (réessayer à la trame suivante)
+static bool render_job_end(void) {
+    if (printer_idle < 0) return true;
+    if (printer_type == OSD_PRINTER_FX80 && !fx80_finish(&prn.fx)) return false;
+    if (printer_type == OSD_PRINTER_MCP40) mcp40_finish(&prn.mcp);
+    printer_idle = -1;
+    return true;
+}
+#endif
+
+// Modèle choisi (menu, TELESTRA.CFG) : travail en cours abandonné tel quel
+static void printer_select(int type) {
+    if (type < 0 || type >= PRINTER_TYPES || type == printer_type) return;
+#ifdef PRINTER_RENDER
+    if (printer_type == OSD_PRINTER_MCP40) mcp40_finish(&prn.mcp);
+    render_file_close(NULL);
+    printer_type = type;
+    render_init();
+#else
+    printer_type = type;
+#endif
+}
+
 static void audio_callback(const uint8_t sample, void *user_data) {
     (void)user_data;
     audio_push_sample(sample);
@@ -288,7 +387,7 @@ static telestrat_desc_t telestrat_desc(void) {
         .audio = {.callback = {.func = audio_callback}, .sample_rate = 22050},
         .minitel = {.tx = minitel_tx, .rx = minitel_rx},
         .rs232 = {.tx = rs232_tx, .rx = rs232_rx},
-        .printer = {.func = printer_out, .user_data = NULL},
+        .printer = {.func = printer_out, .busy = printer_busy, .user_data = NULL},
     };
     rom_pool_init(&pool, rom_slots, ROM_BUILTIN + ROM_EXTRA_SLOTS);
     d.banks[0].type = TELESTRAT_BANK_RAM;
@@ -521,7 +620,12 @@ static void banner_update(void) {
 static void menu_refresh(void) {
     const telestrat_t *sys = &state.telestrat;
     menu.printer_on = printer_enabled;
-    snprintf(menu.printer_file, sizeof(menu.printer_file), "%s", cfg_printer);
+    menu.printer_model = osd_printer_names[printer_type];
+#ifdef PRINTER_RENDER
+    if (printer_type != OSD_PRINTER_TEXT) snprintf(menu.printer_file, sizeof(menu.printer_file), "%s", render_name);
+    else
+#endif
+        snprintf(menu.printer_file, sizeof(menu.printer_file), "%s", cfg_printer);
     menu.modem_on = modem_enabled;
     menu.modem_state = modem_idx < 0            ? "absent"
                        : mux.rs232              ? "prise RS232"
@@ -566,7 +670,7 @@ static void config_save(void) {
     const char *drives[4], *banks[8];
     for (int d = 0; d < 4; d++) drives[d] = strcmp(drive_name[d], FLASH_NAME) ? drive_name[d] : NULL;
     for (int b = 0; b < 8; b++) banks[b] = pool.name[b];
-    const size_t len = osd_config_merge_ex(old, drives, banks, printer_enabled, modem_enabled, out, 2048);
+    const size_t len = osd_config_merge_ex(old, drives, banks, printer_enabled, printer_type, modem_enabled, out, 2048);
     bool ok = len > 0 && f_open(&f, "TELESTRA.CFG", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
     if (ok) {
         ok = f_write(&f, out, (UINT)len, &n) == FR_OK && n == len;
@@ -578,6 +682,9 @@ static void config_save(void) {
 static void menu_draw(void);
 
 static void menu_open(void) {
+#ifdef PRINTER_RENDER
+    render_job_end();  // pages et tracés terminés : lisibles sur la clé
+#endif
     usb_scan();
     menu_refresh();
     menu.page = OSD_PAGE_MAIN;
@@ -630,8 +737,18 @@ static void menu_action(osd_action_t a) {
             return;
         case OSD_ACT_SAVE: config_save(); break;
         case OSD_ACT_PRINTER:
-            printer_enabled = !printer_enabled;
-            osd_menu_message(&menu, false, printer_enabled ? "Imprimante activée" : "Imprimante coupée");
+        {
+            int type = printer_type;
+            osd_printer_cycle(&printer_enabled, &type, PRINTER_TYPES);
+            printer_select(type);
+            if (printer_enabled) {
+                char msg[48];
+                snprintf(msg, sizeof(msg), "Imprimante : %s", osd_printer_names[printer_type]);
+                osd_menu_message(&menu, false, msg);
+            } else {
+                osd_menu_message(&menu, false, "Imprimante coupée");
+            }
+        }
             break;
         case OSD_ACT_MODEM:
             if (modem_enabled) {
@@ -692,7 +809,7 @@ static int menu_key(int code) {
     }
 }
 
-// À chaque trame : l'impression en attente est ajoutée au fichier
+// À chaque trame (mode texte) : l'impression en attente est ajoutée au fichier
 static void printer_flush(void) {
     uint32_t n;
     if (!byte_fifo_count(&printer_fifo)) return;
@@ -714,6 +831,48 @@ static void printer_flush(void) {
         byte_fifo_drop(&printer_fifo, n);
     }
     f_sync(&printer_fil);
+}
+
+#ifdef PRINTER_RENDER
+// À chaque trame (FX-80, MCP-40) : octets de la file interprétés, lignes de la
+// page écrites, tant que la trame a du temps (start : début de la trame)
+static void printer_render(uint32_t start) {
+    if (!usb_scanned) {
+        byte_fifo_drop(&printer_fifo, byte_fifo_count(&printer_fifo));  // pas de clé
+        return;
+    }
+    const bool fx = printer_type == OSD_PRINTER_FX80;
+    bool got = false;
+    // Au moins un pas par trame, plus tant que la trame n'est pas finie
+    for (bool first = true; first || time_us_32() - start < 18000; first = false) {
+        if (fx && fx80_busy(&prn.fx)) {
+            fx80_service(&prn.fx, 8);
+            continue;
+        }
+        uint32_t n;
+        const uint8_t *p = byte_fifo_peek(&printer_fifo, &n);
+        if (!n) break;
+        uint32_t k = 0;
+        while (k < n && !(fx && fx80_busy(&prn.fx))) {
+            if (fx) fx80_feed(&prn.fx, p[k++]);
+            else mcp40_feed(&prn.mcp, p[k++]);
+        }
+        byte_fifo_drop(&printer_fifo, k);
+        got = true;
+    }
+    if (got) printer_idle = 0;
+    else if (printer_idle >= 0 && ++printer_idle >= PRINTER_IDLE_FRAMES) render_job_end();
+}
+#endif
+
+static void printer_service(uint32_t start) {
+#ifdef PRINTER_RENDER
+    if (printer_type != OSD_PRINTER_TEXT) printer_render(start);
+    else
+#endif
+        printer_flush();
+    (void)start;
+    if (!printer_busy(NULL)) telestrat_printer_resume(&state.telestrat);
 }
 
 // À chaque trame : à la première apparition de la clé, réglages, lecteurs
@@ -743,6 +902,10 @@ static void usb_unplugged(void) {
     tape_name[0] = 0;
     oric_tape_rec_motor_off(&state.telestrat.tape_rec);  // enregistrement interrompu
     printer_open = false;
+#ifdef PRINTER_RENDER
+    render_open = false;  // travail en cours perdu (clé retirée)
+    render_init();
+#endif
     menu.nfiles = 0;
     menu.usb_present = false;
     if (!drive_name[0][0]) insert_flash_disk();
@@ -807,6 +970,8 @@ static void read_config(void) {
             printer_enabled = osd_config_yes(v, true);
         } else if ((v = osd_config_value(line, "modem"))) {
             modem_enabled = osd_config_yes(v, true);
+        } else if ((v = osd_config_value(line, "imprimante_type"))) {
+            printer_select(osd_printer_type(v, printer_type));
         } else if ((v = osd_config_value(line, "imprimante"))) {
             snprintf(cfg_printer, sizeof(cfg_printer), "%.47s", v);
         } else if (!strncmp(line, "rs232=", 6)) {
@@ -1164,7 +1329,7 @@ int main() {
         }
         tuh_task();
         usb_poll();
-        printer_flush();
+        printer_service(start_time_in_micros);
         diag_keys_poll();
 
         uint32_t execution_time = time_us_32() - start_time_in_micros;

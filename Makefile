@@ -16,7 +16,7 @@ CPPFLAGS += -Isrc -I$(RELOAD_DIR)/src
 
 BUILD := build
 ROMS_H := src/roms/telestrat_roms.h
-HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/oric_tape.h src/devices/oric_tape_rec.h src/devices/byte_fifo.h src/osd/rom_builtin.h
+HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/oric_tape.h src/devices/oric_tape_rec.h src/devices/byte_fifo.h src/osd/rom_builtin.h src/devices/printer_out.h src/devices/printer_fx80.h src/devices/plotter_mcp40.h platforms/pc/printer_files.h
 
 all: test
 
@@ -29,6 +29,9 @@ $(BUILD)/telestrat_headless: platforms/pc/telestrat_headless.c $(HEADERS) platfo
 $(BUILD)/telestrat_headless_ref: platforms/pc/telestrat_headless.c $(HEADERS) src/systems/telestrat_ref.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DTELESTRAT_REF -o $@ $<
 
+$(BUILD)/printer_render: platforms/pc/printer_render.c $(HEADERS) | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $<
+
 $(BUILD)/replay: tests/replay.c $(HEADERS) | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $<
 
@@ -40,7 +43,7 @@ $(BUILD):
 
 headless: $(BUILD)/telestrat_headless
 
-test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_headless_ref $(BUILD)/replay
+test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_headless_ref $(BUILD)/replay $(BUILD)/printer_render
 	$(BUILD)/test_telestrat
 	sh tests/test_boot.sh $(BUILD)/telestrat_headless
 	sh tests/test_telematic.sh $(BUILD)/telestrat_headless
@@ -49,6 +52,7 @@ test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_hea
 	sh tests/test_menu.sh $(BUILD)/telestrat_headless
 	sh tests/test_tape.sh $(BUILD)/telestrat_headless
 	sh tests/test_stratoric.sh $(BUILD)/telestrat_headless
+	sh tests/test_printer.sh $(BUILD)/telestrat_headless $(BUILD)/printer_render
 	sh tests/test_replay.sh $(BUILD)/telestrat_headless_ref $(BUILD)/replay
 
 uf2: $(ROMS_H)

@@ -58,6 +58,20 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   refusées, fusion de `TELESTRA.CFG` ;
 - file d'octets de l'imprimante (`byte_fifo.h`) : bloc contigu, tour du
   tampon, file pleine (octets perdus comptés) ;
+- Epson FX-80 (`printer_fx80.h`) : CRC-32 et Adler-32 de référence ; PNG
+  décodé par le test (CRC des blocs, en-tête zlib, blocs stockés, Adler,
+  1224 x 1584) ; pas de page pour des sauts de ligne seuls ; « A » en haut à
+  gauche (marge de 1/4 pouce), « B » deux lignes plus bas, reste blanc ;
+  `ESC K` (aiguilles 1 et 8, pas de 1/60 pouce) ; `ESC &` sauté ; `ESC !`,
+  SI, SO (annulé par LF) ; `ESC 3`, `ESC A`, `ESC J` ; `ESC D` et HT ;
+  81ᵉ caractère sur la ligne suivante et imprimé ; 70 lignes = deux pages ;
+  écriture limitée par appel ; ouverture refusée sans blocage ;
+- MCP-40 (`plotter_mcp40.h`) : carré du manuel (`D`), SVG complet, en-tête
+  réécrit (étendue, hauteur en mm) ; `C1`, `L2`, `J`, `I` ; mode texte (40
+  colonnes), `P` de taille `S1`, caractères échappés, `Q1` ; pas de fichier
+  sans tracé ;
+- menu : modèle d'imprimante et dernière page affichés ; Entrée fait
+  défiler texte, FX-80, MCP-40, coupée ; `imprimante_type=` écrit et lu ;
 - cassette (`oric_tape.h`) : trames (parité), moteur arrêté, synchro
   prolongée et fin d'en-tête, premier front, durées des alternances,
   silence après l'en-tête, fin de bande, arrêt en cours d'octet, éjection ;
@@ -160,6 +174,18 @@ Atmos intégrée en banque 7, `essai.tap`, RESET, `CLOAD`, `RUN` ; bandeau
 (`-C`) : `ESSAI.TAP` écrit, rechargé par `CLOAD`, `RUN` (« CSAVE OK », 42) ;
 bandeau « Écriture » (point rouge) pendant l'enregistrement. Essai manuel :
 « L'Aigle d'Or » (Loriciels, `AIGLE.TAP`, deux parties) se charge en entier.
+
+## Imprimantes — `tests/test_printer.sh` (12 vérifications)
+
+`build/printer_render` rend un flux brut : FX-80 (texte, gras, condensé,
+`ESC K`, saut de page) → deux PNG valides (`tests/png_info.py` : CRC, zlib,
+taille, encre dans un rectangle), texte en haut de la page 1, graphiques à
+la 4ᵉ ligne ; MCP-40 → SVG valide (XML), numéro suivant, traits, rouge,
+texte. De bout en bout (STRATSED, HYPER-BASIC) : `LPRINT "BONJOUR TELESTRAT"`
+avec `-G fx80` → une page, texte en haut à gauche et rien d'autre, octets
+bruts dans `-P` ; `LPRINT CHR$(18)`, `"D100,0,100,50"`, `"A"` avec
+`-G mcp40` → le trait dans le SVG. Menu (`-U`, `-G fx80`) : Entrée →
+« Imprimante : Traceur MCP-40 », Enregistrer → `imprimante_type=mcp40`.
 
 ## Coût du menu sur le cœur 1 — `make charge-menu`
 

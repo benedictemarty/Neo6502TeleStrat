@@ -34,3 +34,7 @@
 | Manuel du développeur Telestrat (F. Broche, ORIC International 1987), `~/Téléchargements/manuel_developpeur_telestrat.pdf` — fourni par le PO | répartition des banques par cartouche (page 3), entête de banque `$FFF8`-`$FFFF` (bit 4 : ignorer) |
 | « Telestrat à cœur ouvert », « Telestrat, le système m'était conté » (`~/Téléchargements`) — fournis par le PO | matériel et système (lus par OCR, tesseract fra) ; pages 1-7 à 1-9 du second : détection des banques, RESET à chaud par défaut |
 | Source commentée d'HYPER-BASIC (`FLGTEL` bit 2 = BONJOUR.COM, `$FFAC`) | appel de la banque 5 au démarrage à froid |
+| « FX Series Printer User's Manual » (Epson, 1983), [files.support.epson.com/pdf/fx80__/fx80__u1.pdf](https://files.support.epson.com/pdf/fx80__/fx80__u1.pdf) | codes de la FX-80 (annexes B, C, D : Master Select, densités graphiques `ESC *` 0-6, `ESC ^`) |
+| Manuel de la table traçante Oric MCP-40, [manualslib.com/manual/1202312/Oric-Mcp-40.html](https://www.manualslib.com/manual/1202312/Oric-Mcp-40.html) (pages lues par OCR) | 480 pas de 0,2 mm, codes du mode texte, commandes A C D H I J L M P Q R S X, table des plumes ; contradictions et manques notés dans `plotter_mcp40.h` |
+| Table `ESC R` usuelle de l'ESC/P (jeu France : à ° ç § é ù è ¨) | absente de l'OCR du manuel FX-80 : reprise de la table ESC/P connue, à vérifier sur une FX-80 |
+| TELEMON 2.4, source (`~/telemon`, `src/telemon.asm` `$CA2F`, `xtstlp.asm`) | impression par interruption CA1 : l'octet suivant n'est envoyé qu'à l'ACK |

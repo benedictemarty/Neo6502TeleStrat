@@ -131,6 +131,20 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-110 | Menu : imprimante activée / coupée, enregistrée (`impression=`) | ✅ banc (`test_menu`), ⏳ carte |
 | US-111 | Menu : modem activé / coupé (ligne raccrochée), état affiché, enregistré (`modem=`) | ✅ code + tests unitaires, ⏳ carte |
 
+## Sprint 12 — v0.12.0 — « Impression matricielle et traceur 4 couleurs » ✅ au banc (2026-09-29)
+
+Objectif du PO : imprimer en mode Centronics / matricielle et en mode tracé
+4 couleurs ; sortie en images sur la clé d'abord, vraie imprimante USB plus
+tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
+
+| US | Récit | État |
+|---|---|---|
+| US-120 | Epson FX-80 : pages PNG écrites au fil de l'eau (bande de 32 lignes), modes de caractères, interlignes, marges, tabulations, graphiques | ✅ banc (`test_telestrat`, `test_printer`), ⏳ carte |
+| US-121 | MCP-40 : tracés SVG 4 couleurs (texte, D J M R H I C L P Q S X A) | ✅ banc, ⏳ carte, ⏳ vraie MCP-40 (couleurs, tailles) |
+| US-122 | Menu et `TELESTRA.CFG` : Texte → FX-80 → MCP-40 → coupée (`imprimante_type=`) | ✅ banc |
+| US-123 | Pas de perte : ACK retenu tant que la file est presque pleine | ✅ code, rejeu identique |
+| US-124 | Banc : `-G fx80:RÉP` / `mcp40:RÉP`, outil `printer_render` (rendu après coup d'un `IMPRIM.TXT`) | ✅ |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
@@ -150,9 +164,16 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
   vide. À vérifier : notice de la cartouche, vrai Telestrat. (Sans TELE-ASS,
   l'arrêt après la liste des ROM est reproduit par Oricutron : v0.8.1.)
 - Clé retirée puis rebranchée : non gérée (montage au premier branchement).
-- Variante RAM 64 Ko : ≈ 0,5 Ko de RAM libre.
-- Variante RAM 64 Ko : 88 octets de RAM libres ; toute évolution devra en
-  regagner (liste de fichiers du menu, file d'impression…).
+- Variante RAM 64 Ko : 92 octets de RAM libres ; toute évolution devra en
+  regagner (liste de fichiers du menu…). Imprimante : Texte seulement.
+- Vraie imprimante USB (classe imprimante USB, ESC/P ou PCL) à la place des
+  images : envoi des octets bruts, ou de la page rendue.
+- FX-80 : police 9 x 11 de la FX-80, mode proportionnel, caractères de
+  l'utilisateur (`ESC &`), autres jeux internationaux ; confronter une page
+  au rendu d'une vraie FX-80.
+- MCP-40 : ordre des couleurs (le manuel se contredit), hauteur des
+  caractères, interligne du mode texte, pointillés, graduations de `X` ;
+  commutateurs DIP (20 / 80 colonnes).
 - Instantanés (savestates), sélecteur de ROM au démarrage.
 - Test « golden » image contre Oricutron (PPM), ROM ORIX.
 

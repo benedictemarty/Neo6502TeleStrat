@@ -97,7 +97,7 @@ Dépendances reprises de reload-emulator sans copie : `mos6522via.h`,
 | RAM du RP2040 | variante `standard` (1 banque RAM, 4 ROM) : 204 Ko ; `ram64k` (5 RAM, 2 ROM) : 236 Ko (sur 256) | les ROM restent en RAM (`__not_in_flash`) comme dans reload, pour tenir le temps de bus |
 | FDC | WD1793 écrit d'après la fiche technique (Oricutron, GPL, n'est qu'un oracle de comportement) ; délais d'Oricutron (32 cycles/octet) ; fin de multi-secteurs sans erreur comme Oricutron ; le registre de piste doit correspondre à l'ID (fiche) | STRATSED démarre, lit et écrit comme sous Oricutron |
 | Images disque | PC : image entière en mémoire ; Neo6502 : clé USB, piste courante (6400 o) en tampon, réécrite à la fin de chaque commande d'écriture | 1 Mo ne tient pas dans les 264 Ko du RP2040 ; le 65C02 attend pendant l'accès USB (le RP2040 fournit son horloge) |
-| Imprimante | option : octet sur front descendant de STROBE, ACK de 40 cycles sur CA1 ; niveau de CA1 redonné à chaque pas | le VIA de reload ne détecte un front qu'entre deux appels de `set_ca1` ; TELEMON n'affiche « Imprimante » que si l'ACK répond (désactivée sur le Neo6502) |
+| Imprimante | option : octet sur front descendant de STROBE, ACK de 40 cycles sur CA1 (retenu si l'imprimante est occupée) ; niveau de CA1 redonné à chaque pas | le VIA de reload ne détecte un front qu'entre deux appels de `set_ca1` ; TELEMON n'affiche « Imprimante » que si l'ACK répond (toujours branchée sur le Neo6502 depuis v0.9.0) |
 | Code chaud | `telestrat_tick`, VIA et cœur 65C02 en RAM (`.time_critical`) | comme le BBC de reload : depuis la flash, le cache XIP de 16 Ko déborde |
 | Bus du 65C02 (`neo6502_bus.h`) | séquence GPIO de reload, intégrée ; **impulsion OE3 renvoyée juste avant le front descendant** après une lecture | sur carte, la donnée d'une lecture suivie d'une pause (fin de tranche ou de trame, plusieurs ms horloge haute) fuyait : TELEMON lisait `$FF4E` de la banque 3 (`$00`) autrement à la relecture, banque déclarée invalide (« 48 Ko ROM »), titre corrompu ; défaut latent aussi dans reload |
 | Clavier : PB3 | touche dans la ligne sélectionnée parmi les colonnes actives (`scan & ligne`) | `oric.h` testait l'égalité (`scan == ligne`), fausse dès que deux touches de lignes différentes sont enfoncées : SHIFT + 8 (« * ») donnait « 8 » sur carte ; aussi dans reload |
@@ -331,6 +331,52 @@ affiché : absent, prêt, sonnerie, en ligne, prise RS232. Au banc : `-P`
 
 RAM : 13,6 Ko libres (standard), **88 octets** (RAM 64 Ko).
 
+## Imprimantes émulées : Epson FX-80 et MCP-40 (sprint 12)
+
+Trois modèles derrière le port Centronics (`imprimante_type=`, menu) : Texte
+(octets bruts dans `IMPRIM.TXT`), Epson FX-80 (`src/devices/printer_fx80.h`)
+et table traçante MCP-40 (`src/devices/plotter_mcp40.h`), en C pur, communs
+au firmware et au banc (`platforms/pc/printer_files.h`,
+`platforms/pc/printer_render.c`). Sortie par `printer_out_t`
+(`printer_out.h` : ouvrir un fichier d'extension donnée, écrire, revenir en
+arrière, fermer) ; noms `IMPRnnnn.PNG` / `.SVG`, une seule suite.
+
+**FX-80** : unités 1/1440 pouce en largeur (toutes les densités : 60, 72,
+80, 90, 120, 240 points par pouce) et 1/216 pouce en hauteur (`ESC 3`,
+`ESC J`) ; page rendue à 144 points par pouce (1224 x 1584, 1 bit). Seule
+une bande de 32 lignes de pixels (4,9 Ko) est en mémoire : quand la tête
+descend, les lignes qu'elle ne peut plus atteindre (9ᵉ aiguille et double
+frappe comprises) sont écrites. Le PNG est écrit au fil de l'eau sans
+compresser : hauteur fixe (longueur de page, `ESC C`), donc taille du bloc
+`IDAT` connue d'avance, blocs deflate « stockés » (65535 octets au plus),
+CRC-32 et Adler-32 calculés en continu (table de 16 mots, en flash) ; une
+page fait 244 Ko. Page ouverte au premier point (pas de fichier pour une
+page blanche ; les lignes blanches déjà sautées sont écrites à l'ouverture).
+`fx80_busy()` : un saut de ligne attend l'écriture des lignes quittées ;
+`fx80_service(n)` en écrit au plus n. Retour à la ligne automatique : le
+caractère attend (`pending`) que les lignes soient écrites.
+
+**MCP-40** : aucun tracé en mémoire. Un `<path>` par suite de traits de même
+plume et même pointillé, un `<text>` (police « monospace », largeur imposée
+par `textLength`) par suite de caractères ; coordonnées en pas (0,2 mm),
+Y vers le haut (inversé dans le SVG). L'en-tête, de longueur fixe, est
+réécrit à la fermeture avec l'étendue verticale du tracé (retour en
+arrière : `f_lseek`).
+
+**Firmware** : les octets passent par la file (`byte_fifo.h`) ; à chaque
+trame, `printer_render()` les interprète et écrit les lignes tant que la
+trame a du temps (au moins un pas par trame, puis jusqu'à 18 ms). File
+presque pleine : le système retient l'ACK (`printer.busy`, `printer_wait`)
+jusqu'à `telestrat_printer_resume()` ; TELEMON n'envoie l'octet suivant
+qu'à l'interruption CA1 (routine `$CA2F`), l'Oric attend donc sans perte —
+la file de la variante RAM 64 Ko passe de 256 à 64 octets. Fin de travail
+(page, fichier SVG terminés) : saut de page, ouverture du menu, 10 s sans
+octet. Changement de modèle : travail en cours terminé ; clé retirée :
+travail abandonné. Le rendu (FX-80 et MCP-40 en `union`, 5,3 Ko, plus un
+`FIL` de 0,5 Ko) n'existe pas dans la variante RAM 64 Ko (Texte seul).
+
+RAM libre : 7,9 Ko (standard), 92 octets (RAM 64 Ko), plus le tas de 2 Ko.
+
 ## Imprimante et clé retirée (sprint 9)
 
 **Imprimante** : le système appelle `printer_out` à chaque octet (STROBE,
@@ -338,7 +384,7 @@ ACK sur le VIA 1) ; le firmware le met dans une file (`byte_fifo.h`, 1 Ko ;
 256 octets avec la RAM 64 Ko) vidée à chaque trame dans le fichier
 `imprimante=` de la clé (`IMPRIM.TXT`, ouvert en ajout, `f_sync`) : aucune
 écriture de fichier pendant un cycle du 65C02. File pleine : octets perdus,
-comptés. L'imprimante est toujours branchée (TELEMON l'annonce au démarrage).
+comptés (depuis v0.12.0 : ACK retenu, plus de perte). L'imprimante est toujours branchée (TELEMON l'annonce au démarrage).
 
 **Clé retirée** : `msc_app.c` de reload ne redescend pas
 `msc_inquiry_complete` ; la présence est suivie par `tuh_msc_mounted`. Au

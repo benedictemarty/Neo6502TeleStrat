@@ -115,7 +115,11 @@ typedef struct {
 
 // Imprimante sur le port parallèle du VIA 1 : octet = ORA au front
 // descendant de PB4 (STROBE), réponse ACK sur CA1 (comme Oricutron).
+// Imprimante occupée (busy vrai après l'octet) : ACK retenu jusqu'à
+// telestrat_printer_resume() ; TELEMON n'envoie l'octet suivant qu'à l'ACK
+// (interruption CA1), l'Oric attend donc sans rien perdre.
 typedef void (*telestrat_printer_t)(uint8_t data, void* user_data);
+typedef bool (*telestrat_printer_busy_t)(void* user_data);
 
 typedef struct {
     chips_debug_t debug;
@@ -123,6 +127,7 @@ typedef struct {
     telestrat_bank_desc_t banks[TELESTRAT_NUM_BANKS];
     struct {
         telestrat_printer_t func;  // NULL : pas d'imprimante branchée
+        telestrat_printer_busy_t busy;  // NULL : jamais occupée
         void* user_data;
     } printer;
     // Liaisons de l'ACIA, aiguillées par PA4 du VIA 2 (TELEMON $DB3A/$DB5D :
@@ -165,9 +170,11 @@ typedef struct {
     uint8_t joy[2];  // [0] = port droit (PB7), [1] = port gauche (PB6)
 
     telestrat_printer_t printer;
+    telestrat_printer_busy_t printer_busy;
     void* printer_user_data;
     bool strobe;          // dernier niveau de PB4
     int32_t printer_ack;  // cycles restants de l'impulsion ACK
+    bool printer_wait;    // ACK retenu (imprimante occupée)
 
     bool ring;  // détecteur de sonnerie de la ligne -> CB1 du VIA 2
     bool inputs_dirty;      // entrée extérieure changée : prochain pas complet
@@ -407,6 +414,7 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     _telestrat_init_key_map(sys);
     sys->joy[0] = sys->joy[1] = 0;
     sys->printer = desc->printer.func;
+    sys->printer_busy = desc->printer.busy;
     sys->printer_user_data = desc->printer.user_data;
     sys->minitel_tx = desc->minitel.tx;
     sys->minitel_rx = desc->minitel.rx;
@@ -443,6 +451,7 @@ void telestrat_reset(telestrat_t* sys) {
     ay38910psg_reset(&sys->psg);
     telestrat_fdc_reset(&sys->fdc);
     mos6551acia_reset(&sys->acia);
+    sys->printer_wait = false;
     sys->quiet_until = sys->system_ticks;
     sys->deferred = 0;
     // Au RESET, le port A du VIA 2 est en entrée (tiré à 1) : banque 7
@@ -540,12 +549,21 @@ static inline void _telestrat_update_joysticks(telestrat_t* sys) {
     mos6522via_set_pa(&sys->via2, 0xFF);
 }
 
+// Imprimante de nouveau prête : ACK retenu envoyé
+static inline void telestrat_printer_resume(telestrat_t* sys) {
+    if (!sys->printer_wait) return;
+    sys->printer_wait = false;
+    sys->printer_ack = 40;
+    sys->inputs_dirty = true;
+}
+
 static inline void _telestrat_update_printer(telestrat_t* sys, uint8_t pb) {
     if (!sys->printer) return;
     bool strobe = (pb & sys->via.pb.ddr & 0x10) != 0;
     if (sys->strobe && !strobe) {
         sys->printer(sys->via.pa.outr, sys->printer_user_data);
-        sys->printer_ack = 40;
+        if (sys->printer_busy && sys->printer_busy(sys->printer_user_data)) sys->printer_wait = true;
+        else sys->printer_ack = 40;
     } else if (sys->printer_ack > 0) {
         sys->printer_ack -= 4;
     }

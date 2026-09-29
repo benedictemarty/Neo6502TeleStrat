@@ -12,7 +12,7 @@
 #include <stdint.h>
 
 #ifndef BYTE_FIFO_SIZE
-#define BYTE_FIFO_SIZE 1024  // puissance de 2 (256 avec la RAM 64 Ko : place)
+#define BYTE_FIFO_SIZE 1024  // puissance de 2 (64 avec la RAM 64 Ko : place ; l'ACK retenu évite toute perte)
 #endif
 
 typedef struct {

@@ -109,8 +109,42 @@ cartouches), Enregistrer la configuration dans `TELESTRA.CFG`, Reprendre.
 L'émulation est en pause tant qu'il est ouvert. Flèches, Entrée, Suppr
 (éjecter / contenu d'origine), une lettre (aller au fichier), Échap.
 
-**Imprimante** : ce que le Telestrat imprime (`LPRINT`…) est ajouté à
-`IMPRIM.TXT` à la racine de la clé (réglable par `imprimante=`).
+**Imprimante** : trois modèles, choisis dans le menu (Entrée sur
+« Imprimante » : Texte → Epson FX-80 → Traceur MCP-40 → coupée) ou par
+`imprimante_type=` :
+
+- **Texte** : ce que le Telestrat imprime (`LPRINT`…) est ajouté tel quel à
+  `IMPRIM.TXT` à la racine de la clé (réglable par `imprimante=`) ;
+- **Epson FX-80** (matricielle, Centronics, codes ESC/P) : chaque page
+  (8,5 x 11 pouces, 144 points par pouce) devient `IMPR0001.PNG`,
+  `IMPR0002.PNG`… : Pica, Élite, condensé, élargi, gras, double frappe,
+  italique, souligné, exposant/indice, interlignes, marges, tabulations,
+  graphiques (`ESC K L Y Z * ^`) ;
+- **Traceur MCP-40** (table traçante 4 couleurs de l'Oric) : chaque tracé
+  devient `IMPR0003.SVG`… : mode texte (40 colonnes), mode graphique
+  (`CHR$(18)`) : traits absolus et relatifs `D` `J`, déplacements `M` `R`,
+  origine `I` `H`, plumes `C0`-`C3` (noir, bleu, vert, rouge), pointillés
+  `L`, texte `P` de taille `S` et de sens `Q`, axes gradués `X`, retour au
+  texte `A`.
+
+Les pages et les tracés sont écrits sur la clé au fil de l'eau (seule une
+bande de 32 lignes est en mémoire) ; un fichier est terminé au saut de page
+(`CHR$(12)`, FX-80), à l'ouverture du menu, ou après 10 secondes sans
+impression. Quand la clé écrit, le Telestrat attend (l'ACK de l'imprimante
+est retardé) : rien n'est perdu. Variante RAM 64 Ko : Texte seulement.
+**Non essayé sur carte.**
+
+| Epson FX-80 (PNG) | MCP-40 (SVG) |
+|---|---|
+| ![Page de la FX-80](docs/images/impression_fx80.png) | ![Tracé de la MCP-40](docs/images/impression_mcp40.png) |
+
+Limites connues : police unscii-8 (8 x 8) à la place de celle de la FX-80,
+mode proportionnel imprimé en Pica, caractères définis par l'utilisateur
+ignorés, jeux internationaux États-Unis et France seulement. MCP-40 : le
+manuel se contredit sur l'ordre des couleurs (table des plumes gardée : 0
+noir, 1 bleu, 2 vert, 3 rouge) et ne donne ni la hauteur des caractères, ni
+l'interligne du mode texte, ni le dessin exact des pointillés : valeurs
+estimées, à confronter à une vraie MCP-40.
 
 **Clé retirée puis rebranchée** : au retrait, les lecteurs de la clé sont
 vidés (l'image en flash revient dans A), la cassette est éjectée ; au
@@ -154,8 +188,9 @@ rs232=usb              # prise RS232 : modem USB (défaut) ou uext
 a=STRATSED.DSK         # lecteurs A à D (a= … d=), écrits par le menu
 bank5=orix.rom         # cartouches de la clé (bank1= … bank7=), écrites par le menu
 bank7=@stratoric       # ROM intégrée : STRATORIC (banques 7, 6, 5) ; @atmos : BASIC 1.1 seul
-imprimante=IMPRIM.TXT  # sortie de l'imprimante, ajoutée à ce fichier (vide : pas d'impression)
+imprimante=IMPRIM.TXT  # imprimante Texte : sortie ajoutée à ce fichier (vide : pas d'impression)
 impression=oui         # imprimante activée (non : coupée) ; écrit par le menu
+imprimante_type=fx80   # texte, fx80 (pages PNG) ou mcp40 (tracés SVG) ; écrit par le menu
 modem=oui              # modem activé (non : ligne coupée) ; écrit par le menu
 ```
 
@@ -191,6 +226,8 @@ build/telestrat_headless -c standard -f 300 -s -b     # écran texte + état des
 build/telestrat_headless -c ram64k -p boot.ppm        # image 240x224
 build/telestrat_headless -c oricutron -0 STRATSED.DSK -f 1200 -w 500 -t '1~~~~~~DIR\n' -s
 build/telestrat_headless -0 a.dsk -W a2.dsk -P imprimante.txt ...   # disque réécrit, imprimante
+build/telestrat_headless -0 a.dsk -G fx80:pages ...                  # pages PNG de la FX-80 dans pages/
+build/printer_render mcp40 IMPRIM.TXT traces                         # rendu après coup d'une impression brute
 build/telestrat_headless -c standard -0 a.dsk -L listen:3615 -R ...  # ligne Minitel sur TCP, temps réel
 ```
 
