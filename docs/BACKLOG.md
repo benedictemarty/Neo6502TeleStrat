@@ -164,7 +164,6 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
   Fabrice BROCHE » au lieu du menu (banc) ; Oricutron ne simule pas de banque
   vide. À vérifier : notice de la cartouche, vrai Telestrat. (Sans TELE-ASS,
   l'arrêt après la liste des ROM est reproduit par Oricutron : v0.8.1.)
-- Clé retirée puis rebranchée : non gérée (montage au premier branchement).
 - Variante RAM 64 Ko : 92 octets de RAM libres ; toute évolution devra en
   regagner (liste de fichiers du menu…). Imprimante : Texte seulement.
 - Vraie imprimante USB (classe imprimante USB, ESC/P ou PCL) à la place des
