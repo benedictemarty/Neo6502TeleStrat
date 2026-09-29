@@ -68,8 +68,9 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   écriture limitée par appel ; ouverture refusée sans blocage ;
 - MCP-40 (`plotter_mcp40.h`) : carré du manuel (`D`), SVG complet, en-tête
   réécrit (étendue, hauteur en mm) ; `C1`, `L2`, `J`, `I` ; mode texte (40
-  colonnes), `P` de taille `S1`, caractères échappés, `Q1` ; pas de fichier
-  sans tracé ;
+  colonnes, interligne de 24 pas), `P` de taille `S1`, caractères échappés,
+  `Q1` ; origine fixée par `CHR$(18)` ; taille `S3` gardée en mode texte ;
+  pas de fichier sans tracé ;
 - menu : modèle d'imprimante et dernière page affichés ; Entrée fait
   défiler texte, FX-80, MCP-40, coupée ; `imprimante_type=` écrit et lu ;
 - cassette (`oric_tape.h`) : trames (parité), moteur arrêté, synchro

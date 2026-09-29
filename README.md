@@ -140,11 +140,13 @@ est retardé) : rien n'est perdu. Variante RAM 64 Ko : Texte seulement.
 
 Limites connues : police unscii-8 (8 x 8) à la place de celle de la FX-80,
 mode proportionnel imprimé en Pica, caractères définis par l'utilisateur
-ignorés, jeux internationaux États-Unis et France seulement. MCP-40 : le
-manuel se contredit sur l'ordre des couleurs (table des plumes gardée : 0
-noir, 1 bleu, 2 vert, 3 rouge) et ne donne ni la hauteur des caractères, ni
-l'interligne du mode texte, ni le dessin exact des pointillés : valeurs
-estimées, à confronter à une vraie MCP-40.
+ignorés, jeux internationaux États-Unis et France seulement. MCP-40
+(mécanisme du Tandy CGP-115, dont le manuel complète ceux de l'Oric) :
+couleurs 0 noir, 1 bleu, 2 vert, 3 rouge (manuel CGP-115 ; les manuels Oric
+se contredisent) ; interligne du mode texte et hauteur des caractères
+mesurés sur l'autotest imprimé du manuel CGP-115 ; dessin des pointillés et
+longueur des graduations estimés ; caractères en police « monospace », pas
+celle de la machine.
 
 **Clé retirée puis rebranchée** : au retrait, les lecteurs de la clé sont
 vidés (l'image en flash revient dans A), la cassette est éjectée ; au

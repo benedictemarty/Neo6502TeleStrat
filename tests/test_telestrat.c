@@ -1672,7 +1672,7 @@ static void test_plotter_mcp40(void) {
     mcp40_send(&p, "\x12" "C1\rL2\rM10,10\rJ5,0,0,5\rC3\rL0\rI\rD1,1\r");
     mcp40_finish(&p);
     buf[m.len] = 0;
-    CHECK(strstr(s, "stroke=\"#1f3fbf\"") && strstr(s, "stroke-dasharray=\"4 4\"") && strstr(s, "M10 -10L15 -10L15 -15"),
+    CHECK(strstr(s, "stroke=\"#1f3fbf\"") && strstr(s, "stroke-dasharray=\"2 2\"") && strstr(s, "M10 -10L15 -10L15 -15"),
           "C1 L2 J : %s", s);
     CHECK(strstr(s, "stroke=\"#d42020\"") && strstr(s, "M15 -15L16 -16"), "C3 I D : origine déplacée");
 
@@ -1684,7 +1684,15 @@ static void test_plotter_mcp40(void) {
     CHECK(strstr(s, "textLength=\"24\" lengthAdjust=\"spacingAndGlyphs\">AB</text>"), "mode texte, 40 colonnes : %s", s);
     CHECK(strstr(s, ">&lt;&amp;&gt;</text>") && strstr(s, "textLength=\"36\""), "P : taille S1 (12 pas), échappement");
     CHECK(strstr(s, "transform=\"rotate(90"), "Q1 : haut en bas");
-    CHECK(p.x == 36 && p.y == -18 - 12, "plume après le texte (%d, %d)", (int)p.x, (int)p.y);
+    // Interligne du mode texte : deux largeurs de caractère (24 pas) ; Q1 descend
+    CHECK(p.x == 36 && p.y == -24 - 12, "plume après le texte (%d, %d)", (int)p.x, (int)p.y);
+    CHECK(p.ox == 0 && p.oy == -24, "CHR$(18) : origine en marge gauche, sous la plume (%d, %d)", (int)p.ox, (int)p.oy);
+    // La taille S reste en vigueur en mode texte (manuel CGP-115)
+    mcp40_init(&p, &out);
+    mcp40_send(&p, "\x12S3\rA\rXY");
+    mcp40_finish(&p);
+    buf[m.len] = 0;
+    CHECK(strstr(s, "textLength=\"48\"") && strstr(s, ">XY</text>"), "S3 puis mode texte : 24 pas par caractère : %s", s);
 
     // Rien d'imprimé : pas de fichier
     m.opens = 0;

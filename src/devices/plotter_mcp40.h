@@ -9,24 +9,33 @@
 // caractères. L'en-tête (hauteur du rouleau) est complété à la fermeture.
 //
 // Papier : 480 pas de 0,2 mm en largeur (96 mm), X vers la droite, Y vers le
-// haut ; coordonnées de -999 à 999.
-// Mode texte (à la mise sous tension) : 40 colonnes ; CHR$(8) retour
-// arrière, 10 saut de ligne, 11 saut de ligne inverse, 13 retour chariot,
-// 18 mode graphique, 29 plume suivante.
+// haut ; coordonnées de -999 à 999. Mécanisme du Tandy CGP-115 (même jeu de
+// commandes ; son manuel complète celui de la MCP-40).
+// Mode texte (à la mise sous tension) : 40 colonnes (commutateur DIP) ;
+// CHR$(8) retour arrière, 10 saut de ligne, 11 saut de ligne inverse, 13
+// retour chariot (sans saut de ligne : commutateur « CR only »), 18 mode
+// graphique, 29 plume suivante. La taille choisie par S en mode graphique
+// reste en vigueur en mode texte (manuel CGP-115).
 // Mode graphique : commandes d'une lettre et paramètres, terminées par un
 // retour chariot (LPRINT) : A (retour au mode texte, origine en marge
-// gauche), C n (plume 0-3), D x,y[,x,y…] (trait absolu), H (retour à
-// l'origine), I (nouvelle origine), J x,y[,…] (trait relatif), L n (type de
-// ligne 0-15), M x,y (déplacement absolu), P texte, Q n (sens d'écriture
-// 0-3), R x,y (déplacement relatif), S n (taille : 80 / (n + 1) caractères
-// par ligne), X a,pas,nombre (axe gradué) ; CHR$(17) : mode texte.
+// gauche), C n (plume 0-3 : noir, bleu, vert, rouge), D x,y[,x,y…] (trait
+// absolu), H (retour à l'origine), I (nouvelle origine), J x,y[,…] (trait
+// relatif), L n (type de ligne 0-15), M x,y (déplacement absolu), P texte,
+// Q n (sens d'écriture 0-3), R x,y (déplacement relatif), S n (taille :
+// 80 / (n + 1) caractères par ligne), X a,pas,nombre (axe gradué) ;
+// CHR$(17) : mode texte. En entrant en mode graphique, l'origine est en
+// marge gauche, sous la plume.
 //
-// Incertain (le manuel ne le dit pas ou se contredit) : ordre des couleurs
-// (table des positions de plume : 1 noir, 2 bleu, 3 vert, 4 rouge, gardée ;
-// la page de la commande C dit 0 noir, 1 rouge, 2 vert, 3 bleu) ; hauteur des
-// caractères et interligne du mode texte (estimés : interligne = 1,5 fois la
-// largeur d'un caractère) ; dessin des pointillés (L 1-15) et longueur des
-// graduations de X. Caractères tracés en police « monospace » du lecteur SVG.
+// Couleurs : les manuels Oric (anglais et français) disent à la commande C
+// « 0 noir, 1 rouge, 2 vert, 3 bleu » mais conseillent les plumes 1 noir,
+// 2 bleu, 3 vert, 4 rouge ; le manuel du CGP-115 dit « 0 = Black, 1 = Blue,
+// 2 = Green, 3 = Red » : gardé.
+// Mesuré sur l'autotest imprimé du manuel CGP-115 (figure 12) : interligne
+// du mode texte ≈ 2 fois la largeur d'un caractère, hauteur des capitales
+// ≈ 1 fois. Estimé (aucun manuel ne le chiffre) : pointillés L n = n pas
+// tracés, n pas levés (d'après l'allure de la table des types de ligne) ;
+// graduations de X : 2 pas de part et d'autre de l'axe. Caractères tracés
+// en police « monospace » du lecteur SVG, pas avec la police de la machine.
 //
 // ## Licence zlib/libpng
 //
@@ -93,6 +102,7 @@ typedef struct {
 static inline void mcp40_init(mcp40_t* p, const printer_out_t* out) {
     memset(p, 0, sizeof(*p));
     if (out) p->out = *out;
+    p->size = 480 / MCP40_TEXT_COLS / 6 - 1;  // 40 colonnes : S1
 }
 
 /*-- Sortie --------------------------------------------------------------------*/
@@ -154,7 +164,8 @@ static inline void _mcp40_end_run(mcp40_t* p) {
     p->run[p->run_n] = 0;
     if (_mcp40_ink(p)) {
         _mcp40_end_path(p);
-        const int32_t fs = p->run_adv * 5 / 3;  // largeur d'un caractère « monospace » : 0,6 em
+        // Capitales ≈ 0,72 em en « monospace » : hauteur ≈ largeur d'un caractère
+        const int32_t fs = p->run_adv * 3 / 2;
         _MCP40_PRINTF(p, "<text x=\"%d\" y=\"%d\" font-family=\"monospace\" font-size=\"%d\" fill=\"%s\"",
                       (int)p->run_x, (int)-p->run_y, (int)fs, mcp40_colors[p->run_pen & 3]);
         _MCP40_PRINTF(p, " textLength=\"%d\" lengthAdjust=\"spacingAndGlyphs\"", (int)(p->run_adv * p->run_n));
@@ -200,7 +211,7 @@ static inline void _mcp40_draw(mcp40_t* p, int32_t x, int32_t y) {
         if (!p->path) {
             _MCP40_PRINTF(p, "<path fill=\"none\" stroke=\"%s\" stroke-width=\"1.5\" stroke-linecap=\"round\"",
                           mcp40_colors[p->pen & 3]);
-            if (p->ltype) _MCP40_PRINTF(p, " stroke-dasharray=\"4 %d\"", 2 * p->ltype);
+            if (p->ltype) _MCP40_PRINTF(p, " stroke-dasharray=\"%d %d\"", p->ltype, p->ltype);
             _mcp40_puts(p, " d=\"");
             p->path = true;
             p->path_pen = p->pen;
@@ -243,10 +254,8 @@ static inline void mcp40_finish(mcp40_t* p) {
 
 /*-- Mode texte ----------------------------------------------------------------*/
 
-static inline int32_t _mcp40_text_adv(void) { return MCP40_WIDTH / MCP40_TEXT_COLS; }
-
 static inline void _mcp40_text(mcp40_t* p, uint8_t c) {
-    const int32_t adv = _mcp40_text_adv(), pitch = adv * 3 / 2;
+    const int32_t adv = 6 * (p->size + 1), pitch = 2 * adv;
     switch (c) {
         case 8: _mcp40_move(p, p->x >= adv ? p->x - adv : 0, p->y); return;
         case 10: _mcp40_move(p, p->x, p->y - pitch); return;
@@ -256,6 +265,8 @@ static inline void _mcp40_text(mcp40_t* p, uint8_t c) {
             _mcp40_end_run(p);
             p->graphic = true;
             p->cmd = 0;
+            p->ox = 0;  // origine : marge gauche, sous la plume
+            p->oy = p->y;
             return;
         case 29:
             _mcp40_end_run(p);

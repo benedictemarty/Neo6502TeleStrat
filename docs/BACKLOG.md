@@ -140,7 +140,8 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US | Récit | État |
 |---|---|---|
 | US-120 | Epson FX-80 : pages PNG écrites au fil de l'eau (bande de 32 lignes), modes de caractères, interlignes, marges, tabulations, graphiques | ✅ banc (`test_telestrat`, `test_printer`), ⏳ carte |
-| US-121 | MCP-40 : tracés SVG 4 couleurs (texte, D J M R H I C L P Q S X A) | ✅ banc, ⏳ carte, ⏳ vraie MCP-40 (couleurs, tailles) |
+| US-121 | MCP-40 : tracés SVG 4 couleurs (texte, D J M R H I C L P Q S X A) | ✅ banc, ⏳ carte, ⏳ vraie MCP-40 (pointillés) |
+| US-125 | MCP-40 revue avec le manuel français et celui du Tandy CGP-115 (même mécanisme) : ordre des couleurs tranché, origine en entrant en mode graphique, taille S gardée en mode texte, interligne mesuré (v0.12.1) | ✅ banc |
 | US-122 | Menu et `TELESTRA.CFG` : Texte → FX-80 → MCP-40 → coupée (`imprimante_type=`) | ✅ banc |
 | US-123 | Pas de perte : ACK retenu tant que la file est presque pleine | ✅ code, rejeu identique |
 | US-124 | Banc : `-G fx80:RÉP` / `mcp40:RÉP`, outil `printer_render` (rendu après coup d'un `IMPRIM.TXT`) | ✅ |
@@ -171,9 +172,10 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 - FX-80 : police 9 x 11 de la FX-80, mode proportionnel, caractères de
   l'utilisateur (`ESC &`), autres jeux internationaux ; confronter une page
   au rendu d'une vraie FX-80.
-- MCP-40 : ordre des couleurs (le manuel se contredit), hauteur des
-  caractères, interligne du mode texte, pointillés, graduations de `X` ;
-  commutateurs DIP (20 / 80 colonnes).
+- MCP-40 : confronter à une vraie machine (MCP-40 ou Tandy CGP-115) les
+  pointillés, les graduations de `X`, l'interligne mesuré sur une figure ;
+  police vectorielle de la machine ; commutateurs DIP (80 colonnes,
+  CR + LF).
 - Instantanés (savestates), sélecteur de ROM au démarrage.
 - Test « golden » image contre Oricutron (PPM), ROM ORIX.
 

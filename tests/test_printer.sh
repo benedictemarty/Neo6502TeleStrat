@@ -42,7 +42,7 @@ check "FX-80 : PNG valides, 1224 x 1584" "python3 tests/png_info.py '$TMP/r1/IMP
 check "FX-80 : texte en haut de la page 1" "[ \$(python3 tests/png_info.py '$TMP/r1/IMPR0001.PNG' 0 18 36 400 | cut -d' ' -f3) -gt 300 ]"
 check "FX-80 : graphiques ESC K (4e ligne pleine)" "[ \$(python3 tests/png_info.py '$TMP/r1/IMPR0001.PNG' 72 88 36 72 | cut -d' ' -f3) -gt 400 ]"
 check "MCP-40 : SVG valide (numéro suivant)" "python3 -c 'import xml.dom.minidom as m; m.parse(\"$TMP/r1/IMPR0003.SVG\")'"
-check "MCP-40 : traits, rouge, texte" "grep -q 'd=\"M0 18L100 0L100 100\"' '$TMP/r1/IMPR0003.SVG' && grep -q '#d42020' '$TMP/r1/IMPR0003.SVG' && grep -q '>OK</text>' '$TMP/r1/IMPR0003.SVG'"
+check "MCP-40 : traits, rouge, texte" "grep -q 'd=\"M0 24L100 24L100 124\"' '$TMP/r1/IMPR0003.SVG' && grep -q '#d42020' '$TMP/r1/IMPR0003.SVG' && grep -q '>OK</text>' '$TMP/r1/IMPR0003.SVG'"
 
 # 2. De bout en bout
 if [ -f "$DSK" ]; then
