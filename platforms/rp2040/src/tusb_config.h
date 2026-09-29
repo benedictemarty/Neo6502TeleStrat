@@ -60,8 +60,8 @@
 #define CFG_TUH_DEVICE_MAX          (CFG_TUH_HUB ? 5 : 1) // Hub typically has 4 ports
 
 //------------- CDC (modem) -------------//
-#define CFG_TUH_CDC_RX_BUFSIZE      512
-#define CFG_TUH_CDC_TX_BUFSIZE      512
+#define CFG_TUH_CDC_RX_BUFSIZE      128 // Neo6502TeleStrat : 1200-9600 bauds, relevé toutes les ms
+#define CFG_TUH_CDC_TX_BUFSIZE      128
 // Ligne à la mise en service : DTR + RTS, 9600 8N1 (réglage par défaut du PicoWiFiModemUSB)
 #define CFG_TUH_CDC_LINE_CONTROL_ON_ENUM 0x03
 #define CFG_TUH_CDC_LINE_CODING_ON_ENUM  { 9600, CDC_LINE_CONDING_STOP_BITS_1, CDC_LINE_CODING_PARITY_NONE, 8 }

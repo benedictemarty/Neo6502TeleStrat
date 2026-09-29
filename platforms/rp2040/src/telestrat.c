@@ -1231,7 +1231,9 @@ static void read_config(void) {
 volatile uint8_t diag_line_on, diag_line_ring, diag_line_carrier;
 volatile uint8_t diag_rx[256];
 volatile uint32_t diag_rx_head, diag_rx_tail;
+#ifndef DIAG_TX_SIZE
 #define DIAG_TX_SIZE 1024  // puissance de 2 (tools/carte.py lit la taille du symbole)
+#endif
 volatile uint8_t diag_tx[DIAG_TX_SIZE];
 volatile uint32_t diag_tx_n;  // octets émis depuis le début (diag_tx circulaire)
 

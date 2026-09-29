@@ -184,7 +184,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-165 | Cassette rapide sur carte (« L'Aigle d'Or ») | ✅ carte |
 | US-166 | Instantanés sur carte (NMI détourné sur le vrai 65C02) : enregistrer, reprendre en plein jeu | ✅ carte |
 | US-167 | Modem, MCP-40 sur carte | ⏳ |
-| US-168 | Variante RAM 64 Ko sur carte | ❌ démarre, image défectueuse (2 tampons DVI) ; ~5,7 Ko à regagner pour 3 tampons |
+| US-168 | Variante RAM 64 Ko sur carte (3 tampons DVI : FatFs du projet en FF_FS_TINY, CDC 128 octets) | ✅ carte : image propre, clé montée ; STRATSED sans BONJOUR.COM s'arrête comme au banc |
 
 ## Plus tard
 

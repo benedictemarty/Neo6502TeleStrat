@@ -1,0 +1,4 @@
+FatFs R0.15 w/patch1 (ChaN, http://elm-chan.org/fsw/ff/), copié de
+reload-emulator (platforms/rp2040/lib/fatfs/source) pour Neo6502TeleStrat.
+Licence : voir l'en-tête de ff.c (licence de type BSD, ChaN).
+Seul ffconf.h diffère : FF_FS_TINY = 1, FF_MAX_LFN = FF_LFN_BUF = 64 (RAM).

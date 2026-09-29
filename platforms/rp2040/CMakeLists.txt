@@ -37,7 +37,15 @@ set(NEO_MULTIBOOT_DIR "" CACHE PATH "Neo6502firmware/multiboot (memmap_slot_N.ld
 set(NEO_SLOT_TELESTRAT "" CACHE STRING "Slot de flash multi-boot (vide = image seule)")
 
 add_subdirectory(${RELOAD_RP2040}/lib/PicoDVI/software/libdvi libdvi)
-add_subdirectory(${RELOAD_RP2040}/lib/fatfs/source fatfs)
+# FatFs : copie du projet (third_party/fatfs), ffconf.h réglé pour la RAM
+# (FF_FS_TINY, noms longs de 64 caractères)
+add_library(fatfs INTERFACE)
+target_sources(fatfs INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/fatfs/ff.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/fatfs/ffsystem.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/fatfs/ffunicode.c
+)
+target_include_directories(fatfs INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/fatfs)
 
 add_executable(telestrat
     ${CMAKE_CURRENT_SOURCE_DIR}/src/telestrat.c
@@ -58,7 +66,7 @@ target_include_directories(telestrat PRIVATE
     ${RELOAD_RP2040}/src
     ${RELOAD_DIR}/src
     ${RELOAD_RP2040}/lib/PicoDVI/software/include
-    ${RELOAD_RP2040}/lib/fatfs/source
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/fatfs
 )
 
 target_compile_options(telestrat PRIVATE -Wall)
@@ -74,7 +82,8 @@ target_compile_definitions(telestrat PRIVATE
     DVI_DEFAULT_SERIAL_CONFIG=olimex_neo6502_cfg
     $<$<BOOL:${TELESTRAT_VIDEO_480}>:TELESTRAT_VIDEO_480>
     $<$<BOOL:${TELESTRAT_RAM64K}>:TELESTRAT_RAM64K>
-    $<$<BOOL:${TELESTRAT_RAM64K}>:OSD_MENU_FILES=28>
+    $<$<BOOL:${TELESTRAT_RAM64K}>:OSD_MENU_FILES=16>
+    $<$<BOOL:${TELESTRAT_RAM64K}>:DIAG_TX_SIZE=256>
     $<$<BOOL:${TELESTRAT_RAM64K}>:BYTE_FIFO_SIZE=64>
     $<$<BOOL:${TELESTRAT_RS232_UART}>:TELESTRAT_RS232_UART>
     $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:TELESTRAT_MAX_RAM_BANKS=1>
@@ -86,8 +95,7 @@ target_compile_definitions(telestrat PRIVATE
     # planter la carte au démarrage (« Out of memory » dans dvi_init)
     $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:PICO_HEAP_SIZE=0x5800>
     $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:OSD_MENU_FILES=40>
-    $<$<BOOL:${TELESTRAT_RAM64K}>:DVI_N_TMDS_BUFFERS=2>
-    $<$<BOOL:${TELESTRAT_RAM64K}>:PICO_HEAP_SIZE=0x4000>
+        $<$<BOOL:${TELESTRAT_RAM64K}>:PICO_HEAP_SIZE=0x5800>
 )
 
 target_link_libraries(telestrat

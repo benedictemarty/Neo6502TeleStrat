@@ -344,11 +344,15 @@ la fait échouer (« region RAM overflowed ») au lieu de planter la carte.
 Regagné pour cela : journal des accès en `$03xx` (8 Ko) compilé seulement avec
 `-DTELESTRAT_DIAG_IO`, `diag_tx` de 4 à 1 Ko, liste des fichiers de la clé à
 40 (28 en RAM 64 Ko), bande de la FX-80 à 28 lignes, un seul volume FatFs
-pour la clé (lecteur « 0: », 588 octets au lieu de 3,5 Ko). Tas disponible :
-26,0 Ko (standard, 22,5 Ko réservés) ; 16,5 Ko en RAM 64 Ko (16 Ko réservés,
-2 tampons TMDS) : cette variante démarre sur la carte mais son image est
-défectueuse — avec 2 tampons, la sortie DVI n'a plus de marge (la session BBC
-l'avait signalé). Il lui faudrait ~5,7 Ko de plus pour 3 tampons.
+pour la clé (lecteur « 0: », 588 octets au lieu de 3,5 Ko), FatFs du projet
+(`third_party/fatfs`, R0.15 de ChaN) réglé par son `ffconf.h` : `FF_FS_TINY`
+(les fichiers partagent le tampon du volume : 512 octets de moins par
+fichier ouvert, 7 fichiers) et noms longs de 64 caractères ; tampons du
+modem USB (CDC) de 128 octets ; en RAM 64 Ko, 16 fichiers dans le menu et
+`diag_tx` de 256 octets. Tas disponible : 31,6 Ko (standard) et 23,1 Ko (RAM
+64 Ko), 22,5 Ko réservés dans les deux. La RAM 64 Ko avait d'abord été
+essayée avec 2 tampons TMDS : image défectueuse (plus de marge pour la
+sortie DVI, comme l'avait signalé la session BBC) ; avec 3, image propre.
 
 **Clé USB** : avec le TinyUSB de reload-emulator (2023), la clé répondait à
 l'INQUIRY (36 octets, un paquet) mais son premier READ10 (512 octets, 8
