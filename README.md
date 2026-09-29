@@ -9,10 +9,16 @@ le **vrai W65C02S** du Neo6502 exécute TELEMON, le **RP2040** sert la mémoire
 AY-3-8912, Microdisc intégré, ACIA 6551, vidéo ULA en DVI). Livré en
 `telestrat.uf2`, compatible avec le multi-boot du firmware Neo6502.
 
-**Version : 0.4.0 (sprint 4).** Le cœur 0 du RP2040 tient désormais le
-65C02 à 1 MHz d'après la mesure sans carte (59-68 % de charge en moyenne, 76 %
-au pire, contre 150 % avant), sans aucun changement de comportement, prouvé
-par rejeu exact contre un modèle de référence (docs/PERFORMANCE.md).
+**Version : 0.4.1 — validé sur carte.** Sur une vraie Olimex Neo6502 (recette
+par sonde SWD, `tools/carte.py`) : TELEMON 2.4, STRATSED, HYPER-BASIC et le menu
+démarrent ; `PRINT 6*7` et `DIR` fonctionnent ; le 65C02 tourne à **1,000 MHz**,
+cœur 0 chargé à 45-62 % (76 % au pire pendant un DIR), cœur 1 à 35 µs par
+ligne, aucune ligne DVI en retard. Affichage 960x544 à 372 MHz.
+
+**Sprint 4 (0.4.0).** Le cœur 0 du RP2040 tient le 65C02 à 1 MHz (59-68 % de
+charge mesurée sans carte, contre 150 % avant), sans aucun changement de
+comportement, prouvé par rejeu exact contre un modèle de référence
+(docs/PERFORMANCE.md).
 
 **Sprint 3 (0.3.x).** Le Telestrat démarre sur disquette (TELEMON 2.4,
 STRATSED V2.0c, HYPER-BASIC V2.0b, TELE-ASS, TELEMATIC V2.0b) ; HYPER-BASIC
@@ -54,6 +60,26 @@ binaire à fournir. Source commentée : [assinie/STRATSED](https://github.com/as
 
 Carte des banques : notice « Extension RAM 64 Ko pour Oric Telestrat »
 (F. Broche, 1987), voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Recette sur carte par sonde SWD
+
+Avec une sonde Debugprobe (CMSIS-DAP) sur le connecteur SWD du Neo6502 et
+l'OpenOCD qui connaît la flash Puya (`~/.local/openocd-dev`, voir la session
+BBC) :
+
+```sh
+cmake -S platforms/rp2040 -B build/rp2040 -DTELESTRAT_FLASH_DISK=$HOME/oriclib/games/dsk/STRATSED.DSK
+make -C build/rp2040 telestrat
+tools/carte.py flasher              # programme et redémarre (attendre ~25 s)
+tools/carte.py ecran capture.png    # écran texte, et image 240x224
+tools/carte.py taper '1'            # clavier du Telestrat (file de touches)
+tools/carte.py taper 'PRINT 6*7\n'
+tools/carte.py mesure               # MHz réels, µs par trame et par ligne, retards DVI
+```
+
+`-DTELESTRAT_FLASH_DISK=image.dsk` intègre une disquette en flash (lecture
+seule), insérée dans le lecteur A tant qu'aucune clé ne fournit de `.dsk`.
+`-DTELESTRAT_VIDEO_480=ON` : 800x480 à 295,2 MHz au lieu de 960x544 à 372 MHz.
 
 ## Utilisation (Neo6502)
 

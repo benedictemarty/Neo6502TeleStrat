@@ -45,6 +45,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stddef.h>
 
 #include <pico/platform.h>
 #include "pico/stdlib.h"
@@ -55,6 +56,18 @@
 // le cache de 16 Ko (même choix que le BBC de reload-emulator)
 #define TELESTRAT_HOT __attribute__((section(".time_critical.telestrat")))
 #define CHIPS_HOT     __attribute__((section(".time_critical.telestrat")))
+// Journal des premiers accès en $03xx (tools/carte.py journal)
+#define DIAG_IO_N 1024
+volatile uint32_t diag_io[DIAG_IO_N][2];  // cycle ; adresse | R/W << 16 | donnée << 24
+volatile uint32_t diag_io_n;
+#define TELESTRAT_IO_HOOK(t, a, rw, d)                                                      \
+    do {                                                                                    \
+        if (diag_io_n < DIAG_IO_N) {                                                        \
+            diag_io[diag_io_n][0] = (t);                                                    \
+            diag_io[diag_io_n][1] = (a) | ((uint32_t)(rw) << 16) | ((uint32_t)(d) << 24);   \
+            diag_io_n++;                                                                    \
+        }                                                                                   \
+    } while (0)
 #include "chips/chips_common.h"
 #include "neo6502_bus.h"  // bus du vrai 65C02 intégré au tick (Olimex Neo6502)
 #include "chips/mos6522via.h"
@@ -74,10 +87,12 @@
 #include "hardware/irq.h"
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/vreg.h"
-#include "hardware/interp.h"
 #include "pico/multicore.h"
 
 #include "tmds_encode.h"
+
+#define TELESTRAT_VIDEO_RAM __not_in_flash("video")
+#include "telestrat_video.h"
 
 #include "common_dvi_pin_configs.h"
 #include "dvi.h"
@@ -86,6 +101,9 @@
 #include "audio.h"
 
 #include "tusb.h"
+#ifdef TELESTRAT_FLASH_DISK_H
+#include "telestrat_flash_disk.h"
+#endif
 #include "neo_multiboot.h"
 #include "ff.h"
 
@@ -246,7 +264,17 @@ static void insert_image(int index) {
     printf("Lecteur A : %s%s\n", name, rw ? "" : " (protégée)");
 }
 
-// À chaque trame : à la première apparition de la clé, liste et insère la première image
+// Image intégrée à la flash (lecture seule), dans le lecteur A
+static void insert_flash_disk(void) {
+#ifdef TELESTRAT_FLASH_DISK_H
+    if (wd1793_insert(&state.telestrat.fdc.wd, 0, (uint8_t *)telestrat_flash_disk, sizeof(telestrat_flash_disk), true)) {
+        printf("Lecteur A : image en flash (%u octets, protégée)\n", (unsigned)sizeof(telestrat_flash_disk));
+    }
+#endif
+}
+
+// À chaque trame : à la première apparition de la clé, liste et insère la
+// première image (la clé l'emporte sur l'image en flash)
 static void usb_poll(void) {
     if (usb_scanned || !msc_inquiry_complete) return;
     usb_scanned = true;
@@ -279,32 +307,59 @@ void app_init(void) {
     minitel_port_init(&minitel, &line);
     telestrat_desc_t desc = telestrat_desc();
     telestrat_init(&state.telestrat, &desc);
+    insert_flash_disk();
     telestrat_reset(&state.telestrat);
 }
 
-#ifdef OLIMEX_NEO6502
-// TMDS bit clock 295.2 MHz, DVDD 1.2V
+// Mode vidéo : 960x544 à 372 MHz sous 1,30 V par défaut (réglage de
+// reload-emulator, validé sur la carte Neo6502 par le BBC : +26 % de temps de
+// calcul) ; -DTELESTRAT_VIDEO_480 : 800x480 à 295,2 MHz sous 1,20 V.
+#ifdef TELESTRAT_VIDEO_480
 #define FRAME_WIDTH  800
 #define FRAME_HEIGHT 480
 #define VREG_VSEL    VREG_VOLTAGE_1_20
 #define DVI_TIMING   dvi_timing_800x480p_60hz
 #else
-// TMDS bit clock 372 MHz, DVDD 1.3V
 #define FRAME_WIDTH  960
 #define FRAME_HEIGHT 544
 #define VREG_VSEL    VREG_VOLTAGE_1_30
 #define DVI_TIMING   dvi_timing_960x544p_60hz
 #endif
 
-uint32_t __not_in_flash() tmds_palette[TELESTRAT_PALETTE_SIZE * 6];
-uint32_t __not_in_flash() empty_tmdsbuf[3 * FRAME_WIDTH / DVI_SYMBOLS_PER_WORD];
-uint8_t __not_in_flash() scanbuf[FRAME_WIDTH];
+/*-- Recette par sonde SWD (tools/carte.py) ----------------------------------*/
+// Toujours présent (coût négligeable) : la sonde lit ces variables et remplit
+// la file de touches pendant que la carte tourne.
+volatile uint8_t diag_keyq[256];          // codes de touche Telestrat (ASCII, 0x146 exclu)
+volatile uint32_t diag_keyq_head, diag_keyq_tail;
+volatile uint32_t diag_frames;            // trames émulées depuis le démarrage
+volatile uint32_t diag_frame_us_sum, diag_frame_us_max, diag_frame_n;  // travail du cœur 0 par trame
+volatile uint32_t diag_line_us_sum, diag_line_us_max, diag_line_n;     // rendu d'une ligne, cœur 1
+volatile uint32_t diag_late;              // lignes DVI en retard (PicoDVI)
+// Disposition de state pour la sonde : décalages de ram, fb, system_ticks, bank
+const volatile uint32_t diag_layout[4] = {offsetof(state_t, telestrat.ram), offsetof(state_t, telestrat.fb),
+                                 offsetof(state_t, telestrat.system_ticks), offsetof(state_t, telestrat.bank)};
+
+// Une touche de la file : appui 3 trames, relâche 3 trames
+static void diag_keys_poll(void) {
+    static int held = 0, phase = 0;
+    if (phase == 0 && diag_keyq_head != diag_keyq_tail) {
+        held = diag_keyq[diag_keyq_head & 255];
+        telestrat_key_down(&state.telestrat, held);
+        phase = 1;
+    } else if (phase > 0) {
+        phase++;
+        if (phase == 4) telestrat_key_up(&state.telestrat, held);
+        if (phase == 7) {
+            diag_keyq_head++;
+            phase = 0;
+        }
+    }
+}
+
+// Plans rouge, vert, bleu d'une ligne de sortie (1 bit par pixel)
+static uint32_t __not_in_flash() planes[3][FRAME_WIDTH / 32];
 
 struct dvi_inst dvi0;
-
-void tmds_palette_init() {
-    tmds_setup_palette24_symbols(telestrat_palette, tmds_palette, TELESTRAT_PALETTE_SIZE);
-}
 
 #define HID_CODE_GUI_LEFT (HID_KEY_GUI_LEFT | 0x100)
 #define TELESTRAT_KEY_FUNCT 0x146
@@ -358,54 +413,35 @@ void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_stat
     telestrat_set_joystick(&state.telestrat, index, j);
 }
 
-// Rendu 3x des lignes (utils.S de l'Oric de reload-emulator)
-extern void oric_render_scanline_3x(const uint32_t *pixbuf, uint32_t *scanbuf, size_t n_pix);
-extern void copy_tmdsbuf(uint32_t *dest, const uint32_t *src);
+// Lignes affichées : PicoDVI montre chaque tampon sur deux lignes de sortie
+// (DVI_VERTICAL_REPEAT = 2) ; une ligne Telestrat par tampon, centrée
+#define DISPLAY_LINES (FRAME_HEIGHT / 2)
+#define TOP_LINES     ((DISPLAY_LINES - TELESTRAT_SCREEN_HEIGHT) / 2)
+#define LEFT_PIXELS   ((FRAME_WIDTH - TELESTRAT_VIDEO_PIXELS) / 2)
 
-static inline void __not_in_flash_func(render_scanline)(const uint32_t *pixbuf, uint32_t *scanbuf, size_t n_pix) {
-    interp_config c;
-
-    c = interp_default_config();
-    interp_config_set_cross_result(&c, true);
-    interp_config_set_shift(&c, 0);
-    interp_config_set_mask(&c, 0, 3);
-    interp_config_set_signed(&c, false);
-    interp_set_config(interp0, 0, &c);
-
-    c = interp_default_config();
-    interp_config_set_cross_result(&c, false);
-    interp_config_set_shift(&c, 4);
-    interp_config_set_mask(&c, 0, 31);
-    interp_config_set_signed(&c, false);
-    interp_set_config(interp0, 1, &c);
-
-    oric_render_scanline_3x(pixbuf, scanbuf, n_pix);
-}
-
-#define EMPTY_LINES   ((FRAME_HEIGHT - TELESTRAT_SCREEN_HEIGHT * 2) / 4)
-#define EMPTY_COLUMNS ((FRAME_WIDTH - TELESTRAT_SCREEN_WIDTH * 3) / 2)
-
-static inline void __not_in_flash_func(render_empty_scanlines)() {
-    for (int y = 0; y < EMPTY_LINES; y += 2) {
-        uint32_t *tmdsbuf;
-        queue_remove_blocking_u32(&dvi0.q_tmds_free, &tmdsbuf);
-        copy_tmdsbuf(tmdsbuf, empty_tmdsbuf);
-        queue_add_blocking_u32(&dvi0.q_tmds_valid, &tmdsbuf);
-
-        queue_remove_blocking_u32(&dvi0.q_tmds_free, &tmdsbuf);
-        copy_tmdsbuf(tmdsbuf, empty_tmdsbuf);
-        queue_add_blocking_u32(&dvi0.q_tmds_valid, &tmdsbuf);
-    }
-}
-
+// Cœur 1 : image -> plans 1 bpp -> trois encodages TMDS 1 bpp par ligne
 static inline void __not_in_flash_func(render_frame)() {
-    for (int y = 0; y < TELESTRAT_SCREEN_HEIGHT; y++) {
+    for (int y = 0; y < DISPLAY_LINES; y++) {
+        const int src = y - TOP_LINES;
         uint32_t *tmdsbuf;
         queue_remove_blocking_u32(&dvi0.q_tmds_free, &tmdsbuf);
-        render_scanline((const uint32_t *)(&state.telestrat.fb[y * 120]), (uint32_t *)(&scanbuf[EMPTY_COLUMNS]), 120);
-        tmds_encode_palette_data((const uint32_t *)scanbuf, tmds_palette, tmdsbuf, FRAME_WIDTH,
-                                 TELESTRAT_PALETTE_BITS);
+        const uint32_t t0 = time_us_32();
+        if (src >= 0 && src < TELESTRAT_SCREEN_HEIGHT) {
+            telestrat_video_line(&state.telestrat.fb[src * TELESTRAT_VIDEO_BYTES_PER_LINE], planes[0], planes[1],
+                                 planes[2], LEFT_PIXELS);
+        } else {
+            memset(planes, 0, sizeof(planes));
+        }
+        // Voies TMDS : 0 bleu, 1 vert, 2 rouge
+        tmds_encode_1bpp(planes[2], tmdsbuf, FRAME_WIDTH);
+        tmds_encode_1bpp(planes[1], tmdsbuf + FRAME_WIDTH / DVI_SYMBOLS_PER_WORD, FRAME_WIDTH);
+        tmds_encode_1bpp(planes[0], tmdsbuf + 2 * FRAME_WIDTH / DVI_SYMBOLS_PER_WORD, FRAME_WIDTH);
+        const uint32_t dt = time_us_32() - t0;
+        diag_line_us_sum += dt;
+        diag_line_n++;
+        if (dt > diag_line_us_max) diag_line_us_max = dt;
         queue_add_blocking_u32(&dvi0.q_tmds_valid, &tmdsbuf);
+        diag_late = dvi0.late_scanline_ctr;
     }
 }
 
@@ -416,9 +452,7 @@ void __not_in_flash_func(core1_main()) {
     dvi_start(&dvi0);
 
     while (1) {
-        render_empty_scanlines();
         render_frame();
-        render_empty_scanlines();
     }
 
     __builtin_unreachable();
@@ -429,7 +463,7 @@ void __not_in_flash_func(core1_main()) {
 __attribute__((noinline, section(".time_critical.telestrat"))) void telestrat_bus_probe_read(void) {
     static neo6502bus_t c;
     neo6502bus_tick(&c);
-    neo6502bus_set_data((uint8_t)c.addr);
+    neo6502bus_set_data(&c, (uint8_t)c.addr);
 }
 
 __attribute__((noinline, section(".time_critical.telestrat"))) void telestrat_bus_probe_write(void) {
@@ -444,6 +478,7 @@ int main() {
     if (time_us_32() == 0xFFFFFFFFu) {
         telestrat_bus_probe_read();
         telestrat_bus_probe_write();
+        printf("%lu\n", (unsigned long)diag_layout[0]);  // garde diag_layout pour la sonde
     }
 
     vreg_set_voltage(VREG_VSEL);
@@ -457,11 +492,13 @@ int main() {
     dvi0.ser_cfg = DVI_DEFAULT_SERIAL_CONFIG;
     dvi_init(&dvi0, next_striped_spin_lock_num(), next_striped_spin_lock_num());
 
-    tmds_palette_init();
-    tmds_encode_palette_data((const uint32_t *)scanbuf, tmds_palette, empty_tmdsbuf, FRAME_WIDTH,
-                             TELESTRAT_PALETTE_BITS);
+    telestrat_video_init();
+    memset(planes, 0, sizeof(planes));
 
-    hw_set_bits(&bus_ctrl_hw->priority, BUSCTRL_BUS_PRIORITY_PROC1_BITS);
+    // Priorité au cœur 1 et au DMA du DVI : le trafic du cœur 0 (bus du 65C02,
+    // XIP) ne doit pas affamer le flux TMDS (réglage du BBC de reload-emulator)
+    hw_set_bits(&bus_ctrl_hw->priority,
+                BUSCTRL_BUS_PRIORITY_PROC1_BITS | BUSCTRL_BUS_PRIORITY_DMA_R_BITS | BUSCTRL_BUS_PRIORITY_DMA_W_BITS);
     multicore_launch_core1(core1_main);
 
     app_init();
@@ -486,8 +523,13 @@ int main() {
         telestrat_kbd_update(&state.telestrat, num_ticks);
         tuh_task();
         usb_poll();
+        diag_keys_poll();
 
         uint32_t execution_time = time_us_32() - start_time_in_micros;
+        diag_frames++;
+        diag_frame_us_sum += execution_time;
+        diag_frame_n++;
+        if (execution_time > diag_frame_us_max) diag_frame_us_max = execution_time;
         int sleep_time = (int)num_ticks - (int)execution_time;
         if (sleep_time > 0) {
             sleep_us(sleep_time);

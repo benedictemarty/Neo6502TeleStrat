@@ -24,6 +24,7 @@
 #include "devices/minitel_port.h"
 #include "devices/hayes_line.h"
 #include "systems/telestrat.h"
+#include "telestrat_video.h"
 
 static int failures = 0, checks = 0;
 #define CHECK(cond, ...)                         \
@@ -788,6 +789,43 @@ static void test_screen_render(void) {
     CHECK(bad == 0, "rendu identique au rendu d'origine : %d écrans différents sur %d", bad, frames);
 }
 
+// --- Plans 1 bpp de l'affichage DVI (firmware) -------------------------------
+static void test_video_planes(void) {
+    telestrat_video_init();
+    static uint32_t pl[3][960 / 32];
+    uint8_t line[TELESTRAT_VIDEO_BYTES_PER_LINE];
+    uint32_t rnd = 777;
+    int bad = 0, margins = 0;
+    const unsigned offsets[] = {120, 40, 0, 7};
+    for (int it = 0; it < 200; it++) {
+        unsigned x0 = offsets[it & 3];
+        for (int i = 0; i < TELESTRAT_VIDEO_BYTES_PER_LINE; i++) {
+            rnd = rnd * 1103515245u + 12345u;
+            line[i] = (uint8_t)(rnd >> 16) & 0x77;
+        }
+        memset(pl, 0xAA, sizeof(pl));  // marges : doivent rester intactes hors des mots de bord
+        telestrat_video_line(line, pl[0], pl[1], pl[2], x0);
+        for (int x = 0; x < TELESTRAT_VIDEO_PIXELS; x++) {
+            int px = x / 3;
+            int col = (px & 1) ? (line[px >> 1] & 15) : (line[px >> 1] >> 4);
+            unsigned bit = x0 + (unsigned)x;
+            for (int p = 0; p < 3; p++) {
+                int got = (pl[p][bit >> 5] >> (bit & 31)) & 1;
+                if (got != ((col >> p) & 1)) bad++;
+            }
+        }
+        // Mots entièrement hors de la ligne : inchangés
+        for (unsigned wd = 0; wd < 960 / 32; wd++) {
+            unsigned lo = wd * 32, hi = lo + 31;
+            if (hi < x0 || lo >= x0 + TELESTRAT_VIDEO_PIXELS) {
+                for (int p = 0; p < 3; p++) margins += pl[p][wd] != 0xAAAAAAAAu;
+            }
+        }
+    }
+    CHECK(bad == 0, "plans 1 bpp : %d pixels faux", bad);
+    CHECK(margins == 0, "plans 1 bpp : %d mots de marge modifiés", margins);
+}
+
 static void test_acia(void) {
     mos6551acia_t a = {0};
     mos6551acia_reset(&a);
@@ -809,6 +847,7 @@ int main(void) {
     test_fdc_streamed();
     test_acia();
     test_screen_render();
+    test_video_planes();
     test_acia_serial();
     test_minitel_port();
     test_hayes_line();

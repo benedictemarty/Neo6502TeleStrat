@@ -33,7 +33,6 @@ add_subdirectory(${RELOAD_RP2040}/lib/fatfs/source fatfs)
 
 add_executable(telestrat
     ${CMAKE_CURRENT_SOURCE_DIR}/src/telestrat.c
-    ${RELOAD_RP2040}/systems/oric/src/utils.S
     ${RELOAD_RP2040}/src/hid_app.c
     ${RELOAD_RP2040}/src/audio.c
     ${RELOAD_RP2040}/src/msc_app.c
@@ -52,8 +51,11 @@ target_include_directories(telestrat PRIVATE
 )
 
 target_compile_options(telestrat PRIVATE -Wall)
+option(TELESTRAT_VIDEO_480 "800x480 à 295,2 MHz (1,20 V) au lieu de 960x544 à 372 MHz (1,30 V)" OFF)
+
 target_compile_definitions(telestrat PRIVATE
     DVI_DEFAULT_SERIAL_CONFIG=olimex_neo6502_cfg
+    $<$<BOOL:${TELESTRAT_VIDEO_480}>:TELESTRAT_VIDEO_480>
     $<$<BOOL:${TELESTRAT_RAM64K}>:TELESTRAT_RAM64K>
     $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:TELESTRAT_MAX_RAM_BANKS=1>
 )
@@ -66,6 +68,20 @@ target_link_libraries(telestrat
     tinyusb_host
     fatfs
 )
+
+# Image disque intégrée à la flash (lecture seule), insérée dans le lecteur A
+# tant qu'aucune clé USB ne fournit de .dsk : -DTELESTRAT_FLASH_DISK=chemin.dsk
+set(TELESTRAT_FLASH_DISK "" CACHE FILEPATH "image MFM_DISK intégrée à la flash (vide : aucune)")
+if (NOT "${TELESTRAT_FLASH_DISK}" STREQUAL "")
+    set(FLASH_DISK_H ${CMAKE_CURRENT_BINARY_DIR}/telestrat_flash_disk.h)
+    add_custom_command(OUTPUT ${FLASH_DISK_H}
+        COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/bin2h.py ${TELESTRAT_FLASH_DISK} ${FLASH_DISK_H} telestrat_flash_disk
+        DEPENDS ${TELESTRAT_FLASH_DISK} ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/bin2h.py)
+    target_sources(telestrat PRIVATE ${FLASH_DISK_H})
+    target_include_directories(telestrat PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+    target_compile_definitions(telestrat PRIVATE TELESTRAT_FLASH_DISK_H)
+    message(STATUS "telestrat : image disque en flash ${TELESTRAT_FLASH_DISK}")
+endif()
 
 pico_add_extra_outputs(telestrat)
 pico_enable_stdio_usb(telestrat 0)

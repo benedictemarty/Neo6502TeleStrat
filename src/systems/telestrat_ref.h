@@ -514,8 +514,11 @@ TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
 
         // PB0-PB2 : ligne du clavier ; PB3 : touche enfoncée
         uint8_t pb = mos6522via_get_pb(&sys->via);
+        // Touche dans la ligne sélectionnée, parmi les colonnes actives : les autres
+        // lignes n'y changent rien (oric.h testait l'égalité, fausse dès que deux
+        // touches de lignes différentes sont enfoncées, comme SHIFT + 8 pour « * »)
         uint8_t line_mask = 1 << (pb & 7);
-        if (kbd_scan_lines(&sys->kbd) == line_mask) {
+        if (kbd_scan_lines(&sys->kbd) & line_mask) {
             mos6522via_set_pb(&sys->via, pb | (1 << 3));
         } else {
             mos6522via_set_pb(&sys->via, pb & ~(1 << 3));
@@ -658,9 +661,11 @@ static void _telestrat_init_key_map(telestrat_t* sys) {
     kbd_register_key(&sys->kbd, 0x1B, 5, 1, 0);   // ESC
     kbd_register_key(&sys->kbd, 0x146, 4, 5, 0);  // FUNCT (8912.c d'Oricutron : SDLK_LALT)
 
-    // CTRL + lettre (codes ASCII 1..26)
+    // CTRL + lettre (codes ASCII 1..26), sauf les codes qui ont leur propre
+    // touche : 8 (DEL, pas CTRL+H) et 13 (RETURN, pas CTRL+M)
     const char* letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     for (int i = 0; letters[i]; i++) {
+        if (i + 1 == 0x08 || i + 1 == 0x0D) continue;
         for (int column = 0; column < 8; column++) {
             for (int line = 0; line < 8; line++) {
                 if (keymap[line * 8 + column] == letters[i]) {

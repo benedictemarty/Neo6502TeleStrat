@@ -13,8 +13,8 @@ MULS 1 (multiplieur rapide du RP2040). Hypothèses : pas d'attente mémoire
 (code chaud et données en SRAM), aucune contention avec le cœur 1 (DVI) ni le
 DMA, code en flash toujours présent dans le cache XIP.
 
-Budget : 295,2 MHz (horloge du DVI 800x480) pour 19968 cycles 6502 par trame
-de 20 ms, soit 5 904 000 cycles par trame.
+Budget : 372 MHz (horloge du DVI 960x544, défaut du firmware) ou 295,2 MHz
+(800x480, --video480) pour 19968 cycles 6502 par trame de 20 ms.
 
 Usage : rp2040_load.py BENCH.elf FIRMWARE.elf PRÉFIXE_TRACE [--disk F] [--every N]
 """
@@ -27,7 +27,7 @@ import capstone
 import unicorn
 from unicorn import arm_const as A
 
-SYSCLK = 295_200_000
+SYSCLK = 372_000_000  # 960x544 (défaut du firmware) ; --video480 : 295,2 MHz
 TICKS_PER_FRAME = 19968
 FRAME_BUDGET = SYSCLK // 50  # 20 ms
 STACK_TOP = 0x20041000
@@ -225,7 +225,12 @@ def main():
     ap.add_argument("--frames", type=int, default=0, help="limiter le nombre de trames")
     ap.add_argument("--profile", action="store_true", help="cycles par fonction")
     ap.add_argument("--config", default="oricutron", choices=("oricutron", "standard"))
+    ap.add_argument("--video480", action="store_true", help="budget à 295,2 MHz (800x480)")
     args = ap.parse_args()
+    global SYSCLK, FRAME_BUDGET
+    if args.video480:
+        SYSCLK = 295_200_000
+    FRAME_BUDGET = SYSCLK // 50
 
     # Coût du pilote de bus réel, depuis le firmware : sondes du pilote intégré
     # (neo6502_bus.h : un cycle de lecture, un d'écriture, prologue compris),
@@ -357,8 +362,8 @@ def main():
     print("Fin de trame (clavier + rendu de l'écran) : %.0f cycles en moyenne, %d au pire" % (avg_end, max(end_costs)))
     avg_frame = frame_total(sum(f[1] for f in frame_costs) / len(frame_costs), avg_end)
     wf = frame_total(worst_frame[1], worst_frame[2])
-    print("Trame : %.2f Mcycles en moyenne, %.2f au pire (trame %d) ; budget %.2f Mcycles (295,2 MHz, 20 ms)" % (
-        avg_frame / 1e6, wf / 1e6, worst_frame[0], FRAME_BUDGET / 1e6))
+    print("Trame : %.2f Mcycles en moyenne, %.2f au pire (trame %d) ; budget %.2f Mcycles (%.1f MHz, 20 ms)" % (
+        avg_frame / 1e6, wf / 1e6, worst_frame[0], FRAME_BUDGET / 1e6, SYSCLK / 1e6))
     print("Charge du cœur 0 : %.0f %% en moyenne, %.0f %% au pire (hors USB : tuh_task, clé, modem)" % (
         100 * avg_frame / FRAME_BUDGET, 100 * wf / FRAME_BUDGET))
     loads = sorted(100 * frame_total(t, e) / FRAME_BUDGET for _, t, e in frame_costs)

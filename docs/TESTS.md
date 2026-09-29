@@ -90,6 +90,24 @@ et exige 0 différence : octet placé sur le bus et ligne IRQ à chaque cycle,
 
 Voir docs/PERFORMANCE.md (non inclus dans `make test` : unicorn et capstone).
 
+## Recette sur carte — `tools/carte.py` (manuelle, sonde SWD)
+
+Validé le 2026-09-29 sur Olimex Neo6502 (disquette STRATSED en flash) :
+
+| Vérification | Résultat |
+|---|---|
+| Démarrage : bannière, « 64 Ko RAM, 56 Ko ROM », état des banques `00 10 ef e7 10 10 ef 2f` | identique au banc PC |
+| STRATSED V2.0c, HYPER BASIC V2.0b, TELEMATIC V2.0b, TELEASS V1.0a, menu | ✅ |
+| `1` puis `PRINT 6*7` | « 42 » |
+| `DIR` | 88 fichiers, 2237 secteurs libres (identique au banc) |
+| Vitesse du 65C02 | 1,000 MHz (10 000 385 cycles en 10 s) |
+| Cœur 0 | 45 % au repos, 62 % pendant DIR (76 % au pire) |
+| Cœur 1 | 35 µs par ligne (max 41), 0 ligne DVI en retard |
+
+Méthode de diagnostic : journal des 1024 premiers accès en `$03xx` sur la carte
+(`diag_io`) comparé à la trace du banc PC — c'est ce qui a localisé le défaut
+de maintien de la donnée sur le bus.
+
 ## Firmware
 
 `make uf2` doit compiler sans erreur ; l'occupation RAM est relevée dans

@@ -50,8 +50,9 @@
 
 typedef struct {
     uint16_t addr;
-    bool rw;    // true = lecture
-    bool irq;   // niveau demandé (true = IRQ active)
+    bool rw;       // true = lecture
+    bool irq;      // niveau demandé (true = IRQ active)
+    bool driven;   // donnée présentée au cycle précédent (lecture du 65C02)
 } neo6502bus_t;
 
 #define NEO_NOP6() __asm volatile("nop\n nop\n nop\n nop\n nop\n nop\n")
@@ -94,8 +95,22 @@ static inline void neo6502bus_nmi(void) {
     gpio_put(NEO_NMI_PIN, 1);
 }
 
-// Front descendant de l'horloge, lecture de l'adresse et de R/W, front montant
+// Front descendant de l'horloge, lecture de l'adresse et de R/W, front montant.
+//
+// Donnée d'une lecture : set_data la présente par une impulsion brève sur OE3,
+// puis le bus la garde par sa seule capacité jusqu'au front descendant de
+// PHI2, où le 65C02 la mémorise. Si l'émulation marque une pause entre les deux
+// (fin de tranche ou de trame : rendu, USB, attente, plusieurs ms horloge
+// haute), la charge fuit : observé sur carte, TELEMON lisait $FF4E de la
+// banque 3 ($00) autrement à la relecture et déclarait la banque invalide.
+// L'impulsion est donc renvoyée juste avant le front descendant ; les GPIO
+// sont encore en sortie avec la même donnée.
 static inline void neo6502bus_tick(neo6502bus_t* c) {
+    if (c->driven) {
+        gpio_put(NEO_OE3_PIN, 0);
+        gpio_put(NEO_OE3_PIN, 1);
+        c->driven = false;
+    }
     gpio_put(NEO_CLOCK_PIN, 0);
 
     gpio_set_dir_masked(NEO_BUS_MASK, 0);
@@ -125,11 +140,12 @@ static inline uint8_t neo6502bus_get_data(void) {
 }
 
 // Donnée présentée au 65C02 (cycle de lecture)
-static inline void neo6502bus_set_data(uint8_t data) {
+static inline void neo6502bus_set_data(neo6502bus_t* c, uint8_t data) {
     gpio_set_dir_masked(NEO_BUS_MASK, NEO_BUS_MASK);
     gpio_put_masked(NEO_BUS_MASK, data);
     gpio_put(NEO_OE3_PIN, 0);
     gpio_put(NEO_OE3_PIN, 1);
+    c->driven = true;
 }
 
 static inline void neo6502bus_set_irq(neo6502bus_t* c, bool state) {
@@ -147,7 +163,7 @@ static inline void neo6502bus_set_irq(neo6502bus_t* c, bool state) {
 #define MOS6502CPU_TICK(c)           neo6502bus_tick(c)
 #define MOS6502CPU_GET_ADDR(c)       ((c)->addr)
 #define MOS6502CPU_GET_DATA(c)       neo6502bus_get_data()
-#define MOS6502CPU_SET_DATA(c, data) neo6502bus_set_data(data)
+#define MOS6502CPU_SET_DATA(c, data) neo6502bus_set_data(c, data)
 #define MOS6502CPU_SET_IRQ(c, state) neo6502bus_set_irq(c, state)
 #define MOS6502CPU_SET_NMI(c, state) ((void)0)
 #define MOS6502CPU_SYNC(c)           (false)

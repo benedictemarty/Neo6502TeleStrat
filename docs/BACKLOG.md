@@ -53,7 +53,18 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-32 | Pas de 4 cycles au repos sautés et rattrapés, chemin court RAM/ROM | ✅ 314 → 102 cycles |
 | US-33 | Pilote de bus intégré (même séquence GPIO que reload) | ✅ 84 → 68 cycles, ⏳ carte |
 | US-34 | Rendu de l'écran par table | ✅ 1,35 → 0,92 Mcycle au pire |
-| US-35 | Rendu de l'écran sur le cœur 1 | ⏳ plus nécessaire pour tenir 1 MHz ; à mesurer sur carte |
+| US-35 | Rendu de l'écran sur le cœur 1 | ⏳ pas nécessaire (cœur 0 à 45-62 % sur carte) |
+
+## v0.4.1 — recette sur carte ✅ (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-40 | Outillage SWD : flasher, écran, clavier, mesure (`tools/carte.py`) | ✅ |
+| US-41 | Affichage 3 plans 1 bpp, 960x544 à 372 MHz, priorité DMA (leçons du BBC) | ✅ 35 µs/ligne, 0 retard |
+| US-42 | Disquette intégrée en flash (`TELESTRAT_FLASH_DISK`) | ✅ |
+| US-43 | Maintien de la donnée sur le bus après une pause | ✅ corrigé (banque 3, titre) |
+| US-44 | Clavier : SHIFT et CTRL combinés, RETURN | ✅ corrigé |
+| US-45 | Clé USB, modem PicoWiFiModemUSB, son, manette | ⏳ matériel non branché lors de la recette |
 
 ## Plus tard
 

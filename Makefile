@@ -32,8 +32,8 @@ $(BUILD)/telestrat_headless_ref: platforms/pc/telestrat_headless.c $(HEADERS) sr
 $(BUILD)/replay: tests/replay.c $(HEADERS) | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $<
 
-$(BUILD)/test_telestrat: tests/test_telestrat.c $(HEADERS) | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $<
+$(BUILD)/test_telestrat: tests/test_telestrat.c $(HEADERS) platforms/rp2040/src/telestrat_video.h | $(BUILD)
+	$(CC) $(CPPFLAGS) -Iplatforms/rp2040/src $(CFLAGS) -o $@ $<
 
 $(BUILD):
 	mkdir -p $@

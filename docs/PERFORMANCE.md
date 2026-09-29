@@ -30,6 +30,16 @@ clavier et USB compris.
    `get_data`, `set_data`, `set_irq`) est calculé sur le firmware et ajouté.
    Profil par fonction et par ligne de source avec `--profile`.
 
+## Mesure sur carte (v0.4.1, 2026-09-29, 960x544 à 372 MHz)
+
+| Situation | 65C02 | Cœur 0 (moyenne / pire) | Cœur 1 |
+|---|---|---|---|
+| TELEMON, écran fixe | 1,000 MHz | 45 % / 57 % | 35 µs par ligne, 0 retard |
+| DIR (défilement, disquette en flash) | 1,000 MHz | 62 % / 76 % | 35 µs par ligne, 0 retard |
+
+Le modèle sans carte annonçait 54 % en moyenne à 372 MHz : l'ordre de grandeur
+est confirmé.
+
 ## Sprint 4 (v0.4.0) : le Telestrat tient 1 MHz (mesure sans carte)
 
 | Scénario (trace) | Système | Pilote de bus | Rendu écran / trame | Charge moyenne | Charge au pire |
