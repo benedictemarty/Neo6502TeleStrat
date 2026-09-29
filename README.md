@@ -145,10 +145,10 @@ enregistré, cartouches comprises (remises si besoin). Les disquettes et la
 cassette ne font pas partie de l'instantané : ce sont celles qui sont
 insérées (comme on garde les disquettes à côté de la machine). Refusé pendant
 un accès disque. Un instantané se relit sur la même plate-forme et la même
-variante (carte standard, carte RAM 64 Ko, banc PC). **Non essayé sur
-carte** : le 65C02 du Neo6502 étant une vraie puce, ses registres sont lus
-par un NMI détourné (voir ARCHITECTURE), éprouvé seulement sur le 65C02
-émulé du banc.
+variante (carte standard, carte RAM 64 Ko, banc PC). **Essayé sur carte
+(v0.16.1)** : le 65C02 du Neo6502 étant une vraie puce, ses registres
+sont lus et remis par un NMI détourné (voir ARCHITECTURE) : instantané pris
+et repris en plein jeu sur la carte.
 
 **Imprimante** : trois modèles, choisis dans le menu (Entrée sur
 « Imprimante » : Texte → Epson FX-80 → Traceur MCP-40 → coupée) ou par
@@ -169,11 +169,12 @@ par un NMI détourné (voir ARCHITECTURE), éprouvé seulement sur le 65C02
   texte `A`.
 
 Les pages et les tracés sont écrits sur la clé au fil de l'eau (seule une
-bande de 32 lignes est en mémoire) ; un fichier est terminé au saut de page
+bande de 28 lignes est en mémoire) ; un fichier est terminé au saut de page
 (`CHR$(12)`, FX-80), à l'ouverture du menu, ou après 10 secondes sans
 impression. Quand la clé écrit, le Telestrat attend (l'ACK de l'imprimante
 est retardé) : rien n'est perdu. Variante RAM 64 Ko : Texte seulement.
-**Non essayé sur carte.**
+**Essayé sur carte** : page de la FX-80 écrite sur la clé (v0.16.0) ; MCP-40
+pas encore.
 
 | Epson FX-80 (PNG) | MCP-40 (SVG) |
 |---|---|

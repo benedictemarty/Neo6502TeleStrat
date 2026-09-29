@@ -372,7 +372,11 @@ redessinés ensuite.
 cœur 0 à 43 %, cœur 1 à 30 µs par ligne, aucune ligne DVI en retard ;
 `TELESTRA.CFG` appliqué ; page « Démarrer sur… » au clavier ; STRATSED depuis
 la clé, `DIR`, `PRINT 6*7`, `SAVE` (fichier écrit sur la disquette de la clé),
-`LPRINT` vers une page PNG de la FX-80 relue et valide. Non expliqué : une
+`LPRINT` vers une page PNG de la FX-80 relue et valide ; cassette rapide
+(« L'Aigle d'Or » chargé dès l'insertion, BASIC 1.1) ; instantané enregistré
+en plein jeu (70 Ko, registres cohérents) puis repris : le jeu revient à
+l'écran enregistré et continue — le NMI détourné marche sur le vrai
+W65C02S (ordre des cycles conforme à l'émulation). Non expliqué : une
 pression d'Entrée perdue une fois sur la page de démarrage (pas reproduite).
 
 ## Choix des ROM au démarrage (sprint 15)

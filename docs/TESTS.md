@@ -281,7 +281,10 @@ Voir docs/PERFORMANCE.md (non inclus dans `make test` : unicorn et capstone).
 ligne DVI en retard ; fichiers déposés (`deposer`) et relus (`relire`) ;
 `TELESTRA.CFG` appliqué ; page de démarrage au clavier ; STRATSED depuis la
 clé : menu, HYPER-BASIC, `DIR` (88 fichiers), `SAVE "CARTE"` (89 fichiers),
-`LPRINT` → `IMPR0001.PNG` valide.
+`LPRINT` → `IMPR0001.PNG` valide ; mode Atmos (BASIC 1.1), cassette rapide :
+« L'Aigle d'Or » chargé ; instantané en plein jeu (`ETAT0001.STA`, 70 Ko,
+relu : cartouche `@atmos`, registres) puis repris : le jeu revient et
+continue.
 
 
 Validé le 2026-09-29 sur Olimex Neo6502 (disquette STRATSED en flash) :

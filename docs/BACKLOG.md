@@ -150,7 +150,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | US | Récit | État |
 |---|---|---|
-| US-130 | Cassette rapide : `CLOAD` du BASIC 1.1 immédiat (ROM patchée en RAM, registres `$03FE`/`$03FF`) | ✅ banc (`test_tape`, « L'Aigle d'Or »), ⏳ carte |
+| US-130 | Cassette rapide : `CLOAD` du BASIC 1.1 immédiat (ROM patchée en RAM, registres `$03FE`/`$03FF`) | ✅ banc (`test_tape`, « L'Aigle d'Or »), ✅ carte |
 | US-131 | Moteur toujours en marche (câble DIN sans relais) | ✅ banc, ⏳ carte |
 | US-132 | Menu et `TELESTRA.CFG` : `cassette_rapide=`, `cassette_moteur=` | ✅ banc |
 | US-133 | Banc : `-Z`, `-Y`, texte du menu (`-O menu.txt`) | ✅ |
@@ -159,8 +159,8 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | US | Récit | État |
 |---|---|---|
-| US-140 | Registres du vrai 65C02 lus et remis par un NMI détourné (programme servi sur le bus) | ✅ banc (65C02 émulé), ⏳ carte |
-| US-141 | Instantané de la machine dans `ETATnnnn.STA` ; reprise, cartouches remises | ✅ banc (`test_state`), ⏳ carte |
+| US-140 | Registres du vrai 65C02 lus et remis par un NMI détourné (programme servi sur le bus) | ✅ banc, ✅ carte (v0.16.1) |
+| US-141 | Instantané de la machine dans `ETATnnnn.STA` ; reprise, cartouches remises | ✅ banc (`test_state`), ✅ carte |
 | US-142 | Menu : ligne Instantanés (enregistrer, reprendre) | ✅ banc |
 | US-143 | Banc : `-X T:FICHIER`, `-J FICHIER` | ✅ |
 
@@ -181,7 +181,9 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-162 | Dépôt et relecture de fichiers sur la clé par la sonde (`carte.py deposer`, `relire`) | ✅ carte |
 | US-163 | Disquette de la clé : démarrage à froid au premier montage | ✅ carte (STRATSED, DIR, SAVE) |
 | US-164 | Impression FX-80 sur la clé | ✅ carte (page PNG relue) |
-| US-165 | Cassette rapide, instantanés, menu complet, modem, variante RAM 64 Ko sur carte | ⏳ |
+| US-165 | Cassette rapide sur carte (« L'Aigle d'Or ») | ✅ carte |
+| US-166 | Instantanés sur carte (NMI détourné sur le vrai 65C02) : enregistrer, reprendre en plein jeu | ✅ carte |
+| US-167 | Modem, MCP-40, variante RAM 64 Ko sur carte | ⏳ |
 
 ## Plus tard
 
@@ -211,8 +213,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
   pointillés, les graduations de `X`, l'interligne mesuré sur une figure ;
   police vectorielle de la machine ; commutateurs DIP (80 colonnes,
   CR + LF).
-- Instantanés : touches rapides (F2 enregistrer, F3 reprendre le dernier) ;
-  essai sur carte du NMI détourné (ordre des cycles du vrai 65C02).
+- Instantanés : touches rapides (F2 enregistrer, F3 reprendre le dernier).
 - Test « golden » image contre Oricutron (PPM).
 
 ## Définition de « terminé »
