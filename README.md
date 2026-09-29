@@ -83,6 +83,12 @@ tools/carte.py mesure               # MHz réels, µs par trame et par ligne, re
 tools/carte.py deposer STRATSED.DSK TELESTRA.CFG   # fichiers copiés sur la clé de la carte
 tools/carte.py relire IMPR0001.PNG page.png        # fichier de la clé relu
 tools/carte.py menu                 # ouvre ou ferme le menu ; menu ouvert, « taper » le pilote
+```
+
+Mode d'emploi de la sonde et pièges vus sur la carte (partagé avec les autres
+projets Neo6502) : `docs/SONDE_SWD.md`.
+
+```
 tools/carte.py ligne appel          # ligne de recette SWD à la place du modem : un correspondant appelle
 tools/carte.py ligne lire 500       # ce que le Telestrat lui envoie
 tools/carte.py ligne envoyer '1\E'  # ses touches (\E = ENVOI) ; ligne raccrocher, ligne etat
