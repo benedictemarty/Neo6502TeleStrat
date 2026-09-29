@@ -32,5 +32,5 @@
 | [jedeoric/stratoric](https://github.com/jedeoric/stratoric) (`B7STRA40.ROM`, md5 `19c56dfcab72a082f449d2bc6ec15032`) | cartouche STRATORIC 4.0 (banque 7) |
 | `~/Oric1/roms/basic10.rom` (local, md5 `ebe418ec8a6c85d5ac32956c9a96c179`) | ORIC BASIC V1.0 (banque 5 de STRATORIC) |
 | Manuel du développeur Telestrat (F. Broche, ORIC International 1987), `~/Téléchargements/manuel_developpeur_telestrat.pdf` — fourni par le PO | répartition des banques par cartouche (page 3), entête de banque `$FFF8`-`$FFFF` (bit 4 : ignorer) |
-| « Telestrat à cœur ouvert », « Telestrat, le système m'était conté » (`~/Téléchargements`) — fournis par le PO | matériel et système (OCR local en cours de dépouillement) |
+| « Telestrat à cœur ouvert », « Telestrat, le système m'était conté » (`~/Téléchargements`) — fournis par le PO | matériel et système (lus par OCR, tesseract fra) ; pages 1-7 à 1-9 du second : détection des banques, RESET à chaud par défaut |
 | Source commentée d'HYPER-BASIC (`FLGTEL` bit 2 = BONJOUR.COM, `$FFAC`) | appel de la banque 5 au démarrage à froid |

@@ -291,8 +291,15 @@ TELEMON est relancé, sans langage : « Logiciel ecrit par Fabrice BROCHE ».
 Avec deux langages, TELEMON affiche son menu et entre autrement dans
 HYPER-BASIC (pas d'appel à la banque 5) ; avec un `BONJOUR.COM`, la variante
 RAM 64 Ko démarre (« 44 Ko libres »). Ce que renvoie une banque vide sur un
-vrai Telestrat (bus flottant, rappel à `$FF`…) : **non établi** (manuel du
-développeur : l'octet d'état `$FFFB` a un bit 4 « ignorer la banque »).
+vrai Telestrat n'est pas établi par une mesure. Indices : « Telestrat, le
+système m'était conté » (pages 1-7 à 1-9, lues par OCR) commente la détection
+des banques (`$C2F4`) : un octet est lu, relu après une attente (« le code
+a-t-il été rafraîchi ou gardé ? »), et une banque dont les octets changent est
+« à ignorer » ; le même livre décrit `07,92,C3` comme l'adresse par défaut du
+RESET à chaud, exécutée « avant qu'une application ait été lancée ». Les
+concepteurs attendaient donc des valeurs instables d'une banque vide, ce que
+notre bus flottant imite ; l'appel d'HYPER-BASIC à la banque 5 vide y
+exécuterait aussi des octets instables. Déduction, pas vérification.
 
 ## Imprimante et clé retirée (sprint 9)
 
