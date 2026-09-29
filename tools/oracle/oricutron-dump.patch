@@ -1,0 +1,39 @@
+--- a/main.c	2026-09-28 23:28:13.163198317 +0200
++++ b/main.c	2026-09-29 12:56:39.092372481 +0200
+@@ -1826,6 +1826,26 @@
+ 
+       if(ctx->framedone)
+       {
++        {
++          /* Outil de comparaison (Neo6502TeleStrat) : écran texte après N trames */
++          static long dump_at = -2;
++          if(dump_at == -2) { const char* e = getenv("ORIC_DUMP_FRAMES"); dump_at = e ? atol(e) : -1; if(e) warpspeed = SDL_TRUE; }
++          if(dump_at >= 0 && (long)oric->frames >= dump_at)
++          {
++            int y, x;
++            for(y = 0; y < 28; y++)
++            {
++              for(x = 0; x < 40; x++)
++              {
++                unsigned char c = oric->mem[0xbb80 + y*40 + x] & 0x7f;
++                putchar((c >= 32 && c < 127) ? c : ' ');
++              }
++              putchar('\n');
++            }
++            fflush(stdout);
++            exit(0);
++          }
++        }
+         once_per_frame(oric);
+ 
+         ctx->then = ctx->now;
+--- a/machine.c	2026-09-28 23:28:13.163198317 +0200
++++ b/machine.c	2026-09-29 12:57:59.166277110 +0200
+@@ -2026,6 +2026,7 @@
+       {
+         // assign oric->rom to allow binary patches
+         oric->rom = oric->tele_bank[i].ptr  = &oric->mem[0x0c000+(i*0x4000)];
++        { const char* e = getenv("ORIC_RAM_BANKS"); if(e && strchr(e, '0'+i)) telebankfiles[i][0] = 0; }  /* outil de comparaison */
+         if(telebankfiles[i][0])
+         {
+           oric->tele_bank[i].type = TELEBANK_ROM;

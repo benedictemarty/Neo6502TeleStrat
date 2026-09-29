@@ -229,9 +229,23 @@ banque à chaud.
 
 **RESET du menu = à froid** (`telestrat_cold_reset` : RAM effacée puis RESET).
 Observé au banc : après un RESET à chaud, TELEMON n'inventorie pas les banques
-et n'affiche que « Logiciel ecrit par Fabrice BROCHE ». Observé aussi, **non
-expliqué** : avec TELEMON et HYPER-BASIC seuls (sans TELE-ASS ni TELEMATIC),
-le démarrage sur STRATSED s'arrête après la liste des ROM (BACKLOG).
+et n'affiche que « Logiciel ecrit par Fabrice BROCHE ». Ce message vient de
+TELEMON (`$C392` : affichage puis `jmp $C398`, boucle sans fin), application
+par défaut (vecteur `$C386`) quand il n'y a rien à lancer.
+
+**STRATSED sans TELE-ASS** (v0.8.1, comparé à Oricutron par
+`tools/oracle/oracle.sh`) :
+
+| Banques 1-5 | 6 | 7 | Notre banc | Oricutron |
+|---|---|---|---|---|
+| RAM (1-4), TELE-ASS (5) | HYPER-BASIC | TELEMON | menu « 1- HYPER-BASIC 2- TELE-ASS » | identique |
+| RAM (1-5) | HYPER-BASIC | TELEMON | arrêt après « HYPER BASIC V2.0b » | **identique** |
+| vides (config. `telemon` + cartouche) | HYPER-BASIC | TELEMON | arrêt après la liste | — |
+| RAM (1-4), banque 5 vide (`ram64k`) | HYPER-BASIC | TELEMON | « Logiciel ecrit par Fabrice BROCHE » | non simulable (Oricutron n'a pas de banque vide) |
+
+L'arrêt sans TELE-ASS est donc reproduit par l'oracle : ce n'est pas un
+défaut propre à notre émulation. Comportement d'un vrai Telestrat : **non
+connu**. Le cas `ram64k` (celui du firmware RAM 64 Ko) reste ouvert.
 
 **Menu (OSD)**, `src/osd` en C pur, testé sur PC :
 

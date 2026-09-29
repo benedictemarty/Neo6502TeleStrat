@@ -169,6 +169,17 @@ et exige 0 différence : octet placé sur le bus et ligne IRQ à chaque cycle,
 | A (20 M cycles, config. `oricutron`) | démarrage STRATSED, HYPER-BASIC, PING, ZAP, DIR |
 | B (60 M cycles, config. `standard`) | serveur TELEMATIC : sonnerie, connexion, pages, ENVOI, raccrochage |
 
+## Oracle Oricutron — `tools/oracle/oracle.sh` (manuel)
+
+Construit une copie locale d'Oricutron (GPL, non distribuée) avec
+`oricutron-dump.patch` : écran texte après N trames, sans fenêtre (SDL
+« dummy »), banques en RAM à la demande. Exemple (v0.8.1) : STRATSED avec les
+banques 1-5 en RAM, HYPER-BASIC et TELEMON → même arrêt qu'au banc.
+
+```sh
+tools/oracle/oracle.sh 1500 STRATSED.DSK "telebank6 = 'roms/hyperbas'" "telebank7 = 'roms/telmon24'" RAM=12345
+```
+
 ## Charge du RP2040 — `make charge`
 
 Voir docs/PERFORMANCE.md (non inclus dans `make test` : unicorn et capstone).

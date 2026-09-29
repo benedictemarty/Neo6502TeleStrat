@@ -119,8 +119,10 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
   cassette et bandeau.
 - Cassette : chargement accéléré (BASIC 1.1, au niveau du bus sur le
   Neo6502) ; `STORE`/`RECALL` (tableaux) non essayés.
-- TELEMON + HYPER-BASIC seuls : le démarrage sur STRATSED s'arrête après la
-  liste des ROM (observé au banc, non expliqué ; comparer à Oricutron).
+- STRATSED avec la variante RAM 64 Ko (banque 5 vide) : « Logiciel ecrit par
+  Fabrice BROCHE » au lieu du menu (banc) ; Oricutron ne simule pas de banque
+  vide. À vérifier : notice de la cartouche, vrai Telestrat. (Sans TELE-ASS,
+  l'arrêt après la liste des ROM est reproduit par Oricutron : v0.8.1.)
 - Clé retirée puis rebranchée : non gérée (montage au premier branchement).
 - Variante RAM 64 Ko : ≈ 0,5 Ko de RAM libre.
 - Imprimante vers l'UART ou la clé USB sur le Neo6502.
