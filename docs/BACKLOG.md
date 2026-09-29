@@ -183,7 +183,8 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-164 | Impression FX-80 sur la clé | ✅ carte (page PNG relue) |
 | US-165 | Cassette rapide sur carte (« L'Aigle d'Or ») | ✅ carte |
 | US-166 | Instantanés sur carte (NMI détourné sur le vrai 65C02) : enregistrer, reprendre en plein jeu | ✅ carte |
-| US-167 | Modem, MCP-40, variante RAM 64 Ko sur carte | ⏳ |
+| US-167 | Modem, MCP-40 sur carte | ⏳ |
+| US-168 | Variante RAM 64 Ko sur carte | ❌ démarre, image défectueuse (2 tampons DVI) ; ~5,7 Ko à regagner pour 3 tampons |
 
 ## Plus tard
 

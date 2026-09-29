@@ -87,7 +87,7 @@ target_compile_definitions(telestrat PRIVATE
     $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:PICO_HEAP_SIZE=0x5800>
     $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:OSD_MENU_FILES=40>
     $<$<BOOL:${TELESTRAT_RAM64K}>:DVI_N_TMDS_BUFFERS=2>
-    $<$<BOOL:${TELESTRAT_RAM64K}>:PICO_HEAP_SIZE=0x3400>
+    $<$<BOOL:${TELESTRAT_RAM64K}>:PICO_HEAP_SIZE=0x4000>
 )
 
 target_link_libraries(telestrat

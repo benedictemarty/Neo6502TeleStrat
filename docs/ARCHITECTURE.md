@@ -343,8 +343,12 @@ RAM 64 Ko) réserve maintenant le tas à l'édition des liens : un manque de RAM
 la fait échouer (« region RAM overflowed ») au lieu de planter la carte.
 Regagné pour cela : journal des accès en `$03xx` (8 Ko) compilé seulement avec
 `-DTELESTRAT_DIAG_IO`, `diag_tx` de 4 à 1 Ko, liste des fichiers de la clé à
-40 (28 en RAM 64 Ko), bande de la FX-80 à 28 lignes. Marge : 484 octets
-(standard).
+40 (28 en RAM 64 Ko), bande de la FX-80 à 28 lignes, un seul volume FatFs
+pour la clé (lecteur « 0: », 588 octets au lieu de 3,5 Ko). Tas disponible :
+26,0 Ko (standard, 22,5 Ko réservés) ; 16,5 Ko en RAM 64 Ko (16 Ko réservés,
+2 tampons TMDS) : cette variante démarre sur la carte mais son image est
+défectueuse — avec 2 tampons, la sortie DVI n'a plus de marge (la session BBC
+l'avait signalé). Il lui faudrait ~5,7 Ko de plus pour 3 tampons.
 
 **Clé USB** : avec le TinyUSB de reload-emulator (2023), la clé répondait à
 l'INQUIRY (36 octets, un paquet) mais son premier READ10 (512 octets, 8
