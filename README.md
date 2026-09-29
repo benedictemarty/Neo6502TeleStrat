@@ -110,8 +110,9 @@ L'émulation est en pause tant qu'il est ouvert. Flèches, Entrée, Suppr
 
 **Mode Atmos et cassettes** : le firmware intègre la cartouche Atmos (ORIC
 EXTENDED BASIC V1.1). Menu : banque 7 → « ORIC BASIC 1.1 (Atmos) », Cassette →
-un `.tap`, Redémarrer ; puis `CLOAD""` (et `RUN`). Pendant la lecture, un
-bandeau sous l'image montre la cassette et sa position. TELEMON et
+un `.tap`, Redémarrer ; puis `CLOAD""` (et `RUN`). `CSAVE"NOM"` enregistre
+`NOM.TAP` à la racine de la clé. Pendant la lecture ou l'écriture, un bandeau
+sous l'image montre la cassette et sa position. TELEMON et
 HYPER-BASIC n'ont pas de chargeur de cassette : le mode Atmos est le moyen de
 lire les cassettes sur Telestrat.
 
@@ -172,7 +173,9 @@ build/telestrat_headless -c standard -0 a.dsk -L listen:3615 -R ...  # ligne Min
 Cassette au banc : `-c atmos` (cartouche Atmos en banque 7), `-K jeu.tap`,
 puis `-t 'CLOAD""\n'` ; `-D sortie.ppm` écrit la sortie DVI de la carte
 (960 x 544 : image centrée, bandeau de la cassette pendant la lecture).
-`tools/mktap.py` fait un `.tap` d'un programme BASIC relevé dans la RAM (`-r`).
+`-C RÉP` : les `CSAVE` y écrivent `NOM.TAP` (par défaut le répertoire de
+`-U`). `tools/mktap.py` fait un `.tap` d'un programme BASIC relevé dans la RAM
+(`-r`).
 
 Menu au banc : `-U RÉP` fait d'un répertoire la clé USB (`.dsk`, `.rom`,
 `TELESTRA.CFG` appliqué au démarrage) ; `-M T:TOUCHES` ouvre le menu à la

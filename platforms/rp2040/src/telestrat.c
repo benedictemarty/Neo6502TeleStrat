@@ -460,14 +460,37 @@ static bool tape_insert(const char *name) {
     return true;
 }
 
-// Bandeau : à chaque trame, tant que le moteur tourne
+// CSAVE : NOM.TAP à la racine de la clé (oric_tape_rec.h)
+static FIL rec_fil;
+static bool rec_open(void *ctx, const char *name) {
+    (void)ctx;
+    const bool ok = f_open(&rec_fil, name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
+    printf("Cassette : enregistrement de %s%s\n", name, ok ? "" : " impossible");
+    return ok;
+}
+static void rec_write(void *ctx, const uint8_t *data, uint32_t len) {
+    (void)ctx;
+    UINT n = 0;
+    f_write(&rec_fil, data, len, &n);
+}
+static void rec_close(void *ctx) {
+    (void)ctx;
+    f_close(&rec_fil);
+}
+
+// Bandeau : à chaque trame, pendant une lecture ou un enregistrement
 static void banner_update(void) {
     const oric_tape_t *t = &state.telestrat.tape;
-    if (!oric_tape_running(t)) {
+    const oric_tape_rec_t *r = &state.telestrat.tape_rec;
+    if (oric_tape_rec_active(r)) {
+        const uint32_t total = r->written + r->remaining;
+        osd_tape_banner(&banner_row, "Écriture", r->file, total ? (int)(r->written * 100 / total) : 0);
+    } else if (oric_tape_running(t)) {
+        osd_tape_banner(&banner_row, "Lecture", tape_name, oric_tape_percent(t));
+    } else {
         banner_on = false;
         return;
     }
-    osd_tape_banner(&banner_row, tape_name, oric_tape_percent(t));
     banner_on = true;
 }
 
@@ -742,6 +765,8 @@ void app_init(void) {
     minitel_port_init(&minitel, &line);
     telestrat_desc_t desc = telestrat_desc();
     telestrat_init(&state.telestrat, &desc);
+    static const oric_tape_rec_out_t rec_out = {rec_open, rec_write, rec_close, NULL};
+    telestrat_tape_recorder(&state.telestrat, &rec_out);
     insert_flash_disk();
     telestrat_reset(&state.telestrat);
 }

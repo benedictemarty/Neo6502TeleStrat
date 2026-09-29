@@ -60,6 +60,7 @@
 #include <stddef.h>
 
 #include "devices/oric_tape.h"
+#include "devices/oric_tape_rec.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -145,6 +146,7 @@ typedef struct {
     // Lecteur de cassette : CB1 du VIA 1, moteur sur PB6 (mode Atmos)
     oric_tape_t tape;
     uint32_t tape_due;  // cycle de la prochaine bascule du signal
+    oric_tape_rec_t tape_rec;  // CSAVE : PB7 du VIA 1 vers un fichier .tap
     bool valid;
     chips_debug_t debug;
     chips_audio_callback_t audio_callback;
@@ -248,6 +250,8 @@ bool telestrat_serial_is_rs232(telestrat_t* sys);
 void telestrat_set_bank_rom(telestrat_t* sys, int bank, const uint8_t* rom);
 // Cassette (.tap) lue par read(ctx, …), rembobinée ; len = 0 : éjectée
 void telestrat_tape_insert(telestrat_t* sys, uint32_t len, oric_tape_read_t read, void* ctx);
+// Enregistreur (CSAVE) : fichiers .tap par ces rappels ; NULL : aucun
+void telestrat_tape_recorder(telestrat_t* sys, const oric_tape_rec_out_t* out);
 void telestrat_restore_bank(telestrat_t* sys, int bank);
 // Insère une image MFM_DISK dans le lecteur 0..3 (false si invalide)
 bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect);
@@ -308,6 +312,11 @@ void telestrat_tape_insert(telestrat_t* sys, uint32_t len, oric_tape_read_t read
     if (len) oric_tape_insert(&sys->tape, len, read, ctx);
     else oric_tape_eject(&sys->tape);
     sys->tape_due = sys->system_ticks;
+    _telestrat_input_changed(sys);
+}
+
+void telestrat_tape_recorder(telestrat_t* sys, const oric_tape_rec_out_t* out) {
+    oric_tape_rec_init(&sys->tape_rec, out);
     _telestrat_input_changed(sys);
 }
 
@@ -612,7 +621,12 @@ static inline void _telestrat_update_tape(telestrat_t* sys) {
     if (motor != tp->motor) {
         oric_tape_set_motor(tp, motor);
         sys->tape_due = t + (uint32_t)oric_tape_next(tp);
+        if (!motor) oric_tape_rec_motor_off(&sys->tape_rec);
     }
+    // CSAVE : PB7 (sortie du timer 1) écouté tant que le moteur tourne ; ses
+    // fronts tombent au passage à zéro du timer, qui borne la fenêtre de repos
+    if (motor && sys->tape_rec.enabled) oric_tape_rec_level(&sys->tape_rec, (mos6522via_get_pb(&sys->via) >> 7) & 1, t);
+    if (!tp->inserted) return;
     while (oric_tape_running(tp) && (int32_t)(t - sys->tape_due) >= 0) {
         oric_tape_toggle(tp);
         sys->tape_due += (uint32_t)oric_tape_next(tp);
@@ -697,7 +711,7 @@ TELESTRAT_SLOW static void _telestrat_step(telestrat_t* sys) {
 
     _telestrat_update_joysticks(sys);
     _telestrat_update_printer(sys, pb);
-    if (sys->tape.inserted) _telestrat_update_tape(sys);
+    if (sys->tape.inserted || sys->tape_rec.enabled) _telestrat_update_tape(sys);
 
     sys->inputs_dirty = false;
     sys->quiet_until = sys->system_ticks + 4 * (_telestrat_quiet_steps(sys, sys->system_ticks) + 1);

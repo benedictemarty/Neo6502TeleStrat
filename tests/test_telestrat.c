@@ -936,6 +936,84 @@ static void test_oric_tape(void) {
     CHECK(!oric_tape_running(&t) && !t.inserted, "éjectée : rien ne bouge");
 }
 
+// --- Enregistreur (oric_tape_rec.h) : CSAVE ------------------------------------------
+static uint8_t rec_buf[256];
+static int rec_len, rec_opens, rec_closes;
+static char rec_name[24];
+static bool rec_open_cb(void* c, const char* n) {
+    (void)c;
+    snprintf(rec_name, sizeof(rec_name), "%s", n);
+    rec_len = 0;
+    rec_opens++;
+    return true;
+}
+static void rec_write_cb(void* c, const uint8_t* d, uint32_t n) {
+    (void)c;
+    for (uint32_t i = 0; i < n && rec_len < 256; i++) rec_buf[rec_len++] = d[i];
+}
+static void rec_close_cb(void* c) {
+    (void)c;
+    rec_closes++;
+}
+
+static uint32_t rec_t;
+// Octet émis comme la ROM ($E65E) : 0, 8 bits, parité, 1, 1, 1 ; une période
+// de 432 cycles pour 1, 640 pour 0 (front montant au début)
+static void rec_emit(oric_tape_rec_t* r, uint8_t b, bool bad_parity) {
+    int ones = 0;
+    for (int i = 0; i < 8; i++) ones += (b >> i) & 1;
+    int bits[13] = {0};
+    for (int i = 0; i < 8; i++) bits[1 + i] = (b >> i) & 1;
+    bits[9] = ((ones & 1) ^ 1) ^ (bad_parity ? 1 : 0);
+    bits[10] = bits[11] = bits[12] = 1;
+    for (int i = 0; i < 13; i++) {
+        const uint32_t period = bits[i] ? 432 : 640;
+        oric_tape_rec_level(r, 1, rec_t);
+        oric_tape_rec_level(r, 0, rec_t + period / 2);
+        rec_t += period;
+    }
+}
+
+static void test_oric_tape_rec(void) {
+    const oric_tape_rec_out_t out = {rec_open_cb, rec_write_cb, rec_close_cb, NULL};
+    oric_tape_rec_t r;
+    oric_tape_rec_init(&r, &out);
+    rec_opens = rec_closes = 0;
+    rec_t = 1000;
+    for (int i = 0; i < 20; i++) rec_emit(&r, 0x16, false);
+    rec_emit(&r, 0x24, false);
+    const uint8_t hdr[9] = {0, 0, 0, 0, 0x05, 0x03, 0x05, 0x01, 0};  // $0501-$0503 : 3 octets
+    for (int i = 0; i < 9; i++) rec_emit(&r, hdr[i], false);
+    const char* name = "jeu 1!";
+    for (const char* c = name; *c; c++) rec_emit(&r, (uint8_t)*c, false);
+    rec_emit(&r, 0, false);
+    CHECK(rec_opens == 1 && !strcmp(rec_name, "JEU1.TAP") && oric_tape_rec_active(&r),
+          "en-tête : fichier JEU1.TAP ouvert (%s)", rec_name);
+    rec_emit(&r, 0xA5, false);
+    rec_emit(&r, 0x5A, true);  // parité fausse : perdu
+    rec_emit(&r, 0x5A, false);
+    CHECK(r.bad == 1 && oric_tape_rec_active(&r), "parité fausse : trame rejetée");
+    rec_emit(&r, 0x00, false);
+    const uint8_t expect[] = {0x16, 0x16, 0x16, 0x24, 0, 0, 0, 0, 0x05, 0x03, 0x05, 0x01, 0, 'j', 'e', 'u', ' ', '1', '!',
+                              0,    0xA5, 0x5A, 0x00};
+    CHECK(rec_closes == 1 && !oric_tape_rec_active(&r) && rec_len == (int)sizeof(expect) &&
+              !memcmp(rec_buf, expect, sizeof(expect)),
+          "3 octets de données : .tap complet et fermé (%d octets)", rec_len);
+    // Nom vide, moteur arrêté en cours de données
+    for (int i = 0; i < 5; i++) rec_emit(&r, 0x16, false);
+    rec_emit(&r, 0x24, false);
+    const uint8_t hdr2[9] = {0, 0, 0, 0, 0x06, 0x00, 0x05, 0x01, 0};
+    for (int i = 0; i < 9; i++) rec_emit(&r, hdr2[i], false);
+    rec_emit(&r, 0, false);
+    rec_emit(&r, 0x11, false);
+    CHECK(!strcmp(rec_name, "SANSNOM.TAP") && oric_tape_rec_active(&r), "nom vide : SANSNOM.TAP");
+    oric_tape_rec_motor_off(&r);
+    CHECK(rec_closes == 2 && !oric_tape_rec_active(&r), "moteur arrêté : fichier fermé tel quel");
+    rec_t += 100000;  // silence : trame abandonnée, pas d'octet parasite
+    rec_emit(&r, 0x16, false);
+    CHECK(rec_opens == 2 && r.phase == ORIC_REC_SYNC, "après un silence : de nouveau en attente d'un en-tête");
+}
+
 // --- Menu (OSD) : texte, rendu d'une ligne, navigation ---------------------------
 static osd_surface_t osd_s;
 static osd_menu_t osd_m;
@@ -1010,7 +1088,7 @@ static void test_osd_tape_menu(void) {
               osd_s.ch[15][54] == OSD_SHADE,
           "ligne Cassette : icône, moteur, barre à moitié");
     static osd_row_t row;
-    osd_tape_banner(&row, "AIGLE.TAP", 40);
+    osd_tape_banner(&row, "Lecture", "AIGLE.TAP", 40);
     CHECK(row.ch[18] == OSD_TAPE_L && !memcmp(&row.ch[30], "AIGLE.TAP", 9) && row.ch[66] == OSD_FULL &&
               row.ch[66 + 29] == OSD_SHADE,
           "bandeau : icône, nom, barre");
@@ -1259,6 +1337,7 @@ int main(void) {
     test_modem_mux();
     test_drive_set();
     test_oric_tape();
+    test_oric_tape_rec();
     test_osd_render();
     test_osd_menu();
     test_osd_config();

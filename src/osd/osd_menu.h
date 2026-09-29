@@ -482,17 +482,17 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
 }
 
 // Bandeau de la cassette, incrusté sous l'image du Telestrat pendant que le
-// moteur tourne : icône, nom, barre de position, pour cent
-static inline void osd_tape_banner(osd_row_t* r, const char* name, int percent) {
+// moteur tourne : icône, « Lecture » ou « Écriture », nom, barre, pour cent
+static inline void osd_tape_banner(osd_row_t* r, const char* label, const char* name, int percent) {
     const uint8_t base = OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER);
     osd_row_clear(r, base);
     const uint8_t acc = OSD_ATTR(OSD_YELLOW, OSD_BLUE | OSD_DITHER);
-    r->ch[16] = OSD_TRI_R;
-    r->attr[16] = acc;
+    r->ch[16] = label[0] == 'L' ? OSD_TRI_R : OSD_DOT;  // lecture : ▶ ; écriture : ●
+    r->attr[16] = label[0] == 'L' ? acc : OSD_ATTR(OSD_RED, OSD_BLUE | OSD_DITHER);
     r->ch[18] = OSD_TAPE_L;
     r->ch[19] = OSD_TAPE_R;
     r->attr[18] = r->attr[19] = acc;
-    osd_row_puts(r, 21, "Lecture", acc);
+    osd_row_puts(r, 21, label, acc);
     char buf[64];
     snprintf(buf, sizeof(buf), "%.34s", name);
     osd_row_puts(r, 30, buf, base);

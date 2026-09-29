@@ -4,7 +4,9 @@
 # cassette par tools/mktap.py, puis rechargé par CLOAD"" (-K) et exécuté.
 # Puis par le menu, depuis un Telestrat standard : ROM Atmos intégrée en
 # banque 7, cassette de la clé (-U), RESET, CLOAD, RUN ; bandeau de la
-# cassette sur la sortie DVI (-D) pendant la lecture.
+# cassette sur la sortie DVI (-D) pendant la lecture. Enfin CSAVE (-C) : le
+# fichier ESSAI.TAP écrit est rechargé par CLOAD et exécuté ; bandeau
+# « Écriture » pendant l'enregistrement.
 set -u
 BIN=${1:-build/telestrat_headless}
 if ! command -v python3 > /dev/null; then
@@ -30,6 +32,14 @@ cp "$TMP/essai.tap" "$TMP/cle/essai.tap"
 "$BIN" -c standard -U "$TMP/cle" -M "300:hredelddddedezuue" -f 560 -w 450 -k 8 -t 'CLOAD""\n' -D "$TMP/dvi.ppm" \
     > /dev/null 2>&1
 
+# CSAVE vers un fichier, puis relecture
+mkdir "$TMP/rec"
+"$BIN" -c atmos -C "$TMP/rec" -f 1500 -w 150 -k 8 -t '10 PRINT "CSAVE OK"\n20 PRINT 6*7\nCSAVE"ESSAI"\n' -s \
+    > "$TMP/csave.txt" 2> "$TMP/csave_msg.txt"
+"$BIN" -c atmos -K "$TMP/rec/ESSAI.TAP" -f 1500 -w 150 -k 8 -t "CLOAD\"\"\n${W}RUN\n" -s > "$TMP/relu.txt"
+"$BIN" -c atmos -C "$TMP/rec" -f 620 -w 150 -k 8 -t '10 PRINT "CSAVE OK"\n20 PRINT 6*7\nCSAVE"ESSAI"\n' \
+    -D "$TMP/ecrit.ppm" > /dev/null 2>&1
+
 fail=0
 n=0
 check() {
@@ -53,8 +63,16 @@ d = open('$TMP/dvi.ppm', 'rb').read()
 px = d[len(b'P6\\n960 544\\n255\\n'):]
 row = [px[((256 * 2 + 3) * 960 + x) * 3:((256 * 2 + 3) * 960 + x) * 3 + 3] for x in range(960)]
 sys.exit(0 if b'\\xff\\xff\\x00' in row and b'\\x00\\x00\\xff' in row else 1)\""
+check "CSAVE : ESSAI.TAP écrit (en-tête, nom)" "grep -q 'enregistrement de .*ESSAI.TAP' '$TMP/csave_msg.txt' && head -c 19 '$TMP/rec/ESSAI.TAP' | tail -c 6 | grep -q ESSAI"
+check "CSAVE puis CLOAD : RUN donne CSAVE OK et 42" "grep -q '^  CSAVE OK' '$TMP/relu.txt' && grep -q '^   42' '$TMP/relu.txt'"
+check "bandeau pendant l'enregistrement (point rouge)" "python3 -c \"
+import sys
+d = open('$TMP/ecrit.ppm', 'rb').read()
+px = d[len(b'P6\\n960 544\\n255\\n'):]
+row = [px[((256 * 2 + 5) * 960 + x) * 3:((256 * 2 + 5) * 960 + x) * 3 + 3] for x in range(120, 140)]
+sys.exit(0 if b'\\xff\\x00\\x00' in row else 1)\""
 if [ "$fail" -ne 0 ]; then
-    cat "$TMP/menu_msg.txt"
+    cat "$TMP/menu_msg.txt" "$TMP/csave_msg.txt"
     for f in ecran vide pendant menu; do echo "--- $f :"; grep -v '^$' "$TMP/$f.txt" | head -14; done
 fi
 rm -rf "$TMP"

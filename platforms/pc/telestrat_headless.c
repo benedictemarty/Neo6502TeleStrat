@@ -40,6 +40,8 @@
 //   -O FICHIER image du menu (960 x 544, PPM) après les touches de -M
 //   -D FICHIER sortie DVI de la carte en fin d'exécution (960 x 544, PPM) : image
 //              du Telestrat centrée, bandeau de la cassette si le moteur tourne
+//   -C RÉP     CSAVE : cassettes enregistrées en RÉP/NOM.TAP (défaut : le
+//              répertoire de -U s'il est donné)
 //   -K FICHIER cassette .tap insérée (mode Atmos : -c atmos, ou cartouche Atmos)
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
 //   -B PRÉFIXE enregistre la trace (tests/replay.c, tools/rp2040_load.py) : PRÉFIXE.trace
@@ -210,10 +212,14 @@ static int rs232_rx(void* user_data) {
 // Sortie DVI de la carte (telestrat_frame.h) : 960 x 272 lignes doublées
 static void write_dvi(const char* path, const char* tape_name) {
     static osd_row_t banner;
-    const bool on = oric_tape_running(&sys.tape);
-    if (on) {
+    const oric_tape_rec_t* rec = &sys.tape_rec;
+    const bool on = oric_tape_running(&sys.tape) || oric_tape_rec_active(rec);
+    if (oric_tape_rec_active(rec)) {
+        const uint32_t total = rec->written + rec->remaining;
+        osd_tape_banner(&banner, "Écriture", rec->file, total ? (int)(rec->written * 100 / total) : 0);
+    } else if (on) {
         const char* base = strrchr(tape_name, '/');
-        osd_tape_banner(&banner, base ? base + 1 : tape_name, oric_tape_percent(&sys.tape));
+        osd_tape_banner(&banner, "Lecture", base ? base + 1 : tape_name, oric_tape_percent(&sys.tape));
     }
     telestrat_video_init();
     FILE* f = fopen(path, "wb");
@@ -237,6 +243,27 @@ static void write_dvi(const char* path, const char* tape_name) {
     fclose(f);
 }
 #endif
+
+// CSAVE : fichiers .tap du répertoire d'enregistrement
+static const char* rec_path_dir;
+static FILE* rec_file;
+static bool rec_open(void* ctx, const char* name) {
+    (void)ctx;
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s", rec_path_dir, name);
+    rec_file = fopen(path, "wb");
+    fprintf(stderr, "cassette : enregistrement de %s\n", path);
+    return rec_file != NULL;
+}
+static void rec_write(void* ctx, const uint8_t* data, uint32_t len) {
+    (void)ctx;
+    if (rec_file) fwrite(data, 1, len, rec_file);
+}
+static void rec_close(void* ctx) {
+    (void)ctx;
+    if (rec_file) fclose(rec_file);
+    rec_file = NULL;
+}
 
 // Cassette en mémoire
 static uint8_t* tape_image;
@@ -313,6 +340,7 @@ int main(int argc, char** argv) {
     const char* usb_dir = NULL;
     const char* tape_file = NULL;
     const char* dvi_file = NULL;
+    const char* rec_dir = NULL;
     const char* menu_script = NULL;
     const char* menu_ppm = NULL;
     int menu_frame = -1;
@@ -325,7 +353,7 @@ int main(int argc, char** argv) {
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:S:U:M:O:K:D:RB:k:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:S:U:M:O:K:D:C:RB:k:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -348,6 +376,7 @@ int main(int argc, char** argv) {
             case 'O': menu_ppm = optarg; break;
             case 'K': tape_file = optarg; break;
             case 'D': dvi_file = optarg; break;
+            case 'C': rec_dir = optarg; break;
             case 'R': realtime = 1; break;
             case 'k': key_period = atoi(optarg) < 2 ? 2 : atoi(optarg); break;
             case 'B': bench_prefix = optarg; break;
@@ -449,6 +478,14 @@ int main(int argc, char** argv) {
         return 2;
     }
 #endif
+    if (!rec_dir) rec_dir = usb_dir;
+    if (rec_dir) {
+#ifndef TELESTRAT_REF
+        rec_path_dir = rec_dir;
+        const oric_tape_rec_out_t out = {rec_open, rec_write, rec_close, NULL};
+        telestrat_tape_recorder(&sys, &out);
+#endif
+    }
     if (tape_file) {
         tape_image = load_file(tape_file, &tape_size);
 #ifndef TELESTRAT_REF

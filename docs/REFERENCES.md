@@ -27,3 +27,4 @@
 | Wikipédia, Defence-Force (site matériel Oric), documentation cc65 — transmis par le PO | prise cassette DIN du Telestrat identique à l'Atmos ; chargement par la cartouche Atmos |
 | `oric_roms.h` de reload-emulator (local) | ROM ORIC EXTENDED BASIC V1.1 (md5 `a330779c42ad7d0c4ac6ef9e92788ec6`) |
 | `AIGLE.TAP` (« L'Aigle d'Or », Loriciels 1984), `~/Téléchargements` | essai manuel de chargement |
+| ROM BASIC 1.1 désassemblée (da65) | écriture d'un octet `$E65E` (trame de 13 bits, parité), lecture d'un bit `$E71C` |

@@ -101,6 +101,13 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-73 | Bandeau de la cassette sous l'image pendant la lecture | ✅ banc (`-D`), ⏳ carte |
 | US-74 | Banc : `-c atmos`, `-K`, `-D` ; `tools/mktap.py` ; `tests/test_tape.sh` | ✅ 9/9 |
 
+## Sprint 8 — v0.8.0 — « Enregistrement cassette » ✅ au banc (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-80 | `CSAVE` vers `NOM.TAP` sur la clé (PB7 décodé), bandeau « Écriture » | ✅ banc, ⏳ carte |
+| US-81 | `.tap` à plusieurs parties | ✅ « L'Aigle d'Or » (2 parties) au banc |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
@@ -111,8 +118,7 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 - Menu sur carte : rendu (temps du cœur 1), clavier, clé, cartouches,
   cassette et bandeau.
 - Cassette : chargement accéléré (BASIC 1.1, au niveau du bus sur le
-  Neo6502), `CSAVE` vers un `.tap` (PB7), fichiers `.tap` à plusieurs parties
-  à vérifier.
+  Neo6502) ; `STORE`/`RECALL` (tableaux) non essayés.
 - TELEMON + HYPER-BASIC seuls : le démarrage sur STRATSED s'arrête après la
   liste des ROM (observé au banc, non expliqué ; comparer à Oricutron).
 - Clé retirée puis rebranchée : non gérée (montage au premier branchement).

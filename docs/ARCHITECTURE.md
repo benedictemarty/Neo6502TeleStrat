@@ -285,6 +285,24 @@ jusqu'à l'appel suivant : sans cela, le drapeau se relève aussitôt effacé).
 Sans cassette, rien ne change (rejeu identique). En-tête `.tap` : adresse de
 fin **incluse** (sinon la ROM attend un octet de plus, observé).
 
+**Enregistreur** (`src/devices/oric_tape_rec.h`, v0.8.0) : `CSAVE` écrit sur
+PB7 du VIA 1 (routine `$E65E` de la ROM, sortie du timer 1). Mesuré au banc :
+une période (entre fronts montants) de 432 cycles pour 1, 640 pour 0 — pas les
+416 / 832 de la lecture ; trame de **13 bits** : 0, 8 bits (bit 0 d'abord),
+parité (1 si le nombre de 1 est pair), 1, 1, 1 (désassemblage de `$E65E`).
+Décodage : seuil à 536 cycles ; calage sur la trame exacte d'une synchro
+`$16` (sans quoi une suite de `$16` se découpe de façon cohérente mais
+décalée) ; trame fausse : calage perdu avant l'en-tête, octet perdu après.
+L'en-tête reconnu, le fichier `NOM.TAP` (lettres, chiffres, `-`, `_`) est
+ouvert sur la clé et reçoit 3 synchros, `$24`, l'en-tête, le nom et les
+données ; fermé après le dernier octet ou à l'arrêt du moteur. PB7 est lu à
+chaque pas tant que le moteur tourne : ses fronts tombent au passage à zéro
+du timer 1, qui borne déjà la fenêtre de repos.
+
+Plusieurs parties : « L'Aigle d'Or » (`AIGLEDOR.1`, 14 903 octets, puis
+`AIGLEDOR.2`, 39 679) se charge en entier au banc (la partie 2 après les
+écrans d'introduction), jusqu'à « Aventurier,ton nom? ».
+
 **Bandeau** : pendant que le moteur tourne, une rangée de texte (icône, nom,
 barre, pour cent) dans la marge sous l'image, dessinée par le cœur 0 à chaque
 trame, rendue par le cœur 1 comme une ligne du menu (8 lignes de tampon, même
