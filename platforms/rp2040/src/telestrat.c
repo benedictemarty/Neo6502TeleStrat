@@ -89,6 +89,7 @@ volatile uint32_t diag_io_n;
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
 #include "systems/telestrat.h"
+#include "systems/telestrat_state.h"
 #include "osd/rom_pool.h"
 #include "osd/rom_builtin.h"
 
@@ -470,12 +471,13 @@ static void usb_scan(void) {
     if (!menu.usb_present) return;
     while (menu.nfiles < OSD_MENU_FILES && f_readdir(&dir, &fno) == FR_OK && fno.fname[0]) {
         if (fno.fattrib & AM_DIR) continue;
-        const bool dsk = has_ext(fno.fname, ".dsk"), rom = has_ext(fno.fname, ".rom"), tap = has_ext(fno.fname, ".tap");
-        if ((!dsk && !rom && !tap) || strlen(fno.fname) >= OSD_NAME_LEN) continue;
+        const bool dsk = has_ext(fno.fname, ".dsk"), rom = has_ext(fno.fname, ".rom"), tap = has_ext(fno.fname, ".tap"),
+                   sta = has_ext(fno.fname, ".sta");
+        if ((!dsk && !rom && !tap && !sta) || strlen(fno.fname) >= OSD_NAME_LEN) continue;
         osd_file_t *f = &menu.files[menu.nfiles++];
         snprintf(f->name, sizeof(f->name), "%s", fno.fname);
         f->size = (uint32_t)fno.fsize;
-        f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : OSD_FILE_ROM;
+        f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : sta ? OSD_FILE_STA : OSD_FILE_ROM;
     }
     f_closedir(&dir);
     // Tri par nom (insertion : 64 fichiers au plus)
@@ -711,6 +713,89 @@ static int tape_options_apply(void) {
     return oric_turbo_apply_all(rom_slots, ROM_BUILTIN + ROM_EXTRA_SLOTS, tape_turbo);
 }
 
+/*-- Instantanés (src/systems/telestrat_state.h) -------------------------------*/
+// Fichiers ETATnnnn.STA à la racine de la clé. Menu ouvert : le FIL et le
+// texte des cartouches sont pris dans l'image du Telestrat, après la surface
+// du menu (comme config_save), sans RAM de plus.
+typedef struct {
+    FIL fil;
+    char info[TELESTRAT_STATE_INFO_MAX + 1];
+} state_work_t;
+
+_Static_assert(sizeof(osd_surface_t) + 8 + sizeof(state_work_t) <= TELESTRAT_FRAMEBUFFER_SIZE,
+               "zone de travail des instantanés hors de l'image");
+
+static state_work_t *state_work(void) {
+    const uintptr_t at = ((uintptr_t)state.telestrat.fb + sizeof(osd_surface_t) + 7) & ~(uintptr_t)7;
+    return (state_work_t *)at;
+}
+
+static bool state_write(void *ctx, void *data, uint32_t len) {
+    UINT n = 0;
+    return f_write((FIL *)ctx, data, len, &n) == FR_OK && n == len;
+}
+
+static bool state_read(void *ctx, void *data, uint32_t len) {
+    UINT n = 0;
+    return f_read((FIL *)ctx, data, len, &n) == FR_OK && n == len;
+}
+
+// Cartouches (bank1= … bank7=, vide : origine) et supports (pour information)
+static void state_info(char *out, size_t cap) {
+    size_t n = 0;
+    for (int b = 1; b < 8 && n < cap; b++) n += (size_t)snprintf(out + n, cap - n, "bank%d=%s\n", b, pool.name[b]);
+    for (int d = 0; d < 4 && n < cap; d++)
+        if (drive_name[d][0]) n += (size_t)snprintf(out + n, cap - n, "%c=%s\n", 'a' + d, drive_name[d]);
+    if (n < cap && tape_open) snprintf(out + n, cap - n, "cassette=%s\n", tape_name);
+}
+
+static bool state_save(char *name, size_t cap, const char **err) {
+    state_work_t *w = state_work();
+    FILINFO fi;
+    for (int k = 1; k <= 9999; k++) {
+        snprintf(name, cap, "ETAT%04d.STA", k);
+        if (f_stat(name, &fi) != FR_OK) break;
+    }
+    if (f_open(&w->fil, name, FA_CREATE_NEW | FA_WRITE) != FR_OK) {
+        *err = "écriture impossible";
+        return false;
+    }
+    state_info(w->info, sizeof(w->info));
+    const bool ok = telestrat_state_save(&state.telestrat, w->info, state_write, &w->fil, err);
+    f_close(&w->fil);
+    if (!ok) f_unlink(name);
+    return ok;
+}
+
+static bool state_load(const char *name, const char **err) {
+    state_work_t *w = state_work();
+    if (f_open(&w->fil, name, FA_READ) != FR_OK) {
+        *err = "illisible";
+        return false;
+    }
+    bool ok = telestrat_state_load_info(state_read, &w->fil, w->info, sizeof(w->info), err);
+    for (char *line = ok ? strtok(w->info, "\n") : NULL; ok && line; line = strtok(NULL, "\n")) {
+        for (int b = 1; b < 8; b++) {
+            char key[8];
+            snprintf(key, sizeof(key), "bank%d", b);
+            const char *v = osd_config_value(line, key);
+            if (!v || !strcmp(v, pool.name[b])) continue;
+            const rom_builtin_t *rb = v[0] == '@' ? rom_builtin_find(v) : NULL;
+            if (!v[0]) rom_pool_restore(&pool, &state.telestrat, b);
+            else if (rb ? !rom_pool_load_builtin(&pool, &state.telestrat, b, rb, err) : !bank_load(b, v, err)) {
+                *err = "cartouche de l'instantané absente de la clé";
+                ok = false;
+            }
+        }
+    }
+    if (ok && !telestrat_state_load_machine(&state.telestrat, state_read, &w->fil, err)) {
+        telestrat_cold_reset(&state.telestrat);  // machine incohérente
+        ok = false;
+    }
+    f_close(&w->fil);
+    return ok;
+}
+
 static void menu_close(void) {
     tape_options_apply();  // cartouches peut-être changées
     osd_open = false;
@@ -777,6 +862,26 @@ static void menu_action(osd_action_t a) {
                 if (modem_idx >= 0) modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
             }
             osd_menu_message(&menu, false, modem_enabled ? "Modem activé" : "Modem coupé (ligne raccrochée)");
+            break;
+        case OSD_ACT_STATE_SAVE:
+            if (state_save(menu.state_last, sizeof(menu.state_last), &err)) {
+                snprintf(msg, sizeof(msg), "Instantané enregistré : %s", menu.state_last);
+                osd_menu_message(&menu, false, msg);
+                usb_scan();
+            } else {
+                snprintf(msg, sizeof(msg), "Instantané : %s", err);
+                osd_menu_message(&menu, true, msg);
+            }
+            break;
+        case OSD_ACT_STATE_LOAD:
+            if (state_load(menu.files[a.file].name, &err)) {
+                snprintf(menu.state_last, sizeof(menu.state_last), "%s", menu.files[a.file].name);
+                snprintf(msg, sizeof(msg), "Instantané repris : %s", menu.files[a.file].name);
+                osd_menu_message(&menu, false, msg);
+            } else {
+                snprintf(msg, sizeof(msg), "%.40s : %.50s", menu.files[a.file].name, err);
+                osd_menu_message(&menu, true, msg);
+            }
             break;
         case OSD_ACT_TAPE_TURBO:
             tape_turbo = !tape_turbo;

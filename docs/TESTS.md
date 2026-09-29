@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (380 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (403 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -83,6 +83,13 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - menu : périphériques (imprimante sous la banque 1, modem à droite, Entrée :
   actions, panneau : état) ; `TELESTRA.CFG` : `impression=`, `modem=`,
   valeurs oui / non ;
+- instantanés : capture des registres par NMI (A, X, Y, S, P comparés au
+  65C02 émulé, reprise à la bonne adresse, moins de 60 cycles), le programme
+  continue ; restitution (registres remis, RAM intacte, la boucle reprend) ;
+  capture après un NMI de F11 ; fichier en mémoire : texte de la plate-forme
+  relu, machine relue puis 7000 cycles = même RAM, mêmes registres, même
+  timer que la suite d'origine ; autre variante, fichier tronqué, accès
+  disque refusés ; menu : ligne Instantanés, sélecteur, « enregistrer » ;
 - cassette rapide (`oric_tape_turbo.h`, `oric_tape.h`) : pas de synchro
   sans cassette ni moteur ; synchro puis octets de deux programmes, signal
   suspendu puis libéré à l'arrêt du moteur, bout de bande ; synchro demandée
@@ -190,6 +197,18 @@ Enregistrer → `cassette_rapide=oui`, `cassette_moteur=toujours` ; menu
 relu au démarrage suivant (`-O menu.txt`) : réglages affichés, cartouches
 nommées. Essai manuel : « L'Aigle d'Or » en rapide arrive à « APPUYEZ SUR
 UNE TOUCHE » (en lecture normale, encore « Loading » après 120 s).
+
+## Instantanés — `tests/test_state.sh` (7 vérifications)
+
+HYPER-BASIC (STRATSED) : `A=1234:B$="INSTANTANE"`, instantané (`-X`),
+nouvelle session reprise (`-J`) : `PRINT A;B$` donne `1234INSTANTANE`.
+Mode Atmos : programme tapé, instantané, reprise, `RUN` (« REPRIS », 42),
+programme à l'écran. Menu (`-U`) : Instantanés → Enregistrer
+(`ETAT0001.STA`) avec STRATORIC en banque 7 ; reprise par le menu depuis une
+configuration sans STRATORIC : message, STRATORIC remise en banque 7, ligne
+Instantanés avec le dernier fichier (`-O menu.txt`). Fichier abîmé refusé
+(« pas un instantané »). Essai manuel : « L'Aigle d'Or » repris donne la
+même image que la suite d'origine.
 
 ## Imprimantes — `tests/test_printer.sh` (12 vérifications)
 

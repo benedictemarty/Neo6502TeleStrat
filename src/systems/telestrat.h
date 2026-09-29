@@ -822,9 +822,8 @@ TELESTRAT_SLOW static void _telestrat_psg_events(telestrat_t* sys) {
     sys->psg_next = next;
 }
 
-TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
-    MOS6502CPU_TICK(&sys->cpu);
-    const uint16_t addr = MOS6502CPU_GET_ADDR(&sys->cpu);
+// Accès mémoire du cycle en cours (adresse posée par le processeur)
+static inline void _telestrat_access(telestrat_t* sys, uint16_t addr) {
     if ((addr & 0xFF00) != 0x0300) {
         // RAM et banques : chemin court
         if (sys->cpu.rw) {
@@ -841,11 +840,12 @@ TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
     } else {
         _telestrat_io_access(sys, addr);
     }
+}
 
+// Fin du cycle : AY, périphériques par pas de 4 cycles (sautés au repos)
+static inline void _telestrat_tick_end(telestrat_t* sys) {
     const uint32_t t = sys->system_ticks;
     if (t == sys->psg_next) _telestrat_psg_events(sys);
-
-    // Périphériques par pas de 4 cycles, sautés au repos
     if ((t & 3) == 0) {
         if ((int32_t)(t - sys->quiet_until) < 0) {
             sys->deferred += 4;
@@ -853,8 +853,150 @@ TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
             _telestrat_step(sys);
         }
     }
-
     sys->system_ticks = t + 1;
+}
+
+TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
+    MOS6502CPU_TICK(&sys->cpu);
+    _telestrat_access(sys, MOS6502CPU_GET_ADDR(&sys->cpu));
+    _telestrat_tick_end(sys);
+}
+
+/*-- Registres du processeur (instantanés) -------------------------------------*/
+// Sur le Neo6502 le 65C02 est une vraie puce : ses registres ne se lisent
+// pas. On les lui fait donc écrire (ou charger) par un NMI détourné, pendant
+// quelques dizaines de cycles, par une variante du pas (hors de la RAM) :
+//   - le NMI empile PC et P (écritures en $0100 + S, S-1, S-2) puis lit le
+//     vecteur en $FFFA : on répond $FF00, adresse d'un petit programme servi
+//     à la place de la banque ;
+//   - capture : STA $FF00, STX $FF00, STY $FF00 (écritures relevées, pas
+//     faites) puis RTI, qui dépile P et PC de la vraie pile : le programme
+//     reprend où il était, avec les mêmes registres ;
+//   - restitution : LDX #S-3, TXS, LDA #A, LDX #X, LDY #Y, RTI ; les trois
+//     lectures de la pile sont servies (P, PCL, PCH de l'instantané), les
+//     écritures jetées, la machine chargée n'est pas touchée.
+// Même code au banc PC (65C02 émulé cycle à cycle) : il y est testé.
+typedef struct {
+    uint8_t a, x, y, s, p;
+    uint16_t pc;
+} telestrat_regs_t;
+
+#define TELESTRAT_STUB     0xFF00
+#define TELESTRAT_STUB_LEN 12
+
+typedef struct {
+    bool restore;          // restitution (sinon capture)
+    int phase;             // 0 : NMI en attente ; 1 : programme ; 2 : terminé
+    telestrat_regs_t r;
+    uint8_t stub[TELESTRAT_STUB_LEN];
+    uint16_t waddr[3];     // trois dernières écritures (empilements du NMI)
+    uint8_t wdata[3];
+    int nwrites;           // écritures du programme de capture (A, X, Y)
+    bool rti;              // RTI lu
+    bool ok;
+} _telestrat_snoop_t;
+
+// Lecture sans effet de bord (restitution : la machine chargée ne change pas)
+static inline uint8_t _telestrat_quiet_read(telestrat_t* sys, uint16_t addr) {
+    if ((addr & 0xFF00) == 0x0300) return 0xFF;
+    return addr >= 0xC000 ? _telestrat_bank_read(sys, addr) : sys->ram[addr];
+}
+
+TELESTRAT_COLD static void _telestrat_tick_snoop(telestrat_t* sys, _telestrat_snoop_t* sn) {
+    MOS6502CPU_TICK(&sys->cpu);
+    const uint16_t addr = MOS6502CPU_GET_ADDR(&sys->cpu);
+    const bool rd = sys->cpu.rw;
+    bool served = false;
+    if (sn->phase == 0) {
+        if (rd && (addr == 0xFFFA || addr == 0xFFFB)) {
+            if (addr == 0xFFFA) {
+                // Empilements : PCH, PCL, P aux trois dernières écritures
+                const bool pushes = sn->waddr[0] >> 8 == 1 && sn->waddr[1] == sn->waddr[0] - 1 &&
+                                    sn->waddr[2] == sn->waddr[0] - 2;
+                if (!sn->restore) {
+                    sn->ok = pushes;
+                    sn->r.s = (uint8_t)sn->waddr[0];
+                    sn->r.pc = (uint16_t)(sn->wdata[0] << 8 | sn->wdata[1]);
+                    sn->r.p = sn->wdata[2];
+                }
+            } else {
+                sn->phase = 1;
+                MOS6502CPU_SET_NMI(&sys->cpu, false);
+            }
+            MOS6502CPU_SET_DATA(&sys->cpu, addr == 0xFFFA ? (uint8_t)TELESTRAT_STUB : (uint8_t)(TELESTRAT_STUB >> 8));
+            served = true;
+        } else if (!rd) {
+            for (int i = 0; i < 2; i++) sn->waddr[i] = sn->waddr[i + 1], sn->wdata[i] = sn->wdata[i + 1];
+            sn->waddr[2] = addr;
+            sn->wdata[2] = MOS6502CPU_GET_DATA(&sys->cpu);
+            served = sn->restore;  // restitution : écriture jetée
+        } else if (sn->restore) {
+            MOS6502CPU_SET_DATA(&sys->cpu, _telestrat_quiet_read(sys, addr));
+            served = true;
+        }
+    } else if (sn->phase == 1) {
+        const uint8_t s0 = sn->r.s;  // pile d'avant le NMI : P en S-2, PCL en S-1, PCH en S
+        if (rd && addr >= TELESTRAT_STUB && addr < TELESTRAT_STUB + TELESTRAT_STUB_LEN) {
+            const uint8_t op = sn->stub[addr - TELESTRAT_STUB];
+            if (addr - TELESTRAT_STUB == 9) sn->rti = true;  // RTI (même place dans les deux programmes)
+            MOS6502CPU_SET_DATA(&sys->cpu, op);
+            served = true;
+        } else if (!rd && addr >= TELESTRAT_STUB) {
+            // Capture : STA, STX, STY
+            const uint8_t d = MOS6502CPU_GET_DATA(&sys->cpu);
+            if (sn->nwrites == 0) sn->r.a = d;
+            else if (sn->nwrites == 1) sn->r.x = d;
+            else if (sn->nwrites == 2) sn->r.y = d;
+            sn->nwrites++;
+            served = true;
+        } else if (sn->restore) {
+            // Pile servie : P, PCL, PCH de l'instantané ; le reste : jeté
+            uint8_t d = 0xFF;
+            if (addr == 0x100 + (uint8_t)(s0 - 2)) d = sn->r.p;
+            else if (addr == 0x100 + (uint8_t)(s0 - 1)) d = (uint8_t)sn->r.pc;
+            else if (addr == 0x100 + s0) d = (uint8_t)(sn->r.pc >> 8);
+            if (rd) MOS6502CPU_SET_DATA(&sys->cpu, d);
+            served = true;
+        }
+        if (rd && sn->rti && addr == 0x100 + s0) {
+            sn->phase = 2;  // PCH dépilé : le programme reprend au cycle suivant
+            if (sn->restore) sn->ok = true;
+            else sn->ok = sn->ok && sn->nwrites == 3;
+        }
+    }
+    if (!served) _telestrat_access(sys, addr);
+    if (!sn->restore) _telestrat_tick_end(sys);
+}
+
+// Capture des registres (programme en cours, qui reprend aussitôt) ; false :
+// le NMI n'a pas été pris (au plus 100 cycles)
+TELESTRAT_COLD bool telestrat_cpu_capture(telestrat_t* sys, telestrat_regs_t* r) {
+    static const uint8_t stub[TELESTRAT_STUB_LEN] = {0x8D, 0x00, 0xFF, 0x8E, 0x00, 0xFF, 0x8C, 0x00, 0xFF, 0x40, 0xEA, 0xEA};
+    _telestrat_snoop_t sn;
+    memset(&sn, 0, sizeof(sn));
+    memcpy(sn.stub, stub, sizeof(stub));
+    MOS6502CPU_SET_NMI(&sys->cpu, false);  // un front, même après un NMI resté bas
+    MOS6502CPU_SET_NMI(&sys->cpu, true);
+    for (int i = 0; i < 100 && sn.phase != 2; i++) _telestrat_tick_snoop(sys, &sn);
+    MOS6502CPU_SET_NMI(&sys->cpu, false);
+    if (r) *r = sn.r;
+    return sn.phase == 2 && sn.ok;
+}
+
+// Restitution des registres (machine déjà chargée : RAM, périphériques)
+TELESTRAT_COLD bool telestrat_cpu_restore(telestrat_t* sys, const telestrat_regs_t* r) {
+    _telestrat_snoop_t sn;
+    memset(&sn, 0, sizeof(sn));
+    sn.restore = true;
+    sn.r = *r;
+    const uint8_t stub[TELESTRAT_STUB_LEN] = {0xA2, (uint8_t)(r->s - 3), 0x9A, 0xA9, r->a, 0xA2, r->x, 0xA0, r->y, 0x40, 0xEA, 0xEA};
+    memcpy(sn.stub, stub, sizeof(stub));
+    MOS6502CPU_SET_NMI(&sys->cpu, false);  // un front, même après un NMI resté bas
+    MOS6502CPU_SET_NMI(&sys->cpu, true);
+    for (int i = 0; i < 100 && sn.phase != 2; i++) _telestrat_tick_snoop(sys, &sn);
+    MOS6502CPU_SET_NMI(&sys->cpu, false);
+    sys->quiet_until = sys->system_ticks;
+    return sn.phase == 2 && sn.ok;
 }
 
 // Vidéo ULA : même image qu'oric_screen_update d'oric.h (vérifié contre le

@@ -19,6 +19,7 @@
 #include "osd/osd_config.h"
 #include "osd/rom_pool.h"
 #include "osd/rom_builtin.h"
+#include "systems/telestrat_state.h"
 
 // Comme le firmware : un emplacement par ROM intégrée, plus un supplémentaire
 #define MENU_PC_EXTRA_SLOTS 1
@@ -86,8 +87,8 @@ static void menu_pc_scan(menu_pc_t* p) {
     struct dirent* e;
     while ((e = readdir(d)) && m->nfiles < OSD_MENU_FILES) {
         bool dsk = _menu_pc_ext(e->d_name, ".dsk"), rom = _menu_pc_ext(e->d_name, ".rom"),
-             tap = _menu_pc_ext(e->d_name, ".tap");
-        if ((!dsk && !rom && !tap) || strlen(e->d_name) >= OSD_NAME_LEN) continue;
+             tap = _menu_pc_ext(e->d_name, ".tap"), sta = _menu_pc_ext(e->d_name, ".sta");
+        if ((!dsk && !rom && !tap && !sta) || strlen(e->d_name) >= OSD_NAME_LEN) continue;
         char path[512];
         struct stat st;
         _menu_pc_path(p, e->d_name, path, sizeof(path));
@@ -95,7 +96,7 @@ static void menu_pc_scan(menu_pc_t* p) {
         osd_file_t* f = &m->files[m->nfiles++];
         snprintf(f->name, sizeof(f->name), "%s", e->d_name);
         f->size = (uint32_t)st.st_size;
-        f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : OSD_FILE_ROM;
+        f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : sta ? OSD_FILE_STA : OSD_FILE_ROM;
     }
     closedir(d);
     qsort(m->files, (size_t)m->nfiles, sizeof(m->files[0]), _menu_pc_cmp);
@@ -322,6 +323,77 @@ static void menu_pc_save(menu_pc_t* p) {
     osd_menu_message(&p->menu, !f, f ? "Configuration enregistrée dans TELESTRA.CFG" : "TELESTRA.CFG : écriture impossible");
 }
 
+/*-- Instantanés ---------------------------------------------------------------*/
+
+static bool _menu_pc_state_write(void* ctx, void* d, uint32_t n) { return fwrite(d, 1, n, (FILE*)ctx) == n; }
+static bool _menu_pc_state_read(void* ctx, void* d, uint32_t n) { return fread(d, 1, n, (FILE*)ctx) == n; }
+
+// Texte de la plate-forme : cartouches (bank1= … bank7=, vide : origine),
+// supports (pour information)
+static void menu_pc_state_info(menu_pc_t* p, telestrat_t* sys, char* out, size_t cap) {
+    size_t n = 0;
+    for (int b = 1; b < 8 && n < cap; b++) n += (size_t)snprintf(out + n, cap - n, "bank%d=%s\n", b, p->pool.name[b]);
+    for (int d = 0; d < 4 && n < cap; d++)
+        if (p->disk[d]) n += (size_t)snprintf(out + n, cap - n, "%c=%s\n", 'a' + d, p->disk_name[d]);
+    if (n < cap && sys->tape.inserted) snprintf(out + n, cap - n, "cassette=%s\n", p->tape_name);
+}
+
+// Nouvel instantané ETATnnnn.STA ; name : son nom
+static bool menu_pc_state_save(menu_pc_t* p, telestrat_t* sys, char* name, size_t cap, const char** err) {
+    char path[512];
+    for (int k = 1; k <= 9999; k++) {
+        snprintf(name, cap, "ETAT%04d.STA", k);
+        _menu_pc_path(p, name, path, sizeof(path));
+        FILE* t = fopen(path, "rb");
+        if (!t) break;
+        fclose(t);
+    }
+    FILE* f = fopen(path, "wb");
+    if (!f) {
+        *err = "écriture impossible";
+        return false;
+    }
+    static char info[TELESTRAT_STATE_INFO_MAX];
+    menu_pc_state_info(p, sys, info, sizeof(info));
+    const bool ok = telestrat_state_save(sys, info, _menu_pc_state_write, f, err);
+    fclose(f);
+    if (!ok) remove(path);
+    return ok;
+}
+
+// Reprise : cartouches de l'instantané remises, puis la machine
+static bool menu_pc_state_load(menu_pc_t* p, telestrat_t* sys, const char* name, const char** err) {
+    char path[512];
+    _menu_pc_path(p, name, path, sizeof(path));
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        *err = "illisible";
+        return false;
+    }
+    static char info[TELESTRAT_STATE_INFO_MAX + 1];
+    bool ok = telestrat_state_load_info(_menu_pc_state_read, f, info, sizeof(info), err);
+    for (char* line = ok ? strtok(info, "\n") : NULL; ok && line; line = strtok(NULL, "\n")) {
+        for (int b = 1; b < 8; b++) {
+            char key[8];
+            snprintf(key, sizeof(key), "bank%d", b);
+            const char* v = osd_config_value(line, key);
+            if (!v || !strcmp(v, p->pool.name[b])) continue;
+            const rom_builtin_t* rb = v[0] == '@' ? rom_builtin_find(v) : NULL;
+            if (!v[0]) menu_pc_restore(p, sys, b);
+            else if (rb ? !rom_pool_load_builtin(&p->pool, sys, b, rb, err) : !menu_pc_load_rom(p, sys, b, v, err)) {
+                *err = "cartouche de l'instantané absente de la clé";
+                ok = false;
+            }
+        }
+    }
+    if (ok && !telestrat_state_load_machine(sys, _menu_pc_state_read, f, err)) {
+        telestrat_cold_reset(sys);  // machine incohérente
+        ok = false;
+    }
+    fclose(f);
+    return ok;
+}
+
 // Exécute une action du menu ; retourne true s'il faut fermer le menu
 static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
     osd_menu_t* m = &p->menu;
@@ -373,6 +445,26 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
         case OSD_ACT_MODEM:
             p->modem_on = !p->modem_on;
             osd_menu_message(m, false, p->modem_on ? "Modem activé" : "Modem coupé (ligne raccrochée)");
+            break;
+        case OSD_ACT_STATE_SAVE:
+            if (menu_pc_state_save(p, sys, m->state_last, sizeof(m->state_last), &err)) {
+                snprintf(msg, sizeof(msg), "Instantané enregistré : %s", m->state_last);
+                osd_menu_message(m, false, msg);
+                menu_pc_scan(p);
+            } else {
+                snprintf(msg, sizeof(msg), "Instantané : %s", err);
+                osd_menu_message(m, true, msg);
+            }
+            break;
+        case OSD_ACT_STATE_LOAD:
+            if (menu_pc_state_load(p, sys, m->files[a.file].name, &err)) {
+                snprintf(m->state_last, sizeof(m->state_last), "%s", m->files[a.file].name);
+                snprintf(msg, sizeof(msg), "Instantané repris : %s", m->files[a.file].name);
+                osd_menu_message(m, false, msg);
+            } else {
+                snprintf(msg, sizeof(msg), "%s : %s", m->files[a.file].name, err);
+                osd_menu_message(m, true, msg);
+            }
             break;
         case OSD_ACT_TAPE_TURBO:
             p->tape_turbo = !p->tape_turbo;

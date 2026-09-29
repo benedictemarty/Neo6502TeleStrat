@@ -165,5 +165,5 @@ static inline void neo6502bus_set_irq(neo6502bus_t* c, bool state) {
 #define MOS6502CPU_GET_DATA(c)       neo6502bus_get_data()
 #define MOS6502CPU_SET_DATA(c, data) neo6502bus_set_data(c, data)
 #define MOS6502CPU_SET_IRQ(c, state) neo6502bus_set_irq(c, state)
-#define MOS6502CPU_SET_NMI(c, state) ((void)0)
+#define MOS6502CPU_SET_NMI(c, state) gpio_put(NEO_NMI_PIN, !(state))
 #define MOS6502CPU_SYNC(c)           (false)

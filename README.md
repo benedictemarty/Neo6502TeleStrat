@@ -109,6 +109,19 @@ cartouches), Enregistrer la configuration dans `TELESTRA.CFG`, Reprendre.
 L'émulation est en pause tant qu'il est ouvert. Flèches, Entrée, Suppr
 (éjecter / contenu d'origine), une lettre (aller au fichier), Échap.
 
+**Instantanés** : « Instantanés » dans le menu (Entrée) enregistre la
+machine entière dans `ETAT0001.STA`, `ETAT0002.STA`… à la racine de la clé
+(processeur, RAM, banques de RAM, puces, contrôleur de disquettes, cadence),
+ou la reprend depuis un `.sta` de la clé : la machine revient à l'instant
+enregistré, cartouches comprises (remises si besoin). Les disquettes et la
+cassette ne font pas partie de l'instantané : ce sont celles qui sont
+insérées (comme on garde les disquettes à côté de la machine). Refusé pendant
+un accès disque. Un instantané se relit sur la même plate-forme et la même
+variante (carte standard, carte RAM 64 Ko, banc PC). **Non essayé sur
+carte** : le 65C02 du Neo6502 étant une vraie puce, ses registres sont lus
+par un NMI détourné (voir ARCHITECTURE), éprouvé seulement sur le 65C02
+émulé du banc.
+
 **Imprimante** : trois modèles, choisis dans le menu (Entrée sur
 « Imprimante » : Texte → Epson FX-80 → Traceur MCP-40 → coupée) ou par
 `imprimante_type=` :
@@ -247,6 +260,8 @@ build/telestrat_headless -c oricutron -0 STRATSED.DSK -f 1200 -w 500 -t '1~~~~~~
 build/telestrat_headless -0 a.dsk -W a2.dsk -P imprimante.txt ...   # disque réécrit, imprimante
 build/telestrat_headless -0 a.dsk -G fx80:pages ...                  # pages PNG de la FX-80 dans pages/
 build/printer_render mcp40 IMPRIM.TXT traces                         # rendu après coup d'une impression brute
+build/telestrat_headless -c atmos ... -X 690:jeu.sta                 # instantané à la trame 690
+build/telestrat_headless -c atmos -J jeu.sta -f 200 -s               # reprise
 build/telestrat_headless -c standard -0 a.dsk -L listen:3615 -R ...  # ligne Minitel sur TCP, temps réel
 ```
 

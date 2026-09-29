@@ -155,6 +155,15 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-132 | Menu et `TELESTRA.CFG` : `cassette_rapide=`, `cassette_moteur=` | ✅ banc |
 | US-133 | Banc : `-Z`, `-Y`, texte du menu (`-O menu.txt`) | ✅ |
 
+## Sprint 14 — v0.14.0 — « Instantanés » ✅ au banc (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-140 | Registres du vrai 65C02 lus et remis par un NMI détourné (programme servi sur le bus) | ✅ banc (65C02 émulé), ⏳ carte |
+| US-141 | Instantané de la machine dans `ETATnnnn.STA` ; reprise, cartouches remises | ✅ banc (`test_state`), ⏳ carte |
+| US-142 | Menu : ligne Instantanés (enregistrer, reprendre) | ✅ banc |
+| US-143 | Banc : `-X T:FICHIER`, `-J FICHIER` | ✅ |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
@@ -172,7 +181,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
   Fabrice BROCHE » au lieu du menu (banc) ; Oricutron ne simule pas de banque
   vide. À vérifier : notice de la cartouche, vrai Telestrat. (Sans TELE-ASS,
   l'arrêt après la liste des ROM est reproduit par Oricutron : v0.8.1.)
-- Variante RAM 64 Ko : 956 octets de RAM libres (v0.13.0). Imprimante :
+- Variante RAM 64 Ko : 860 octets de RAM libres (v0.14.0). Imprimante :
   Texte seulement.
 - Vraie imprimante USB (classe imprimante USB, ESC/P ou PCL) à la place des
   images : envoi des octets bruts, ou de la page rendue.
@@ -183,7 +192,9 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
   pointillés, les graduations de `X`, l'interligne mesuré sur une figure ;
   police vectorielle de la machine ; commutateurs DIP (80 colonnes,
   CR + LF).
-- Instantanés (savestates), sélecteur de ROM au démarrage.
+- Instantanés : touches rapides (F2 enregistrer, F3 reprendre le dernier) ;
+  essai sur carte du NMI détourné (ordre des cycles du vrai 65C02).
+- Sélecteur de ROM au démarrage.
 - Test « golden » image contre Oricutron (PPM), ROM ORIX.
 
 ## Définition de « terminé »

@@ -38,7 +38,7 @@
 #endif
 #define OSD_NAME_LEN   48
 
-enum { OSD_FILE_DSK = 0, OSD_FILE_ROM = 1, OSD_FILE_TAP = 2 };
+enum { OSD_FILE_DSK = 0, OSD_FILE_ROM = 1, OSD_FILE_TAP = 2, OSD_FILE_STA = 3 };
 
 #define OSD_BUILTINS 4  // ROM intégrées proposées pour une banque
 
@@ -69,6 +69,8 @@ enum {
     OSD_ACT_MODEM,        // modem activé / coupé
     OSD_ACT_TAPE_TURBO,   // cassette : lecture accélérée oui / non
     OSD_ACT_TAPE_MOTOR,   // cassette : moteur toujours en marche / relais
+    OSD_ACT_STATE_SAVE,   // nouvel instantané
+    OSD_ACT_STATE_LOAD,   // file = instantané à reprendre
 };
 
 typedef struct {
@@ -87,14 +89,15 @@ typedef struct {
 #define OSD_ITEM_DRIVE0  0   // 0-3 : lecteurs A-D
 #define OSD_ITEM_TAPE    4   // cassette
 #define OSD_ITEM_BANK7   5   // 5-11 : banques 7 à 1
-#define OSD_ITEM_PRINTER 12  // périphériques
-#define OSD_ITEM_MODEM   13
-#define OSD_ITEM_TURBO   14  // cassette : lecture accélérée
-#define OSD_ITEM_MOTOR   15  // cassette : moteur toujours en marche
-#define OSD_ITEM_RESET   16
-#define OSD_ITEM_SAVE    17
-#define OSD_ITEM_RESUME  18
-#define OSD_ITEMS        19
+#define OSD_ITEM_STATE   12  // instantanés (enregistrer, reprendre)
+#define OSD_ITEM_PRINTER 13  // périphériques
+#define OSD_ITEM_MODEM   14
+#define OSD_ITEM_TURBO   15  // cassette : lecture accélérée
+#define OSD_ITEM_MOTOR   16  // cassette : moteur toujours en marche
+#define OSD_ITEM_RESET   17
+#define OSD_ITEM_SAVE    18
+#define OSD_ITEM_RESUME  19
+#define OSD_ITEMS        20
 
 typedef struct {
     // --- Rempli par la plate-forme ---
@@ -110,6 +113,7 @@ typedef struct {
     const char* printer_model;    // « Texte », « Epson FX-80 »… (NULL : non affiché)
     char printer_file[OSD_NAME_LEN];  // fichier texte ou dernière page écrite
     bool modem_on;                // modem utilisé (sinon ligne coupée)
+    char state_last[OSD_NAME_LEN];  // dernier instantané enregistré ou repris
     bool tape_turbo;              // cassette : lecture accélérée (BASIC 1.1)
     bool tape_motor_always;       // cassette : moteur toujours en marche
     const char* modem_state;      // « absent », « branché », « sonnerie », « en ligne »…
@@ -150,7 +154,10 @@ static inline const char* _osd_entry_name(const osd_menu_t* m, int entry) {
 }
 
 static inline void _osd_open_browser(osd_menu_t* m, int item) {
-    const uint8_t kind = _osd_item_is_drive(item) ? OSD_FILE_DSK : item == OSD_ITEM_TAPE ? OSD_FILE_TAP : OSD_FILE_ROM;
+    const uint8_t kind = _osd_item_is_drive(item) ? OSD_FILE_DSK
+                         : item == OSD_ITEM_TAPE  ? OSD_FILE_TAP
+                         : item == OSD_ITEM_STATE ? OSD_FILE_STA
+                                                  : OSD_FILE_ROM;
     m->browse_count = 0;
     if (kind == OSD_FILE_ROM)
         for (int k = 0; k < OSD_BUILTINS && m->builtin[k]; k++) m->browse_list[m->browse_count++] = -2 - k;
@@ -160,7 +167,10 @@ static inline void _osd_open_browser(osd_menu_t* m, int item) {
     m->browse_cursor = 0;
     m->browse_scroll = 0;
     // Curseur sur l'image, la cassette ou la cartouche en place
-    const char* cur = _osd_item_is_drive(item) ? m->drive[item] : item == OSD_ITEM_TAPE ? m->tape : m->bank[_osd_item_bank(item)];
+    const char* cur = _osd_item_is_drive(item)   ? m->drive[item]
+                      : item == OSD_ITEM_TAPE  ? m->tape
+                      : item == OSD_ITEM_STATE ? m->state_last
+                                               : m->bank[_osd_item_bank(item)];
     for (int k = 0; k < m->browse_count; k++)
         if (!strcmp(_osd_entry_name(m, m->browse_list[k]), cur)) m->browse_cursor = k + 1;
     m->page = OSD_PAGE_BROWSE;
@@ -201,6 +211,8 @@ static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
                     a.type = none ? OSD_ACT_EJECT : OSD_ACT_INSERT;
                 } else if (item == OSD_ITEM_TAPE) {
                     a.type = none ? OSD_ACT_TAPE_EJECT : OSD_ACT_TAPE_INSERT;
+                } else if (item == OSD_ITEM_STATE) {
+                    a.type = none ? OSD_ACT_STATE_SAVE : OSD_ACT_STATE_LOAD;
                 } else {
                     a.target = _osd_item_bank(item);
                     a.type = none ? OSD_ACT_RESTORE : file >= 0 ? OSD_ACT_LOAD_ROM : OSD_ACT_LOAD_BUILTIN;
@@ -257,7 +269,7 @@ static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
             }
             break;
         case OSD_KEY_ENTER:
-            if (c <= OSD_ITEM_TAPE || _osd_item_is_bank(c)) _osd_open_browser(m, c);
+            if (c <= OSD_ITEM_TAPE || _osd_item_is_bank(c) || c == OSD_ITEM_STATE) _osd_open_browser(m, c);
             else if (c == OSD_ITEM_PRINTER) a.type = OSD_ACT_PRINTER;
             else if (c == OSD_ITEM_MODEM) a.type = OSD_ACT_MODEM;
             else if (c == OSD_ITEM_TURBO) a.type = OSD_ACT_TAPE_TURBO;
@@ -399,22 +411,35 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
     // Clé USB
     _osd_panel(s, 18, 2, 4, 56, OSD_USB_L, "Clé USB");
     if (m->usb_present) {
-        int ndsk = 0, nrom = 0, ntap = 0;
+        int ndsk = 0, nrom = 0, ntap = 0, nsta = 0;
         for (int i = 0; i < m->nfiles; i++) {
             if (m->files[i].kind == OSD_FILE_DSK) ndsk++;
             else if (m->files[i].kind == OSD_FILE_TAP) ntap++;
+            else if (m->files[i].kind == OSD_FILE_STA) nsta++;
             else nrom++;
         }
         osd_puts(s, 19, 5, m->usb_label[0] ? m->usb_label : "Clé montée", OSD_PANEL, 50);
-        snprintf(buf, sizeof(buf), "%d .dsk   %d .tap   %d .rom", ndsk, ntap, nrom);
+        snprintf(buf, sizeof(buf), "%d .dsk   %d .tap   %d .rom   %d .sta", ndsk, ntap, nrom, nsta);
         osd_puts(s, 20, 5, buf, OSD_PANEL_DIM, -1);
     } else {
         osd_puts(s, 19, 5, "Aucune clé", OSD_PANEL, -1);
-        osd_puts(s, 20, 5, "Brancher une clé FAT : .dsk, .tap, .rom à la racine", OSD_PANEL_DIM, -1);
+        osd_puts(s, 20, 5, "Brancher une clé FAT : .dsk, .tap, .rom, .sta à la racine", OSD_PANEL_DIM, -1);
     }
 
     // Périphériques : imprimante, modem (Entrée : activer / couper)
     _osd_panel(s, 23, 2, 5, 116, 0, "Périphériques");
+    {
+        // Instantanés (Entrée : enregistrer, reprendre)
+        const bool sel_s = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_STATE;
+        _osd_item_bar(s, 24, 4, 112, sel_s);
+        osd_puts(s, 24, 6, "Instantanés", sel_s ? OSD_SEL_ACC : OSD_PANEL_ACC, -1);
+        const uint8_t dim_s = sel_s ? OSD_SEL_DIM : OSD_PANEL_DIM;
+        const int sn = osd_puts(s, 24, 20, "enregistrer ou reprendre la machine", sel_s ? OSD_SEL : OSD_PANEL, -1);
+        if (m->state_last[0]) {
+            snprintf(buf, sizeof(buf), "→ %s", m->state_last);
+            osd_puts(s, 24, 21 + sn, buf, dim_s, 112 - 21 - sn);
+        }
+    }
     {
         const bool sel_p = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_PRINTER;
         const bool sel_m = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_MODEM;
@@ -494,16 +519,17 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
 
     // Sélecteur de fichiers, par-dessus
     const int item = m->browse_target;
-    const bool drive = _osd_item_is_drive(item), tape = item == OSD_ITEM_TAPE;
+    const bool drive = _osd_item_is_drive(item), tape = item == OSD_ITEM_TAPE, state = item == OSD_ITEM_STATE;
     if (drive) snprintf(buf, sizeof(buf), "Disquette pour le lecteur %c", 'A' + item);
     else if (tape) snprintf(buf, sizeof(buf), "Cassette (la même : rembobinée)");
+    else if (state) snprintf(buf, sizeof(buf), "Instantanés (reprendre : la machine revient à cet instant)");
     else snprintf(buf, sizeof(buf), "Cartouche pour la banque %d", _osd_item_bank(item));
     const int top = 6, left = 22, width = 76, height = OSD_BROWSE_VISIBLE + 4;
     osd_fill(s, top + 1, left + 2, height, width, OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER));  // ombre
     osd_fill(s, top, left, height, width, OSD_ATTR(OSD_WHITE, OSD_BLACK));
     osd_frame(s, top, left, height, width, OSD_ATTR(OSD_YELLOW, OSD_BLACK), NULL, 0);
     osd_putc(s, top, left + 2, ' ', OSD_ATTR(OSD_YELLOW, OSD_BLACK));
-    const uint8_t icon = drive ? OSD_FLOP_L : tape ? OSD_TAPE_L : OSD_CART_L;
+    const uint8_t icon = drive ? OSD_FLOP_L : tape ? OSD_TAPE_L : state ? OSD_USB_L : OSD_CART_L;
     osd_putc(s, top, left + 3, icon, OSD_ATTR(OSD_YELLOW, OSD_BLACK));
     osd_putc(s, top, left + 4, (uint8_t)(icon + 1), OSD_ATTR(OSD_YELLOW, OSD_BLACK));
     const int tl = osd_puts(s, top, left + 6, buf, OSD_ATTR(OSD_WHITE, OSD_BLACK), -1);
@@ -517,7 +543,11 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
         osd_fill(s, row, left + 2, 1, width - 5, base);
         if (idx == 0) {
             osd_puts(s, row, left + 4,
-                     drive ? "Éjecter la disquette" : tape ? "Éjecter la cassette" : "Contenu d'origine de la banque", dim,
+                     drive   ? "Éjecter la disquette"
+                     : tape  ? "Éjecter la cassette"
+                     : state ? "Enregistrer un nouvel instantané (ETATnnnn.STA)"
+                             : "Contenu d'origine de la banque",
+                     dim,
                      -1);
             continue;
         }

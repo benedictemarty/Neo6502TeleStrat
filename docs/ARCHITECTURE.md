@@ -331,6 +331,50 @@ affiché : absent, prêt, sonnerie, en ligne, prise RS232. Au banc : `-P`
 
 RAM : 13,6 Ko libres (standard), **88 octets** (RAM 64 Ko).
 
+## Instantanés (sprint 14)
+
+**Registres du processeur** (`telestrat.h`, `telestrat_cpu_capture` /
+`telestrat_cpu_restore`) : le 65C02 du Neo6502 est une vraie puce, ses
+registres ne se lisent pas. On les lui fait écrire, ou charger, par un NMI
+détourné : pendant quelques dizaines de cycles, une variante du pas
+(`_telestrat_tick_snoop`, hors de la RAM : aucun coût pour `telestrat_tick`)
+sert elle-même le bus.
+
+- Capture : NMI ; le processeur finit son instruction, empile PCH, PCL, P
+  (trois écritures en `$0100+S`, `S-1`, `S-2`, relevées : PC, P et S), lit le
+  vecteur en `$FFFA` : on répond `$FF00`, où l'on sert `STA $FF00`,
+  `STX $FF00`, `STY $FF00` (écritures relevées : A, X, Y ; pas faites en
+  mémoire) puis `RTI`, qui dépile P et PC de la vraie pile. Le programme
+  reprend où il était, avec les mêmes registres, 25 à 40 cycles plus tard.
+- Restitution (machine déjà chargée) : NMI ; lectures servies sans effet de
+  bord, écritures jetées (empilements compris) ; au vecteur, `LDX #S-3`,
+  `TXS`, `LDA #A`, `LDX #X`, `LDY #Y`, `RTI` ; les trois lectures de pile
+  du `RTI` sont servies (P, PCL, PCH de l'instantané). La RAM chargée n'est
+  pas touchée.
+
+Le même code tourne au banc sur le 65C02 émulé cycle à cycle, où les
+registres internes sont lisibles : `tests/test_telestrat.c` vérifie A, X, Y,
+S, P et l'adresse de reprise, et qu'une machine relue repart exactement
+comme l'originale (même RAM, mêmes registres, même timer après 7000 cycles).
+Sur la carte, le NMI est tenu bas par `MOS6502CPU_SET_NMI` (GPIO 27)
+pendant la prise en compte. Reste à vérifier sur le vrai 65C02 : l'ordre des
+cycles du NMI et du `RTI` (empilements puis `$FFFA`, pile dépilée en S+1…S+3),
+supposé identique à l'émulation.
+
+**Fichier** (`src/systems/telestrat_state.h`) : en-tête (« TELESTRAT ETAT »,
+version, signature des tailles de structures), texte de la plate-forme
+(`bank1=` … `bank7=` : cartouches, remises à la reprise ; `a=` … `d=`,
+`cassette=` : pour information), registres, RAM, banques de RAM, VIA 1 et
+2, AY et ACIA (rappels de la plate-forme gardés), clavier, registres du
+WD1793 (piste, secteur, données, lecteur, face, têtes, `$0314` ; tampon de
+piste vidé sur la disquette), cadence (compteur de cycles, échéances de
+l'AY), STROBE et ACK. Pas enregistrés : disquettes et cassette (supports),
+enregistreur, joystick, ligne. Refusé pendant une commande du WD1793. Sur
+le Neo6502, le `FIL` et le texte sont pris dans l'image du Telestrat
+(menu ouvert), vérifié à la compilation (`_Static_assert`).
+
+RAM libre : 8,3 Ko (standard), 860 octets (RAM 64 Ko).
+
 ## Cassette rapide et moteur sans relais (sprint 13)
 
 **Cassette rapide** (`src/devices/oric_tape_turbo.h`) : dans la ROM ORIC

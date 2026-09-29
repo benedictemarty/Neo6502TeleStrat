@@ -31,6 +31,7 @@
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
 #include "systems/telestrat.h"
+#include "systems/telestrat_state.h"
 #include "osd/rom_pool.h"
 #include "roms/telestrat_roms.h"
 #include "osd/rom_builtin.h"
@@ -1021,6 +1022,127 @@ static void rec_emit(oric_tape_rec_t* r, uint8_t b, bool bad_parity) {
     }
 }
 
+// P reconstitué des drapeaux du 65C02 émulé (B et bit 5 ignorés)
+static uint8_t cpu_p(const w65c02cpu_t* c) {
+    return (uint8_t)(c->nf << 7 | c->vf << 6 | c->df << 3 | c->iflag << 2 | c->zf << 1 | c->cf);
+}
+
+static void test_cpu_snapshot(void) {
+    // Boucle qui change A, X, Y et les drapeaux à chaque tour
+    const uint8_t prog[] = {0xA2, 0x00, 0xA0, 0x80, 0xA9, 0x10,       // LDX #0, LDY #$80, LDA #$10
+                            0xE8, 0x88, 0x18, 0x69, 0x03, 0x85, 0x10,  // INX, DEY, CLC, ADC #3, STA $10
+                            0x4C, 0x06, 0xC0};                         // JMP $C006
+    load_program(prog, sizeof(prog));
+    boot();
+    run(1237);
+    telestrat_regs_t r;
+    const uint64_t t0 = sys.system_ticks;
+    CHECK(telestrat_cpu_capture(&sys, &r), "capture : NMI pris, programme servi");
+    CHECK(sys.system_ticks - t0 < 60, "capture : %u cycles", (unsigned)(sys.system_ticks - t0));
+    CHECK(r.a == sys.cpu.A && r.x == sys.cpu.X && r.y == sys.cpu.Y && r.s == sys.cpu.S,
+          "capture : A X Y S = %02X %02X %02X %02X (65C02 : %02X %02X %02X %02X)", r.a, r.x, r.y, r.s, sys.cpu.A,
+          sys.cpu.X, sys.cpu.Y, sys.cpu.S);
+    CHECK((r.p & 0xCF) == cpu_p(&sys.cpu) && (r.p & 0x20), "capture : P = %02X", r.p);
+    // Le RTI se termine au cycle suivant (normal) : lecture de l'opcode en PC
+    run(1);
+    CHECK(r.pc == sys.cpu.addr && sys.cpu.rw && r.pc >= 0xC006 && r.pc <= 0xC00F, "capture : PC = %04X (bus : %04X)", r.pc,
+          sys.cpu.addr);
+    CHECK(!sys.cpu.iflag || (r.p & 0x04), "capture : I rendu par le RTI");
+    // La boucle continue : A = $10 + 3 X (modulo 256) en tête de boucle
+    const uint8_t x0 = sys.cpu.X;
+    run(2000);
+    CHECK((uint8_t)(sys.cpu.X - x0) > 100, "capture : le programme continue");
+    // Restitution : registres remis, RAM intacte
+    static uint8_t ram[0xC000];
+    memcpy(ram, sys.ram, sizeof(ram));
+    CHECK(telestrat_cpu_restore(&sys, &r), "restitution : NMI pris, programme servi");
+    run(1);
+    CHECK(sys.cpu.A == r.a && sys.cpu.X == r.x && sys.cpu.Y == r.y && sys.cpu.S == r.s && sys.cpu.addr == r.pc &&
+              cpu_p(&sys.cpu) == (r.p & 0xCF),
+          "restitution : A X Y S P PC = %02X %02X %02X %02X %02X %04X", sys.cpu.A, sys.cpu.X, sys.cpu.Y, sys.cpu.S,
+          cpu_p(&sys.cpu), sys.cpu.addr);
+    CHECK(!memcmp(ram, sys.ram, sizeof(ram)), "restitution : RAM intacte (empilements jetés)");
+    run(500);
+    CHECK((uint8_t)(sys.cpu.X - r.x) > 10 && (uint8_t)(sys.cpu.X - r.x) < 100, "restitution : la boucle reprend depuis X = %02X",
+          r.x);
+    // Un NMI demandé plus tôt (F11) n'empêche pas la capture suivante
+    telestrat_nmi(&sys);
+    run(200);
+    CHECK(telestrat_cpu_capture(&sys, &r), "capture après un NMI de F11");
+}
+
+// Instantané en mémoire
+typedef struct {
+    uint8_t* data;
+    uint32_t len, pos, cap;
+} mem_state_t;
+
+static bool mem_state_write(void* ctx, void* d, uint32_t n) {
+    mem_state_t* m = (mem_state_t*)ctx;
+    if (m->len + n > m->cap) return false;
+    memcpy(m->data + m->len, d, n);
+    m->len += n;
+    return true;
+}
+
+static bool mem_state_read(void* ctx, void* d, uint32_t n) {
+    mem_state_t* m = (mem_state_t*)ctx;
+    if (m->pos + n > m->len) return false;
+    memcpy(d, m->data + m->pos, n);
+    m->pos += n;
+    return true;
+}
+
+static void test_state(void) {
+    // Programme : boucle qui écrit en RAM, VIA 1 : timer 1 libre (IRQ au RESET masquées)
+    const uint8_t prog[] = {0xA2, 0x00, 0xA0, 0x80, 0xA9, 0x10,       // LDX #0, LDY #$80, LDA #$10
+                            0xE8, 0x88, 0x18, 0x69, 0x03, 0x9D, 0x00, 0x20,  // INX, DEY, CLC, ADC #3, STA $2000,X
+                            0x8C, 0x04, 0x03,                          // STY $0304 (T1 du VIA 1)
+                            0x4C, 0x06, 0xC0};                         // JMP $C006
+    load_program(prog, sizeof(prog));
+    boot();
+    run(20011);
+    static uint8_t buf[300000];
+    mem_state_t m = {buf, 0, 0, sizeof(buf)};
+    const char* err = "";
+    CHECK(telestrat_state_save(&sys, "bank7=@essai\n", mem_state_write, &m, &err), "instantané enregistré (%s)", err);
+    CHECK(m.len > 0xC000, "instantané : %u octets", (unsigned)m.len);
+    // Suite de référence
+    run(7000);
+    static uint8_t ram_ref[0xC000];
+    memcpy(ram_ref, sys.ram, sizeof(ram_ref));
+    const uint8_t a = sys.cpu.A, x = sys.cpu.X, y = sys.cpu.Y;
+    const uint16_t t1 = sys.via.t1.counter;
+    // Machine dérangée, puis instantané relu
+    memset(sys.ram + 0x2000, 0x55, 0x100);
+    run(3333);
+    char info[64];
+    m.pos = 0;
+    CHECK(telestrat_state_load_info(mem_state_read, &m, info, sizeof(info), &err) && !strcmp(info, "bank7=@essai\n"),
+          "instantané : texte de la plate-forme relu (%s)", err);
+    CHECK(telestrat_state_load_machine(&sys, mem_state_read, &m, &err), "instantané relu (%s)", err);
+    run(7000);
+    CHECK(!memcmp(ram_ref, sys.ram, sizeof(ram_ref)) && sys.cpu.A == a && sys.cpu.X == x && sys.cpu.Y == y &&
+              sys.via.t1.counter == t1,
+          "relu puis 7000 cycles : même RAM, mêmes registres, même timer que la suite d'origine");
+    // Refus : autre signature, fichier tronqué, accès disque
+    buf[20] ^= 1;
+    m.pos = 0;
+    CHECK(!telestrat_state_load_info(mem_state_read, &m, info, sizeof(info), &err) && strstr(err, "variante"),
+          "autre variante refusée : %s", err);
+    buf[20] ^= 1;
+    m.pos = 0;
+    m.len = 5000;
+    CHECK(telestrat_state_load_info(mem_state_read, &m, info, sizeof(info), &err) &&
+              !telestrat_state_load_machine(&sys, mem_state_read, &m, &err) && strstr(err, "tronqué"),
+          "fichier tronqué : %s", err);
+    boot();
+    sys.fdc.wd.op = WD1793_OP_READ_SECTOR;
+    m.len = 0;
+    CHECK(!telestrat_state_save(&sys, "", mem_state_write, &m, &err) && strstr(err, "disque"), "accès disque : %s", err);
+    sys.fdc.wd.op = WD1793_OP_NONE;
+}
+
 static void test_tape_turbo(void) {
     // Deux programmes : synchro, $24, en-tête, nom, données
     static const uint8_t img[] = {0x16, 0x16, 0x16, 0x24, 0, 0, 0, 0, 0x05, 0x01, 0x05, 0x01, 0, 'A', 0, 0xA5,
@@ -1187,7 +1309,13 @@ static void test_osd_tape_menu(void) {
     // Périphériques : imprimante, modem
     osd_m.cursor = OSD_ITEM_BANK7 + 6;  // banque 1
     osd_menu_key(&osd_m, OSD_KEY_DOWN);
-    CHECK(osd_m.cursor == OSD_ITEM_PRINTER, "sous la banque 1 : l'imprimante");
+    CHECK(osd_m.cursor == OSD_ITEM_STATE, "sous la banque 1 : les instantanés");
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_target == OSD_ITEM_STATE, "Entrée : sélecteur des instantanés");
+    CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_STATE_SAVE, "première ligne : enregistrer");
+    osd_m.page = OSD_PAGE_MAIN;
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    CHECK(osd_m.cursor == OSD_ITEM_PRINTER, "puis l'imprimante");
     CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_PRINTER, "Entrée : imprimante activée / coupée");
     osd_menu_key(&osd_m, OSD_KEY_RIGHT);
     CHECK(osd_m.cursor == OSD_ITEM_MODEM && osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_MODEM,
@@ -1802,6 +1930,8 @@ int main(void) {
     test_plotter_mcp40();
     test_oric_tape();
     test_tape_turbo();
+    test_cpu_snapshot();
+    test_state();
     test_oric_tape_rec();
     test_osd_render();
     test_osd_menu();

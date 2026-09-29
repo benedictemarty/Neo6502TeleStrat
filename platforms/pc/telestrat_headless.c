@@ -50,6 +50,9 @@
 //   -Z         cassette rapide : CLOAD du BASIC 1.1 sans attendre (ROM patchée,
 //              oric_tape_turbo.h) ; avec -U, TELESTRA.CFG cassette_rapide= prime
 //   -Y         moteur de la cassette toujours en marche (câble sans relais)
+//   -X T:FICHIER instantané de la machine à la trame T (telestrat_state.h)
+//   -J FICHIER reprend un instantané au démarrage (même configuration -c ; avec
+//              -U, les cartouches de l'instantané sont remises)
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
 //   -B PRÉFIXE enregistre la trace (tests/replay.c, tools/rp2040_load.py) : PRÉFIXE.trace
 //              (un mot par cycle : adresse | R/W << 16 | IRQ << 17 | donnée << 24),
@@ -156,6 +159,10 @@ static printer_files_t printer_files;
 static fx80_t printer_fx;
 static mcp40_t printer_mcp;
 static int printer_idle = -1;  // trames depuis le dernier octet (-1 : pas de travail)
+
+// Instantanés (-X, -J)
+static bool state_file_write(void* ctx, void* d, uint32_t n) { return fwrite(d, 1, n, (FILE*)ctx) == n; }
+static bool state_file_read(void* ctx, void* d, uint32_t n) { return fread(d, 1, n, (FILE*)ctx) == n; }
 
 static void printer_job_end(void) {
     if (printer_idle < 0) return;
@@ -400,6 +407,8 @@ int main(int argc, char** argv) {
     const char* usb_dir = NULL;
     const char* tape_file = NULL;
     bool tape_turbo = false, tape_motor_always = false;
+    int state_frame = -1;
+    const char *state_save = NULL, *state_load = NULL;
     const char* dvi_file = NULL;
     const char* rec_dir = NULL;
     const char* menu_script = NULL;
@@ -414,7 +423,7 @@ int main(int argc, char** argv) {
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:ZY")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:ZYX:J:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -438,6 +447,11 @@ int main(int argc, char** argv) {
             case 'O': menu_ppm = optarg; break;
             case 'K': tape_file = optarg; break;
             case 'Z': tape_turbo = true; break;
+            case 'X':
+                state_frame = atoi(optarg);
+                state_save = strchr(optarg, ':') ? strchr(optarg, ':') + 1 : NULL;
+                break;
+            case 'J': state_load = optarg; break;
             case 'Y': tape_motor_always = true; break;
             case 'D': dvi_file = optarg; break;
             case 'C': rec_dir = optarg; break;
@@ -582,6 +596,9 @@ int main(int argc, char** argv) {
     (void)render_spec;
     (void)tape_turbo;
     (void)tape_motor_always;
+    (void)state_frame;
+    (void)state_save;
+    (void)state_load;
     (void)menu_frame;
     if (menu_script) {
         fprintf(stderr, "menu absent de la référence\n");
@@ -606,6 +623,29 @@ int main(int argc, char** argv) {
 #endif
     }
     telestrat_reset(&sys);
+#ifndef TELESTRAT_REF
+    // Reprise d'un instantané : après le RESET (le processeur y est ramené)
+    if (state_load) {
+        const char* err = "";
+        bool ok;
+        if (usb_dir) {
+            // Par le menu : cartouches de l'instantané remises
+            const char* base = strrchr(state_load, '/');
+            ok = menu_pc_state_load(&menu_pc, &sys, base ? base + 1 : state_load, &err);
+        } else {
+            FILE* sf = fopen(state_load, "rb");
+            static char info[TELESTRAT_STATE_INFO_MAX + 1];
+            ok = sf && telestrat_state_load_info(state_file_read, sf, info, sizeof(info), &err) &&
+                 telestrat_state_load_machine(&sys, state_file_read, sf, &err);
+            if (sf) fclose(sf);
+            else err = "illisible";
+        }
+        if (!ok) {
+            fprintf(stderr, "%s : %s\n", state_load, err);
+            return 1;
+        }
+    }
+#endif
 
     size_t pos = 0, len = text ? strlen(text) : 0;
     int key_down = 0;
@@ -647,6 +687,16 @@ int main(int argc, char** argv) {
         current_frame = frame;
 #ifndef TELESTRAT_REF
         if (printer_idle >= 0 && ++printer_idle >= PRINTER_IDLE_FRAMES) printer_job_end();
+        if (frame == state_frame && state_save) {
+            static char info[TELESTRAT_STATE_INFO_MAX];
+            info[0] = 0;
+            if (usb_dir) menu_pc_state_info(&menu_pc, &sys, info, sizeof(info));
+            FILE* sf = fopen(state_save, "wb");
+            const char* err = "écriture impossible";
+            if (!sf || !telestrat_state_save(&sys, info, state_file_write, sf, &err))
+                fprintf(stderr, "%s : %s\n", state_save, err);
+            if (sf) fclose(sf);
+        }
         if (frame == menu_frame) {
             menu_pc_script(&menu_pc, &sys, menu_script);
             printer_enabled = menu_pc.printer_on;
