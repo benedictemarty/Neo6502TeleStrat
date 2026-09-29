@@ -6,8 +6,8 @@
 // FX-80 (manuel « FX Series Printer User's Manual », Epson 1983, annexes B
 // et C) et imprimés sur une page de 8,5 x 11 pouces rendue à 144 points par
 // pouce (1224 x 1584 pixels, noir et blanc), écrite en PNG au fil de l'eau :
-// l'image n'est jamais entière en mémoire, seule une bande de 32 lignes
-// (≈ 5 Ko) l'est ; les lignes quittées par la tête sont compressées en blocs
+// l'image n'est jamais entière en mémoire, seule une bande de 28 lignes
+// (≈ 4,3 Ko) l'est ; les lignes quittées par la tête sont compressées en blocs
 // « stockés » (sans compression, donc sans table) et écrites aussitôt.
 //
 // Unités : horizontalement 1/1440 pouce (commun à toutes les densités :
@@ -61,7 +61,7 @@
 #define FX80_DPI       144
 #define FX80_WIDTH     1224                 // 8,5 pouces
 #define FX80_ROW_BYTES (FX80_WIDTH / 8)
-#define FX80_BAND      32                   // lignes de pixels en mémoire
+#define FX80_BAND      28                   // lignes de pixels en mémoire
 #define FX80_LEFT      360                  // bord du papier -> première colonne : 1/4 pouce
 #define FX80_LINE_MAX  11520                // 8 pouces (80 colonnes Pica)
 #define FX80_PAGE_MAX  (22 * 216)           // ESC C 0 n : 22 pouces au plus

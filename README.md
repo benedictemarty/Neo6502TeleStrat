@@ -61,6 +61,11 @@ binaire à fournir. Source commentée : [assinie/STRATSED](https://github.com/as
 Carte des banques : notice « Extension RAM 64 Ko pour Oric Telestrat »
 (F. Broche, 1987), voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Construction
+
+`git submodule update --init` (TinyUSB 0.21.0 dans `third_party/tinyusb`),
+puis `make` (banc et tests) et `make uf2` (firmware).
+
 ## Recette sur carte par sonde SWD
 
 Avec une sonde Debugprobe (CMSIS-DAP) sur le connecteur SWD du Neo6502 et
@@ -75,6 +80,8 @@ tools/carte.py ecran capture.png    # écran texte, et image 240x224
 tools/carte.py taper '1'            # clavier du Telestrat (file de touches)
 tools/carte.py taper 'PRINT 6*7\n'
 tools/carte.py mesure               # MHz réels, µs par trame et par ligne, retards DVI
+tools/carte.py deposer STRATSED.DSK TELESTRA.CFG   # fichiers copiés sur la clé de la carte
+tools/carte.py relire IMPR0001.PNG page.png        # fichier de la clé relu
 tools/carte.py ligne appel          # ligne de recette SWD à la place du modem : un correspondant appelle
 tools/carte.py ligne lire 500       # ce que le Telestrat lui envoie
 tools/carte.py ligne envoyer '1\E'  # ses touches (\E = ENVOI) ; ligne raccrocher, ligne etat

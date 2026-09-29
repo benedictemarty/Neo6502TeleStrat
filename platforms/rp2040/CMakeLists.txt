@@ -10,7 +10,15 @@ set(RELOAD_DIR "$ENV{HOME}/reload-emulator" CACHE PATH "reload-emulator (puces, 
 set(RELOAD_RP2040 ${RELOAD_DIR}/platforms/rp2040)
 
 set(PICO_SDK_PATH ${RELOAD_RP2040}/lib/pico-sdk)
-set(PICO_TINYUSB_PATH ${RELOAD_RP2040}/lib/tinyusb)
+# TinyUSB 0.21.0 (sous-module third_party/tinyusb) à la place de celui de
+# reload-emulator (2023) : son pilote hôte RP2040 refondu (hathach/tinyusb#3561)
+# lit la clé USB, seule ou avec un clavier ; l'ancien bloquait sur le premier
+# READ10 de 512 octets (vu sur carte le 2026-09-29).
+set(TELESTRAT_TINYUSB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/tinyusb CACHE PATH "TinyUSB")
+if (NOT EXISTS ${TELESTRAT_TINYUSB_DIR}/src/tusb.h)
+    message(FATAL_ERROR "TinyUSB absent : git submodule update --init third_party/tinyusb")
+endif()
+set(PICO_TINYUSB_PATH ${TELESTRAT_TINYUSB_DIR})
 set(PICO_BOARD olimex_neo6502)
 
 include(${RELOAD_RP2040}/pico_sdk_import.cmake)
@@ -35,8 +43,11 @@ add_executable(telestrat
     ${CMAKE_CURRENT_SOURCE_DIR}/src/telestrat.c
     ${RELOAD_RP2040}/src/hid_app.c
     ${RELOAD_RP2040}/src/audio.c
-    ${RELOAD_RP2040}/src/msc_app.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/usb_msc.c  # à la place de msc_app.c de reload (montage hors de tuh_task)
 )
+
+# hid_app.c (reload) appelle printf sans stdio.h (l'ancien tusb.h l'incluait)
+set_source_files_properties(${RELOAD_RP2040}/src/hid_app.c PROPERTIES COMPILE_OPTIONS "-include;stdio.h")
 
 # Ordre : nos en-têtes (dont tusb_config.h avec le CDC hôte), puis la plate-forme
 # RP2040 de reload (chips/wdc65C02cpu.h),
@@ -63,10 +74,20 @@ target_compile_definitions(telestrat PRIVATE
     DVI_DEFAULT_SERIAL_CONFIG=olimex_neo6502_cfg
     $<$<BOOL:${TELESTRAT_VIDEO_480}>:TELESTRAT_VIDEO_480>
     $<$<BOOL:${TELESTRAT_RAM64K}>:TELESTRAT_RAM64K>
-    $<$<BOOL:${TELESTRAT_RAM64K}>:OSD_MENU_FILES=32>
+    $<$<BOOL:${TELESTRAT_RAM64K}>:OSD_MENU_FILES=28>
     $<$<BOOL:${TELESTRAT_RAM64K}>:BYTE_FIFO_SIZE=64>
     $<$<BOOL:${TELESTRAT_RS232_UART}>:TELESTRAT_RS232_UART>
     $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:TELESTRAT_MAX_RAM_BANKS=1>
+    # Tas réservé à l'édition des liens (au lieu des 2 Ko par défaut) : dvi_init
+    # alloue DVI_N_TMDS_BUFFERS tampons de 3 x 480 mots (17 280 octets pour 3),
+    # plus ses files, et malloc (newlib) demande la mémoire par pages : mesuré
+    # sur carte, il faut ~21,8 Ko (21 204 échouent, 21 800 passent). Un manque
+    # fait échouer l'édition des liens (« region RAM overflowed ») au lieu de
+    # planter la carte au démarrage (« Out of memory » dans dvi_init)
+    $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:PICO_HEAP_SIZE=0x5800>
+    $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:OSD_MENU_FILES=40>
+    $<$<BOOL:${TELESTRAT_RAM64K}>:DVI_N_TMDS_BUFFERS=2>
+    $<$<BOOL:${TELESTRAT_RAM64K}>:PICO_HEAP_SIZE=0x3400>
 )
 
 target_link_libraries(telestrat

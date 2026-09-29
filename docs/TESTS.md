@@ -277,6 +277,13 @@ Voir docs/PERFORMANCE.md (non inclus dans `make test` : unicorn et capstone).
 
 ## Recette sur carte — `tools/carte.py` (manuelle, sonde SWD)
 
+2026-09-29 (v0.16.0, clé + clavier + écran HDMI) : démarrage, 0,998 MHz, 0
+ligne DVI en retard ; fichiers déposés (`deposer`) et relus (`relire`) ;
+`TELESTRA.CFG` appliqué ; page de démarrage au clavier ; STRATSED depuis la
+clé : menu, HYPER-BASIC, `DIR` (88 fichiers), `SAVE "CARTE"` (89 fichiers),
+`LPRINT` → `IMPR0001.PNG` valide.
+
+
 Validé le 2026-09-29 sur Olimex Neo6502 (disquette STRATSED en flash) :
 
 | Vérification | Résultat |

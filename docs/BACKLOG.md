@@ -172,6 +172,17 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-151 | ROM ORIX 1.0 | ❌ abandonné (v0.15.1) : fichiers par un CH376, extension absente d'un Telestrat d'origine |
 | US-152 | Profils définis sur la clé (`profil=`), le choix des ROM revient à l'utilisateur (v0.15.2) | ✅ banc, ⏳ carte |
 
+## Sprint 16 — v0.16.0 — « Retour sur carte » ✅ sur carte (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-160 | Démarrage sur carte : tas de `dvi_init` réservé à l'édition des liens, RAM regagnée | ✅ carte |
+| US-161 | Clé USB lue sur carte, seule ou avec un clavier (TinyUSB 0.21.0, montage hors du rappel) | ✅ carte |
+| US-162 | Dépôt et relecture de fichiers sur la clé par la sonde (`carte.py deposer`, `relire`) | ✅ carte |
+| US-163 | Disquette de la clé : démarrage à froid au premier montage | ✅ carte (STRATSED, DIR, SAVE) |
+| US-164 | Impression FX-80 sur la clé | ✅ carte (page PNG relue) |
+| US-165 | Cassette rapide, instantanés, menu complet, modem, variante RAM 64 Ko sur carte | ⏳ |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

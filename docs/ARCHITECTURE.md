@@ -331,6 +331,50 @@ affiché : absent, prêt, sonnerie, en ligne, prise RS232. Au banc : `-P`
 
 RAM : 13,6 Ko libres (standard), **88 octets** (RAM 64 Ko).
 
+## Premiers essais sur carte depuis la v0.4.2 (sprint 16)
+
+**Mémoire au démarrage** : `dvi_init` alloue ses tampons TMDS par `malloc`
+(3 x 3 x 480 mots = 17 280 octets) et `malloc` (newlib) demande la mémoire au
+système par pages : mesuré sur carte, il faut ~21,8 Ko de tas (21 204 octets
+échouent, « Out of memory » dans `dvi_init` ; 21 800 passent). Les chiffres de
+« RAM libre » des versions 0.9 à 0.15 n'en tenaient pas compte : le firmware
+ne démarrait plus. `PICO_HEAP_SIZE` (0x5800 ; 0x3400 avec 2 tampons pour la
+RAM 64 Ko) réserve maintenant le tas à l'édition des liens : un manque de RAM
+la fait échouer (« region RAM overflowed ») au lieu de planter la carte.
+Regagné pour cela : journal des accès en `$03xx` (8 Ko) compilé seulement avec
+`-DTELESTRAT_DIAG_IO`, `diag_tx` de 4 à 1 Ko, liste des fichiers de la clé à
+40 (28 en RAM 64 Ko), bande de la FX-80 à 28 lignes. Marge : 484 octets
+(standard).
+
+**Clé USB** : avec le TinyUSB de reload-emulator (2023), la clé répondait à
+l'INQUIRY (36 octets, un paquet) mais son premier READ10 (512 octets, 8
+paquets) n'aboutissait jamais, avec ou sans clavier. TinyUSB 0.21.0
+(sous-module `third_party/tinyusb`, `PICO_TINYUSB_PATH`), dont le pilote hôte
+RP2040 a été refondu (hathach/tinyusb#3561), lit la clé, seule ou avec un
+clavier. `platforms/rp2040/src/usb_msc.c` remplace `msc_app.c` de reload :
+`f_mount` hors du rappel d'INQUIRY (dans la boucle principale), compteurs de
+diagnostic (`msc_diag`, `msc_mount_result`). `hid_app.c` de reload est
+compilé avec `-include stdio.h` (le nouveau `tusb.h` ne l'inclut plus).
+
+**Démarrage** : la clé se monte 2-3 s après la mise sous tension, quand
+TELEMON a déjà demandé sa disquette : une disquette insérée au premier
+montage provoque un démarrage à froid dessus.
+
+**Sonde** (`tools/carte.py`) : `deposer` copie des fichiers sur la clé de la
+carte (morceaux de 16 Ko chargés dans l'image du Telestrat par
+`load_image`, écrits par le firmware ; 1 Mo en 8 s) ; `relire` les relit ;
+`flasher` refuse un ELF absent ou plus ancien que les sources (un flash sur
+une édition des liens en échec avait effacé la carte). Pendant un transfert,
+l'émulation est en pause et l'écran montre les données ; image ou menu sont
+redessinés ensuite.
+
+**Essayé sur carte** (clé + clavier + écran HDMI, 960x544) : 65C02 à 0,998 MHz,
+cœur 0 à 43 %, cœur 1 à 30 µs par ligne, aucune ligne DVI en retard ;
+`TELESTRA.CFG` appliqué ; page « Démarrer sur… » au clavier ; STRATSED depuis
+la clé, `DIR`, `PRINT 6*7`, `SAVE` (fichier écrit sur la disquette de la clé),
+`LPRINT` vers une page PNG de la FX-80 relue et valide. Non expliqué : une
+pression d'Entrée perdue une fois sur la page de démarrage (pas reproduite).
+
 ## Choix des ROM au démarrage (sprint 15)
 
 **Profils** (`rom_builtin.h`, `rom_profiles`) : banques 1-7 remises à

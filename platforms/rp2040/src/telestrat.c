@@ -56,7 +56,9 @@
 // le cache de 16 Ko (même choix que le BBC de reload-emulator)
 #define TELESTRAT_HOT __attribute__((section(".time_critical.telestrat")))
 #define CHIPS_HOT     __attribute__((section(".time_critical.telestrat")))
-// Journal des premiers accès en $03xx (tools/carte.py journal)
+// Journal des premiers accès en $03xx (comparaison avec la trace du banc) :
+// 8 Ko de RAM, seulement si compilé avec -DTELESTRAT_DIAG_IO
+#ifdef TELESTRAT_DIAG_IO
 #define DIAG_IO_N 1024
 volatile uint32_t diag_io[DIAG_IO_N][2];  // cycle ; adresse | R/W << 16 | donnée << 24
 volatile uint32_t diag_io_n;
@@ -68,6 +70,7 @@ volatile uint32_t diag_io_n;
             diag_io_n++;                                                                    \
         }                                                                                   \
     } while (0)
+#endif
 #include "chips/chips_common.h"
 #include "neo6502_bus.h"  // bus du vrai 65C02 intégré au tick (Olimex Neo6502)
 #include "chips/mos6522via.h"
@@ -443,6 +446,7 @@ static char cfg_drive[4][OSD_NAME_LEN];   // TELESTRA.CFG : a= … d=
 static char cfg_bank[8][OSD_NAME_LEN];    // TELESTRA.CFG : bank1= … bank7=
 
 extern bool msc_inquiry_complete;
+void usb_msc_poll(void);  // usb_msc.c : montage de la clé hors de tuh_task
 
 static bool has_ext(const char *name, const char *ext) {
     size_t n = strlen(name), e = strlen(ext);
@@ -1095,7 +1099,8 @@ static void usb_unplugged(void) {
 }
 
 static void usb_poll(void) {
-    // msc_app.c (reload) ne redescend pas msc_inquiry_complete au retrait :
+    usb_msc_poll();
+    // usb_msc.c ne redescend pas msc_inquiry_complete au retrait :
     // présence suivie ici, le drapeau est remis à zéro pour le rebranchement
     if (usb_scanned && !usb_key_present()) {
         usb_scanned = false;
@@ -1113,13 +1118,16 @@ static void usb_poll(void) {
         if (menu.files[i].kind == OSD_FILE_DSK) drive_set_add(&ds, menu.files[i].name);
     const char *wanted[4] = {cfg_drive[0], cfg_drive[1], cfg_drive[2], cfg_drive[3]};
     drive_set_assign(&ds, wanted);
+    bool disks = false;
     for (int d = 0; d < 4; d++)
-        if (ds.slot[d] >= 0) drive_insert(d, ds.names[ds.slot[d]]);
+        if (ds.slot[d] >= 0) disks |= drive_insert(d, ds.names[ds.slot[d]]);
     tape_options_apply();
     // Rebranchement : lecteurs seulement (cartouches et machine inchangées)
     if (!usb_first_mount) return;
     usb_first_mount = false;
-    bool banks = false;
+    // Premier montage (2-3 s après la mise sous tension, TELEMON a déjà
+    // demandé sa disquette) : disquette insérée -> démarrage à froid dessus
+    bool banks = disks;
     for (int b = 1; b < 8; b++) {
         const char *err = "";
         if (!cfg_bank[b][0]) continue;
@@ -1154,6 +1162,7 @@ static void usb_poll(void) {
 
 // TELESTRA.CFG : « dial=hôte:port », « listen=port », « rs232=usb|uext »,
 // « a= » … « d= », « bank1= » … « bank7= » (une clé par ligne)
+
 static void read_config(void) {
     FIL f;
     memset(cfg_drive, 0, sizeof(cfg_drive));
@@ -1222,7 +1231,8 @@ static void read_config(void) {
 volatile uint8_t diag_line_on, diag_line_ring, diag_line_carrier;
 volatile uint8_t diag_rx[256];
 volatile uint32_t diag_rx_head, diag_rx_tail;
-volatile uint8_t diag_tx[4096];
+#define DIAG_TX_SIZE 1024  // puissance de 2 (tools/carte.py lit la taille du symbole)
+volatile uint8_t diag_tx[DIAG_TX_SIZE];
 volatile uint32_t diag_tx_n;  // octets émis depuis le début (diag_tx circulaire)
 
 static minitel_line_t hayes;  // ligne du modem
@@ -1263,7 +1273,7 @@ static void line_send(void *ctx, uint8_t data) {
         if (modem_enabled) hayes.send(hayes.ctx, data);
         return;
     }
-    diag_tx[diag_tx_n & 4095] = data;
+    diag_tx[diag_tx_n & (DIAG_TX_SIZE - 1)] = data;
     diag_tx_n++;
 }
 
@@ -1327,6 +1337,74 @@ const volatile uint32_t diag_layout[4] = {offsetof(state_t, telestrat.ram), offs
 // l'ouvre ou le ferme par diag_menu = 1 ; menu ouvert, la file lui va, avec
 // 0x80-0x83 = haut, bas, gauche, droite, 0x0D Entrée, 0x1B Échap, 0x7F Suppr.
 volatile uint8_t diag_menu;
+/*-- Dépôt de fichiers sur la clé par la sonde (tools/carte.py deposer) --------*/
+// La sonde écrit un morceau dans l'image du Telestrat (diag_up_len octets),
+// puis la commande ; le firmware l'exécute à la trame suivante et remet
+// diag_up_cmd à 0 (diag_up_status : 0 bon, sinon code FatFs). Émulation en
+// pause du début à la fin du dépôt (l'image sert de tampon : l'écran montre
+// les données pendant le transfert, puis image ou menu sont redessinés).
+#define DIAG_UP_CHUNK 16384
+volatile uint32_t diag_up_cmd;      // 1 créer diag_up_name, 2 écrire, 3 fermer, 4 relire (16 Ko au plus)
+volatile uint32_t diag_up_len;
+volatile uint32_t diag_up_off;      // relecture : décalage dans le fichier
+volatile int32_t diag_up_status;
+volatile char diag_up_name[40];
+static bool diag_up_active;
+// FIL pris dans l'image aussi, après le tampon (pas de RAM de plus)
+#define diag_up_fil (*(FIL *)((uintptr_t)(state.telestrat.fb + DIAG_UP_CHUNK + 7) & ~(uintptr_t)7))
+
+_Static_assert(DIAG_UP_CHUNK + 8 + sizeof(FIL) <= TELESTRAT_FRAMEBUFFER_SIZE, "tampon de dépôt hors de l'image");
+
+static void diag_upload_poll(void) {
+    const uint32_t cmd = diag_up_cmd;
+    if (!cmd) return;
+    FRESULT r = FR_OK;
+    if (cmd == 1) {
+        char name[40];
+        for (int i = 0; i < 39; i++) name[i] = diag_up_name[i];
+        name[39] = 0;
+        if (diag_up_active) f_close(&diag_up_fil);
+        r = usb_scanned ? f_open(&diag_up_fil, name, FA_CREATE_ALWAYS | FA_WRITE) : FR_NOT_READY;
+        diag_up_active = r == FR_OK;
+    } else if (cmd == 2 && diag_up_active) {
+        UINT w = 0;
+        const uint32_t n = diag_up_len < DIAG_UP_CHUNK ? diag_up_len : DIAG_UP_CHUNK;
+        r = f_write(&diag_up_fil, state.telestrat.fb, n, &w);
+        if (r == FR_OK && w != n) r = FR_DENIED;  // clé pleine
+    } else if (cmd == 4) {
+        // Relecture : le début du fichier dans l'image, diag_up_len = octets lus
+        char name[40];
+        for (int i = 0; i < 39; i++) name[i] = diag_up_name[i];
+        name[39] = 0;
+        UINT n = 0;
+        r = f_open(&diag_up_fil, name, FA_READ);
+        if (r == FR_OK) {
+            diag_up_active = true;  // émulation en pause pendant la relecture
+            r = f_lseek(&diag_up_fil, diag_up_off);
+            if (r == FR_OK) r = f_read(&diag_up_fil, state.telestrat.fb, DIAG_UP_CHUNK, &n);
+            f_close(&diag_up_fil);
+        }
+        diag_up_len = n;
+    } else if (cmd == 5) {
+        diag_up_active = false;  // fin de relecture
+        state.telestrat.screen_dirty = true;
+        if (osd_open) menu_draw();  // l'image servait de tampon : menu redessiné
+    } else if (cmd == 3 && diag_up_active) {
+        r = f_close(&diag_up_fil);
+        diag_up_active = false;
+        usb_scan();  // le menu voit le nouveau fichier
+        state.telestrat.screen_dirty = true;
+        if (osd_open) {
+            menu_refresh();
+            menu_draw();
+        }
+    } else {
+        r = FR_INVALID_PARAMETER;
+    }
+    diag_up_status = r;
+    diag_up_cmd = 0;
+}
+
 static void diag_keys_poll(void) {
     static int held = 0, phase = 0;
 #ifdef TELESTRAT_OSD
@@ -1378,7 +1456,13 @@ static int host_to_telestrat(int code) {
     return code;
 }
 
+volatile int diag_last_key[4];  // derniers codes reçus du clavier USB (diagnostic SWD)
+
 void kbd_raw_key_down(int code) {
+    diag_last_key[3] = diag_last_key[2];
+    diag_last_key[2] = diag_last_key[1];
+    diag_last_key[1] = diag_last_key[0];
+    diag_last_key[0] = code;
     if (code == (NEO_MULTIBOOT_RETURN_KEY | 0x100)) neo_multiboot_return();
     telestrat_t *sys = &state.telestrat;
 #ifdef TELESTRAT_OSD
@@ -1529,7 +1613,7 @@ int main() {
         // 1 ms (sonnerie à 50 Hz sur CB1)
         const uint32_t num_ticks = 19968;
         // Menu ouvert : émulation en pause (le 65C02 attend, horloge arrêtée)
-        for (uint32_t slice = 0; slice < 20 && !osd_open; slice++) {
+        for (uint32_t slice = 0; slice < 20 && !osd_open && !diag_up_active; slice++) {
             const uint32_t n = slice < 19 ? 998 : num_ticks - 19 * 998;
             for (uint32_t ticks = 0; ticks < n; ticks++) {
                 telestrat_tick(&state.telestrat);
@@ -1540,7 +1624,7 @@ int main() {
             telestrat_set_ring(&state.telestrat, minitel_port_tick(&minitel, 1000));
         }
 
-        if (!osd_open) {
+        if (!osd_open && !diag_up_active) {  // dépôt : l'image sert de tampon
             telestrat_screen_update(&state.telestrat);
             telestrat_kbd_update(&state.telestrat, num_ticks);
 #ifdef TELESTRAT_OSD
@@ -1551,6 +1635,7 @@ int main() {
         usb_poll();
         printer_service(start_time_in_micros);
         diag_keys_poll();
+        diag_upload_poll();
 
         uint32_t execution_time = time_us_32() - start_time_in_micros;
         diag_frames++;

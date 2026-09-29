@@ -4,6 +4,8 @@
   carte.py flasher [ELF]       programme le firmware (défaut build/rp2040/telestrat.elf), puis reset
   carte.py taper "1\\nDIR\\n"   frappe au clavier du Telestrat (file de touches du firmware)
   carte.py ecran [image.png]   écran texte (28 x 40 en $BB80) ; image 240x224 si un fichier est donné
+  carte.py deposer FICHIER... copie des fichiers à la racine de la clé USB de la carte (par la sonde)
+  carte.py relire NOM [SORTIE] relit un fichier de la clé (vérification)
   carte.py mesure [secondes]   vitesse réelle du 65C02, µs par trame (cœur 0), µs par ligne (cœur 1)
   carte.py ligne appel         ligne de recette SWD à la place du modem ; un correspondant appelle
   carte.py ligne lire [n]      octets émis par le Telestrat vers le correspondant (les n derniers)
@@ -33,6 +35,9 @@ PALETTE = [(0, 0, 0), (255, 0, 0), (0, 255, 0), (255, 255, 0), (0, 0, 255), (255
            (255, 255, 255)]
 
 
+TAILLES = {}  # taille des symboles (nm -S)
+
+
 def symboles(elf=ELF):
     sortie = subprocess.run(["arm-none-eabi-nm", "-S", elf], capture_output=True, text=True, check=True).stdout
     table = {}
@@ -40,6 +45,8 @@ def symboles(elf=ELF):
         champs = ligne.split()
         if len(champs) >= 3:
             table[champs[-1]] = int(champs[0], 16)
+            if len(champs) == 4:
+                TAILLES[champs[-1]] = int(champs[1], 16)
     return table
 
 
@@ -78,6 +85,14 @@ def disposition():
 
 
 def flasher(elf):
+    # Un ELF absent ou périmé (édition des liens en échec) laisserait la carte
+    # effacée : refus
+    if not os.path.isfile(elf):
+        raise SystemExit(f"{elf} absent : compilation en échec ?")
+    src = os.path.join(ICI, "..", "platforms", "rp2040", "src")
+    recent = max(os.path.getmtime(os.path.join(src, f)) for f in os.listdir(src))
+    if os.path.getmtime(elf) < recent:
+        raise SystemExit(f"{elf} plus ancien que les sources : recompiler (make uf2) avant de flasher")
     openocd(f"program {elf} verify reset", timeout=300, vitesse=5000)
     print(f"flashé : {elf} (attendre ~25 s avant de mesurer)")
 
@@ -123,6 +138,69 @@ def ecran(png=None):
         print(png)
 
 
+def deposer(fichiers):
+    """Dépose des fichiers à la racine de la clé : morceaux de 16 Ko chargés
+    dans l'image du Telestrat (load_image), écrits par le firmware ; une seule
+    session OpenOCD (boucles Tcl)."""
+    import tempfile
+    s, _, fb, _ = disposition()
+    bloc = 16384
+    tcl = ["proc attendre {} { set n 0; while {[lindex [read_memory 0x%08x 32 1] 0] != 0} { sleep 20; incr n; "
+           "if {$n > 1500} { error \"délai : le firmware ne répond pas\" } } }" % s["diag_up_cmd"],
+           "proc etat {} { return [lindex [read_memory 0x%08x 32 1] 0] }" % s["diag_up_status"]]
+    tmp = tempfile.mkdtemp()
+    for k, chemin in enumerate(fichiers):
+        nom = os.path.basename(chemin).upper()[:39]
+        data = open(chemin, "rb").read()
+        octets = nom.encode("latin-1") + b"\0"
+        tcl.append("write_memory 0x%08x 8 {%s}" % (s["diag_up_name"], " ".join(str(b) for b in octets)))
+        tcl += ["mww 0x%08x 1" % s["diag_up_cmd"], "attendre",
+                "if {[etat] != 0} { error \"%s : création impossible ([etat])\" }" % nom]
+        for i in range(0, len(data), bloc):
+            morceau = os.path.join(tmp, "f%d_m%d.bin" % (k, i))  # un nom par fichier et par morceau
+            open(morceau, "wb").write(data[i:i + bloc])
+            tcl += ["load_image %s 0x%08x bin" % (morceau, fb),
+                    "mww 0x%08x %d" % (s["diag_up_len"], min(bloc, len(data) - i)),
+                    "mww 0x%08x 2" % s["diag_up_cmd"], "attendre",
+                    "if {[etat] != 0} { error \"%s : écriture impossible ([etat])\" }" % nom]
+        tcl += ["mww 0x%08x 3" % s["diag_up_cmd"], "attendre", "echo \"déposé : %s (%d octets)\"" % (nom, len(data))]
+    script = os.path.join(tmp, "deposer.tcl")
+    open(script, "w").write("\n".join(tcl) + "\n")
+    debut = time.time()
+    journal = openocd(f"source {script}", timeout=1800, vitesse=5000)
+    for ligne in journal.splitlines():
+        if ligne.startswith("déposé"):
+            print(ligne)
+    print(f"{len(fichiers)} fichier(s) en {time.time() - debut:.0f} s")
+
+
+def relire(nom, sortie=None):
+    """Fichier entier de la clé, par morceaux de 16 Ko (commande 4)."""
+    s, _, fb, _ = disposition()
+    octets = nom.upper().encode("latin-1") + b"\0"
+    data = b""
+    while True:
+        tcl = ["write_memory 0x%08x 8 {%s}" % (s["diag_up_name"], " ".join(str(b) for b in octets)),
+               "mww 0x%08x %d" % (s["diag_up_off"], len(data)),
+               "mww 0x%08x 4" % s["diag_up_cmd"],
+               "set n 0; while {[lindex [read_memory 0x%08x 32 1] 0] != 0} { sleep 20; incr n; "
+               "if {$n > 500} { error délai } }" % s["diag_up_cmd"]]
+        openocd(*tcl)
+        etat, n = lire_mots(s["diag_up_status"], 1)[0], lire_mots(s["diag_up_len"], 1)[0]
+        if etat:
+            openocd("mww 0x%08x 5" % s["diag_up_cmd"])
+            raise SystemExit(f"{nom} : lecture impossible (FatFs {etat})")
+        data += lire_octets(fb, n) if n else b""
+        if n < 16384:
+            break
+    openocd("mww 0x%08x 5" % s["diag_up_cmd"])
+    if sortie:
+        open(sortie, "wb").write(data)
+    else:
+        sys.stdout.buffer.write(data)
+    return data
+
+
 def mesure(secondes=10):
     s, _, _, ticks = disposition()
     # Compteurs remis à zéro au début de la fenêtre (le démarrage, avec l'USB, fausse le maximum)
@@ -166,9 +244,10 @@ def ligne(action, arg=None):
               f" porteuse {lire_u8(s, 'diag_line_carrier')}, octets émis {n}")
     elif action == "lire":
         n = lire_mots(s["diag_tx_n"], 1)[0]
-        k = min(n, int(arg) if arg else 4096, 4096)
-        brut = lire_octets(s["diag_tx"], 4096)
-        data = bytes(brut[(n - k + i) & 4095] for i in range(k))
+        taille = TAILLES.get("diag_tx", 1024)
+        k = min(n, int(arg) if arg else taille, taille)
+        brut = lire_octets(s["diag_tx"], taille)
+        data = bytes(brut[(n - k + i) & (taille - 1)] for i in range(k))
         sys.stdout.write(bytes(c if 32 <= c < 127 else 32 for c in data).decode() + "\n")
         return data
     elif action == "envoyer":
@@ -198,6 +277,10 @@ if __name__ == "__main__":
         ecran(a[1] if len(a) > 1 else None)
     elif a and a[0] == "ligne" and len(a) >= 2:
         ligne(a[1], a[2] if len(a) > 2 else None)
+    elif len(a) >= 2 and a[0] == "relire":
+        relire(a[1], a[2] if len(a) > 2 else None)
+    elif len(a) >= 2 and a[0] == "deposer":
+        deposer(a[1:])
     elif a and a[0] == "mesure":
         mesure(int(a[1]) if len(a) > 1 else 10)
     else:
