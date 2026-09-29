@@ -27,6 +27,9 @@
 //   -T FICHIER trace les octets émis par l'ACIA (hexadécimal, avec le numéro de trame)
 //   -L LIGNE   branche un Minitel sur l'ACIA et sa ligne sur TCP :
 //              listen:PORT (appel entrant = client TCP) ou connect:HOTE:PORT
+//   -S LIAISON branche la prise RS232 (PA4 = 1) sur TCP, liaison directe sans
+//              modem : listen:PORT (le premier client) ou connect:HOTE:PORT ;
+//              -T la trace en RTX/RRX (-B ne trace que la prise Minitel)
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
 //   -B PRÉFIXE enregistre la trace (tests/replay.c, tools/rp2040_load.py) : PRÉFIXE.trace
 //              (un mot par cycle : adresse | R/W << 16 | IRQ << 17 | donnée << 24),
@@ -166,6 +169,24 @@ static int serial_rx(void* user_data) {
     return c;
 }
 
+// Prise RS232 : liaison TCP directe (ouverte d'emblée ou au premier client)
+static line_tcp_t rs232_link;
+
+static void rs232_tx(uint8_t data, void* user_data) {
+    (void)user_data;
+    if (serial_trace) fprintf(serial_trace, "%d RTX %02X\n", current_frame, data);
+    if (line_tcp_incoming(&rs232_link)) line_tcp_answer(&rs232_link);
+    line_tcp_send(&rs232_link, data);
+}
+
+static int rs232_rx(void* user_data) {
+    (void)user_data;
+    if (line_tcp_incoming(&rs232_link)) line_tcp_answer(&rs232_link);
+    int c = line_tcp_recv(&rs232_link);
+    if (c >= 0 && serial_trace) fprintf(serial_trace, "%d RRX %02X\n", current_frame, c);
+    return c;
+}
+
 static uint8_t* load_file(const char* path, size_t* size) {
     FILE* f = fopen(path, "rb");
     if (!f) {
@@ -227,13 +248,14 @@ int main(int argc, char** argv) {
     const char* write_disk = NULL;
     const char* printer_file = NULL;
     const char* line_spec = NULL;
+    const char* rs232_spec = NULL;
     int realtime = 0;
     int key_period = 4;
     const char* bench_prefix = NULL;
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:RB:k:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:S:RB:k:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -247,6 +269,7 @@ int main(int argc, char** argv) {
             case 'W': write_disk = optarg; break;
             case 'P': printer_file = optarg; break;
             case 'L': line_spec = optarg; break;
+            case 'S': rs232_spec = optarg; break;
             case 'R': realtime = 1; break;
             case 'k': key_period = atoi(optarg) < 2 ? 2 : atoi(optarg); break;
             case 'B': bench_prefix = optarg; break;
@@ -305,6 +328,18 @@ int main(int argc, char** argv) {
         minitel_line_t l = line_tcp_line(&line);
         minitel_port_init(&minitel, &l);
         minitel_on = true;
+    }
+    if (rs232_spec) {
+        if (!line_tcp_open(&rs232_link, rs232_spec)) {
+            fprintf(stderr, "liaison RS232 invalide : %s\n", rs232_spec);
+            return 2;
+        }
+        if (rs232_link.listen_fd < 0 && !line_tcp_dial(&rs232_link)) {
+            fprintf(stderr, "liaison RS232 : connexion impossible (%s)\n", rs232_spec);
+            return 1;
+        }
+        desc.rs232.tx = rs232_tx;
+        desc.rs232.rx = rs232_rx;
     }
     if (serial_trace || minitel_on || bench_prefix) {
         desc.minitel.tx = serial_tx;

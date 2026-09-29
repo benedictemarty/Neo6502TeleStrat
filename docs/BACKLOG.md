@@ -69,11 +69,17 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-47 | Bus : OE3 maintenu bas jusqu'après la descente de PHI2 (solution de la session BBC, reload dfc1584) au lieu du renvoi d'impulsion | ⏳ à évaluer sur carte |
 | US-48 | Raccrochage du correspondant : TELEMATIC ne revient en attente qu'à son délai d'inactivité (banc et carte) ; vérifier sur la documentation si un autre signal (DCD de l'ACIA ?) est attendu | ✅ v0.4.3 : comportement d'origine — TELEMATIC termine sur `SEP $49` (Connexion/Fin), pas sur la perte de porteuse ; testé |
 
+## Sprint 5 — v0.5.0 — « Prise RS232 » ✅ (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-50 | Prise RS232 du banc sur TCP (`-S`), essayée avec HYPER-BASIC | ✅ `SOUT`, `SSAVE`, `SLOAD`, `CONSOLE` (`tests/test_rs232.sh`) |
+| US-51 | Prise RS232 du Neo6502 sur l'UART0 de l'UEXT, au format programmé dans l'ACIA | ✅ code + tests du format, ⏳ essai sur carte |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
-- Émulation Minitel (APLIC 1) : test de bout en bout en appel sortant.
-- Modem sur l'UART de l'UEXT ; prise RS232 (PA4 = 1) vers une liaison réelle.
+- Essai de la prise RS232 sur carte (UEXT, adaptateur USB-série 3,3 V).
 - Vérifier sur matériel la cadence de sonnerie (seule hypothèse Minitel restante).
 - Essai croisé sur carte : TELEMATIC (Neo6502TeleStrat) appelé par NeoTel sur un second Neo6502.
 - Images disque intégrées en flash (lecture seule), lecteurs B à D depuis la clé.

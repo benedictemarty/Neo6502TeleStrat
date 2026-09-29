@@ -85,6 +85,7 @@ volatile uint32_t diag_io_n;
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
+#include "hardware/uart.h"
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/vreg.h"
 #include "pico/multicore.h"
@@ -159,6 +160,52 @@ static int minitel_rx(void *user_data) {
     return minitel_port_to_telestrat(&minitel);
 }
 
+/*-- Prise RS232 : UART0 du connecteur UEXT ----------------------------------*/
+// Broches de la carte olimex_neo6502 (pico-sdk ; firmware officiel du
+// Neo6502, serial.cpp) : TX GPIO 28 (UEXT 3), RX GPIO 29 (UEXT 4). L'UART
+// prend le format programmé dans l'ACIA (TELEMON : 9600 bauds 8N1), qui
+// cadence déjà émission et réception : la FIFO de l'UART ne déborde pas et
+// l'émission ne bloque pas.
+#ifdef TELESTRAT_RS232_UART
+#define RS232_UART   uart0
+#define RS232_TX_PIN 28
+#define RS232_RX_PIN 29
+
+static uint16_t rs232_regs = 0xFFFF;  // commande << 8 | contrôle appliqués
+
+static void rs232_init(void) {
+    uart_init(RS232_UART, 9600);
+    gpio_set_function(RS232_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(RS232_RX_PIN, GPIO_FUNC_UART);
+    uart_set_fifo_enabled(RS232_UART, true);
+}
+
+static void rs232_config(void) {
+    const mos6551acia_t *a = &state.telestrat.acia;
+    uint16_t regs = (uint16_t)(a->command << 8 | a->control);
+    if (regs == rs232_regs) return;
+    rs232_regs = regs;
+    mos6551acia_format_t f = mos6551acia_format(a);
+    // Marque et espace : absents de l'UART du RP2040, émis sans parité
+    static const uart_parity_t parity[5] = {UART_PARITY_NONE, UART_PARITY_ODD, UART_PARITY_EVEN, UART_PARITY_NONE,
+                                            UART_PARITY_NONE};
+    uart_set_baudrate(RS232_UART, f.baud);
+    uart_set_format(RS232_UART, f.data_bits, f.stop_bits, parity[f.parity]);
+}
+
+static void rs232_tx(uint8_t data, void *user_data) {
+    (void)user_data;
+    rs232_config();
+    uart_putc_raw(RS232_UART, (char)data);
+}
+
+static int rs232_rx(void *user_data) {
+    (void)user_data;
+    rs232_config();
+    return uart_is_readable(RS232_UART) ? (uint8_t)uart_getc(RS232_UART) : -1;
+}
+#endif
+
 static void audio_callback(const uint8_t sample, void *user_data) {
     (void)user_data;
     audio_push_sample(sample);
@@ -169,6 +216,9 @@ static telestrat_desc_t telestrat_desc(void) {
     telestrat_desc_t d = {
         .audio = {.callback = {.func = audio_callback}, .sample_rate = 22050},
         .minitel = {.tx = minitel_tx, .rx = minitel_rx},
+#ifdef TELESTRAT_RS232_UART
+        .rs232 = {.tx = rs232_tx, .rx = rs232_rx},
+#endif
     };
     d.banks[0].type = TELESTRAT_BANK_RAM;
 #ifdef TELESTRAT_RAM64K
@@ -535,6 +585,9 @@ int main() {
     set_sys_clock_khz(DVI_TIMING.bit_clk_khz, true);
 
     stdio_init_all();
+#ifdef TELESTRAT_RS232_UART
+    rs232_init();
+#endif
     tusb_init();
 
     dvi0.timing = &DVI_TIMING;

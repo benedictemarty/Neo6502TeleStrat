@@ -53,10 +53,13 @@ target_include_directories(telestrat PRIVATE
 target_compile_options(telestrat PRIVATE -Wall)
 option(TELESTRAT_VIDEO_480 "800x480 à 295,2 MHz (1,20 V) au lieu de 960x544 à 372 MHz (1,30 V)" OFF)
 
+option(TELESTRAT_RS232_UART "prise RS232 du Telestrat sur l'UART0 de l'UEXT" ON)
+
 target_compile_definitions(telestrat PRIVATE
     DVI_DEFAULT_SERIAL_CONFIG=olimex_neo6502_cfg
     $<$<BOOL:${TELESTRAT_VIDEO_480}>:TELESTRAT_VIDEO_480>
     $<$<BOOL:${TELESTRAT_RAM64K}>:TELESTRAT_RAM64K>
+    $<$<BOOL:${TELESTRAT_RS232_UART}>:TELESTRAT_RS232_UART>
     $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:TELESTRAT_MAX_RAM_BANKS=1>
 )
 
@@ -85,7 +88,13 @@ endif()
 
 pico_add_extra_outputs(telestrat)
 pico_enable_stdio_usb(telestrat 0)
-pico_enable_stdio_uart(telestrat 1)
+# Prise RS232 sur l'UART0 de l'UEXT (GPIO 28/29, carte olimex_neo6502) : les
+# messages de stdio n'y passent plus ; -DTELESTRAT_RS232_UART=OFF les y rend
+if (TELESTRAT_RS232_UART)
+    pico_enable_stdio_uart(telestrat 0)
+else()
+    pico_enable_stdio_uart(telestrat 1)
+endif()
 
 if (NOT "${NEO_SLOT_TELESTRAT}" STREQUAL "")
     if ("${NEO_MULTIBOOT_DIR}" STREQUAL "")

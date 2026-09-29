@@ -113,6 +113,27 @@ static inline int32_t mos6551acia_char_cycles(const mos6551acia_t* a) {
     return (int32_t)((a->cpu_freq * (uint32_t)bits) / mos6551acia_bauds[a->control & MOS6551_CTL_BAUD]);
 }
 
+// Format de liaison programmé, pour régler un UART réel (prise RS232 du
+// Neo6502). Parité (bits 5-7 de la commande, fiche 6551) : 0 aucune,
+// 1 impaire, 2 paire, 3 marque, 4 espace. Deux bits de stop, sauf 8 bits
+// avec parité (un seul d'après la fiche) ; le cas 5 bits sans parité (1,5)
+// est rendu par 2.
+typedef struct {
+    uint32_t baud;
+    uint8_t data_bits;
+    uint8_t stop_bits;
+    uint8_t parity;
+} mos6551acia_format_t;
+
+static inline mos6551acia_format_t mos6551acia_format(const mos6551acia_t* a) {
+    mos6551acia_format_t f;
+    f.baud = mos6551acia_bauds[a->control & MOS6551_CTL_BAUD];
+    f.data_bits = (uint8_t)(8 - ((a->control & MOS6551_CTL_WLEN) >> 5));
+    f.parity = (a->command & 0x20) ? (uint8_t)(1 + ((a->command >> 6) & 3)) : 0;
+    f.stop_bits = (a->control & MOS6551_CTL_STOP2) && !(f.data_bits == 8 && f.parity) ? 2 : 1;
+    return f;
+}
+
 static inline uint8_t mos6551acia_mask(const mos6551acia_t* a) {
     return (uint8_t)(0xFF >> ((a->control & MOS6551_CTL_WLEN) >> 5));
 }

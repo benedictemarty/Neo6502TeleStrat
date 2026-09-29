@@ -104,6 +104,14 @@ charger l'arborescence (`DEMO` sur la disquette STRATSED), ESC, « 2 Lancer le
 serveur » : « Attente de communication ». Un client Minitel TCP (émulateur ou
 passerelle) qui se connecte au port du modem est alors servi.
 
+**Prise RS232** : UART0 du connecteur UEXT, TX en UEXT 3 (GPIO 28), RX en
+UEXT 4 (GPIO 29), niveaux 3,3 V (brochage de la carte `olimex_neo6502` du
+pico-sdk et du firmware officiel ; **pas encore essayé sur carte**). L'UART
+prend le format programmé dans l'ACIA : 9600 bauds 8N1 avec TELEMON. En
+HYPER-BASIC : `SOUT n`, `SSAVE "NOM",A#début,E#fin`, `SLOAD`, `CONSOLE`.
+Les messages du firmware (`printf`) n'y passent plus
+(`-DTELESTRAT_RS232_UART=OFF` pour les retrouver).
+
 | Touche | Effet |
 |---|---|
 | F1 | image suivante de la clé dans le lecteur A |
@@ -122,6 +130,10 @@ build/telestrat_headless -c oricutron -0 STRATSED.DSK -f 1200 -w 500 -t '1~~~~~~
 build/telestrat_headless -0 a.dsk -W a2.dsk -P imprimante.txt ...   # disque réécrit, imprimante
 build/telestrat_headless -c standard -0 a.dsk -L listen:3615 -R ...  # ligne Minitel sur TCP, temps réel
 ```
+
+`-S listen:PORT` ou `-S connect:HÔTE:PORT` relie la prise RS232 (PA4 = 1) à
+une liaison TCP directe, sans modem (`tests/rs232_peer.py`) ; `-T` la trace en
+`RTX`/`RRX`.
 
 `-L listen:PORT` : un client TCP (par ex. `tests/minitel_client.py`) qui se
 connecte « appelle » le Telestrat ; `-L connect:HÔTE:PORT` : la connexion du

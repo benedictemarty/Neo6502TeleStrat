@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (95 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (101 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -23,7 +23,9 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   1200 bauds 7E1 = 8333 cycles par caractère, IRQ d'émission à l'écriture de
   la commande, effacée par l'état, double tampon, émission sur 7 bits au bon
   rythme, bit 7 levé à la réception avec IRQ de réception interdite, broche
-  IRQ avec `$65` jusqu'à la lecture de la donnée, DTR inactif ;
+  IRQ avec `$65` jusqu'à la lecture de la donnée, DTR inactif ; format de
+  liaison pour l'UART de la prise RS232 (1200 7E1, 9600 8N1, 19200 8N2, un seul
+  stop avec 8 bits + parité) ;
 - prise Minitel (fausse ligne), séquences de la STUM 1B : sonnerie (fronts à
   50 Hz pendant 1,5 s puis silence), XLIGNE décroche, SEP `$50` puis `$59`,
   pas de `$53` avant 3 s en mode opposé, SEP `$53` vers la prise et le modem,
@@ -84,6 +86,19 @@ ligne `-L connect:`. FUNCT+D (`\fD` dans `-t`), puis « BONJOUR » et RETURN
 de l'émulation est en HIRES : lu par `tests/hires_texte.py` dans l'image de la
 RAM (`-r`), cellule par cellule contre le jeu de caractères en `$9800`.
 
+## Prise RS232 — `tests/test_rs232.sh` (7 vérifications)
+
+HYPER-BASIC (configuration standard, `STRATSED.DSK`), prise RS232 du banc
+reliée par `-S connect:` au correspondant `tests/rs232_peer.py` (port libre,
+fichier `.pret`) ; trois sessions, touches à 8 trames (`-k 8`, sinon les
+lettres doublées se perdent) :
+
+| Session | Vérifié |
+|---|---|
+| `SOUT 65:SOUT 66`, puis `SSAVE "ESSAI",A#9000,E#9010` d'un bloc « ABCDEFGHIJKLMNOP » | « AB » reçu ; en-tête : 50 x `$16`, `$24`, « ESSAI » ; données du bloc |
+| `SOUT 33:SLOAD` (le correspondant renvoie le fichier au « ! »), puis lecture de `#9000` | nom « ESSAI    COM » affiché ; mémoire restituée |
+| `CONSOLE`, « HELLO » tapé | « HELLO » reçu ; réponse « SALUT » affichée |
+
 ## Rejeu contre la référence — `tests/test_replay.sh` (2 traces)
 
 Le banc de référence (`build/telestrat_headless_ref`, compilé avec
@@ -137,5 +152,6 @@ de maintien de la donnée sur le bus.
 
 ## Firmware
 
-`make uf2` doit compiler sans erreur ; l'occupation RAM est relevée dans
+`make uf2` doit compiler sans erreur (prise RS232 sur l'UART0 de l'UEXT par
+défaut, `-DTELESTRAT_RS232_UART=OFF` pour rendre l'UART aux messages) ; l'occupation RAM est relevée dans
 docs/ARCHITECTURE.md. L'essai sur carte est manuel (non fait aux sprints 1 à 3).

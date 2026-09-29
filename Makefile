@@ -45,6 +45,7 @@ test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_hea
 	sh tests/test_boot.sh $(BUILD)/telestrat_headless
 	sh tests/test_telematic.sh $(BUILD)/telestrat_headless
 	sh tests/test_minitel_emul.sh $(BUILD)/telestrat_headless
+	sh tests/test_rs232.sh $(BUILD)/telestrat_headless
 	sh tests/test_replay.sh $(BUILD)/telestrat_headless_ref $(BUILD)/replay
 
 uf2: $(ROMS_H)

@@ -168,6 +168,23 @@ sortants) ; Neo6502 : modem Hayes en USB CDC (`hayes_line.h` : `ATE0V1`,
 `NO CARRIER`). La trame de 20 ms est découpée en tranches de 1 ms pour la
 sonnerie.
 
+## Prise RS232 (sprint 5)
+
+PA4 = 1 aiguille l'ACIA vers la prise RS232 (TELEMON `$DB5D` : contrôle `$1E`,
+9600 bauds 8N1). Liaison directe, sans modem ni signaux de contrôle (/DCD et
+/DSR restent actifs). Banc PC : `-S` sur TCP. Neo6502 : UART0 de l'UEXT
+(GPIO 28/29), réglé d'après les registres de l'ACIA (`mos6551acia_format`) à
+chaque changement ; l'ACIA cadençant émission et réception au débit
+programmé, l'UART ne bloque ni ne déborde (FIFO de 32 octets). Marque et
+espace, absents de l'UART du RP2040, sont émis sans parité.
+
+Protocole de `SSAVE`/`SLOAD` (TELEMON `$EE0A`/`$EE56`, observé au banc) : 50 x
+`$16`, `$24`, nom sur 12 octets, `$00`, 7 octets `$052C`-`$0532` (début
+en `$052D`, fin en `$052F` ; `$052C` vaut `$40` pour un bloc mémoire, rôle
+non vérifié), somme (OU exclusif), données (fin − début octets), somme. `CONSOLE` (XCONSO) :
+la liaison devient le terminal (octets reçus affichés, touches émises)
+jusqu'à CTRL+C.
+
 ## Démarrage sur disquette (observé au banc)
 
 TELEMON fait un RESTORE sur les lecteurs 3 à 0 (`$0314` = `$E4`, `$C4`, `$A4`,

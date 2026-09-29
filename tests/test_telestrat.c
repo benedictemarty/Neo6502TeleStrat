@@ -464,6 +464,25 @@ static int acia_rx(void* u) {
     return acia_in_pos < acia_in_n ? acia_in[acia_in_pos++] : -1;
 }
 
+// Format programmé, pour régler l'UART de la prise RS232 du Neo6502
+static void test_acia_format(void) {
+    mos6551acia_t a = {0};
+    a.control = 0x38;  // prise Minitel de TELEMON : 1200 bauds, 7 bits, 1 stop
+    a.command = 0x67;  // parité paire
+    mos6551acia_format_t f = mos6551acia_format(&a);
+    CHECK(f.baud == 1200 && f.data_bits == 7 && f.parity == 2 && f.stop_bits == 1, "format Minitel : 1200 7E1");
+    a.control = 0x1E;  // prise RS232 de TELEMON : 9600 bauds, 8 bits, 1 stop
+    a.command = 0x0B;  // sans parité
+    f = mos6551acia_format(&a);
+    CHECK(f.baud == 9600 && f.data_bits == 8 && f.parity == 0 && f.stop_bits == 1, "format RS232 : 9600 8N1");
+    a.control = 0x9F;  // 19 200 bauds, 8 bits, 2 stop
+    f = mos6551acia_format(&a);
+    CHECK(f.baud == 19200 && f.stop_bits == 2, "19200 8N2");
+    a.command = 0x20;  // parité impaire : 8 bits + parité -> un seul stop
+    f = mos6551acia_format(&a);
+    CHECK(f.parity == 1 && f.stop_bits == 1, "8 bits + parité : un seul stop");
+}
+
 static void test_acia_serial(void) {
     mos6551acia_t a = {0};
     a.tx_cb = acia_tx;
@@ -849,6 +868,7 @@ int main(void) {
     test_screen_render();
     test_video_planes();
     test_acia_serial();
+    test_acia_format();
     test_minitel_port();
     test_hayes_line();
     printf("test_telestrat : %d/%d vérifications réussies\n", checks - failures, checks);
