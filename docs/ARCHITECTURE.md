@@ -301,6 +301,22 @@ concepteurs attendaient donc des valeurs instables d'une banque vide, ce que
 notre bus flottant imite ; l'appel d'HYPER-BASIC à la banque 5 vide y
 exécuterait aussi des octets instables. Déduction, pas vérification.
 
+## Confrontation au livre « Telestrat à cœur ouvert » (v0.10.2)
+
+Annexes II (matrice du clavier), V (carte mémoire), VI (structure) et VII
+(brochage des E/S) de G. Meister, comparées à l'émulation :
+
+| Point | Livre | Émulation | Arbitre |
+|---|---|---|---|
+| VIA 1 : CA1 ACK, CB1 entrée K7, CA2/CB2 AY, PB0-3 clavier, PB4 STROBE, PB6 relais K7, PB7 émission K7 | idem | idem | concordant |
+| VIA 2 : PA0-2 banque (0 = RAM), CB1 appel Minitel | idem | idem | concordant |
+| E/S : VIA 1 `$0300`, FDC `$0310`, ACIA `$031C`, VIA 2 `$0320` | idem | idem | concordant |
+| **VIA 2 PA4** | « 0 = RS 232 ; 1 = MINITEL » | 0 = Minitel | **TELEMON** : `$DB3A` met PA4 à 0 avec 1200 bauds 7E1 (Minitel), `$DB5D` à 1 avec 9600 8N1 (RS232) — le livre inverse |
+| **Joysticks** | « PB6 port droit, PB7 port gauche » | PB6 gauche, PB7 droit | **TELEMON** : `JCGVAL` (joystick gauche) lu par `Ldf90` (PB6), la souris (boutons PA5/PA7) par `Ldf99` (PB7) ; Oricutron idem — le livre inverse |
+| Matrice du clavier | 8 x 8 | identique | concordant ; l'émulation déclare en plus `\`, `]`, `[` (touches de l'Atmos, absentes du Telestrat selon le livre) : sans effet |
+| ACIA : DCD « arrêt d'émission », DTR « ACIA active » | idem | idem (émission si /DCD bas) | concordant |
+| MIDI (VIA 2 CA1, CB2, PA3, PA6), souris | décrits | non émulés | — |
+
 ## Imprimante et clé retirée (sprint 9)
 
 **Imprimante** : le système appelle `printer_out` à chaque octet (STROBE,
