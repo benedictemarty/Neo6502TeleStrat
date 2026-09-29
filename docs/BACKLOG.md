@@ -74,12 +74,14 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US | Récit | État |
 |---|---|---|
 | US-50 | Prise RS232 du banc sur TCP (`-S`), essayée avec HYPER-BASIC | ✅ `SOUT`, `SSAVE`, `SLOAD`, `CONSOLE` (`tests/test_rs232.sh`) |
-| US-51 | Prise RS232 du Neo6502 sur l'UART0 de l'UEXT, au format programmé dans l'ACIA | ✅ code + tests du format, ⏳ essai sur carte |
+| US-51 | Prise RS232 du Neo6502 sur l'UART0 de l'UEXT, au format programmé dans l'ACIA (`rs232=uext`) | ✅ code + tests du format, ⏳ essai sur carte |
+| US-52 | Prise RS232 vers le PicoWiFiModemUSB (défaut), partagé avec la prise Minitel selon PA4 (`modem_mux.h`) | ✅ v0.5.1 code + 13 tests, ⏳ essai sur carte |
 
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
-- Essai de la prise RS232 sur carte (UEXT, adaptateur USB-série 3,3 V).
+- Essai de la prise RS232 sur carte : PicoWiFiModemUSB (`ATDT` depuis
+  `CONSOLE`), puis retour à TELEMATIC ; en option l'UEXT.
 - Vérifier sur matériel la cadence de sonnerie (seule hypothèse Minitel restante).
 - Essai croisé sur carte : TELEMATIC (Neo6502TeleStrat) appelé par NeoTel sur un second Neo6502.
 - Images disque intégrées en flash (lecture seule), lecteurs B à D depuis la clé.

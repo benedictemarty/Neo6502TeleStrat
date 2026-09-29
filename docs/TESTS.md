@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (101 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (114 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -35,6 +35,11 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - modem Hayes (faux modem) : initialisation (`AT$SP`), RING et sa fin, ATA,
   CONNECT (sans `\n` parasite), données, NO CARRIER en ligne, ATD, `+++`/ATH
   avec gardes, BUSY, pas d'appel sortant sans numéro ;
+- un modem pour les deux prises (`modem_mux.h`, faux modem) : pas
+  d'initialisation Hayes tant que la RS232 le tient, initialisation au retour
+  sur la prise Minitel, RING vu par `hayes_line`, octets bruts dans les deux
+  sens sur la RS232 (CONNECT non interprété, pas de temporisation Hayes),
+  ligne Minitel au repos, réinitialisation au retour, modem débranché ;
 - banque vide instable (bus flottant) ;
 - rendu de l'écran identique au rendu d'origine (copie d'oric_screen_update)
   sur 600 écrans aléatoires : texte, HIRES, attributs série, double hauteur,
@@ -152,6 +157,7 @@ de maintien de la donnée sur le bus.
 
 ## Firmware
 
-`make uf2` doit compiler sans erreur (prise RS232 sur l'UART0 de l'UEXT par
-défaut, `-DTELESTRAT_RS232_UART=OFF` pour rendre l'UART aux messages) ; l'occupation RAM est relevée dans
+`make uf2` doit compiler sans erreur (prise RS232 sur le modem USB, ou sur
+l'UART0 de l'UEXT avec `rs232=uext` ; `-DTELESTRAT_RS232_UART=OFF` retire
+l'UEXT) ; l'occupation RAM est relevée dans
 docs/ARCHITECTURE.md. L'essai sur carte est manuel (non fait aux sprints 1 à 3).

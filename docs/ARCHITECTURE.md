@@ -171,12 +171,32 @@ sonnerie.
 ## Prise RS232 (sprint 5)
 
 PA4 = 1 aiguille l'ACIA vers la prise RS232 (TELEMON `$DB5D` : contrôle `$1E`,
-9600 bauds 8N1). Liaison directe, sans modem ni signaux de contrôle (/DCD et
-/DSR restent actifs). Banc PC : `-S` sur TCP. Neo6502 : UART0 de l'UEXT
-(GPIO 28/29), réglé d'après les registres de l'ACIA (`mos6551acia_format`) à
-chaque changement ; l'ACIA cadençant émission et réception au débit
-programmé, l'UART ne bloque ni ne déborde (FIFO de 32 octets). Marque et
-espace, absents de l'UART du RP2040, sont émis sans parité.
+9600 bauds 8N1). Pas de signaux de contrôle (/DCD et /DSR restent actifs).
+Banc PC : `-S` sur une liaison TCP directe.
+
+Neo6502, par défaut : **le PicoWiFiModemUSB**, seul modem, partagé avec la
+prise Minitel par `src/devices/modem_mux.h`. TELEMON laisse PA4 sur la
+dernière prise utilisée (trace `-T` du banc : RS232 au RESET, Minitel dès
+l'initialisation, RS232 dès un `SOUT`, sans retour) ; le modem suit PA4, vu à
+chaque milliseconde :
+
+| PA4 | Modem |
+|---|---|
+| 0 (Minitel) | piloté par `hayes_line.h` (ATE0V1, ATS0=0, AT$SP, ATA, ATD) pour TELEMATIC |
+| 1 (RS232) | octets bruts dans les deux sens : le logiciel du Telestrat parle Hayes ; ligne Minitel au repos |
+
+Au retour sur la prise Minitel, `hayes_line` est réinitialisé ; une
+communication laissée ouverte par la RS232 recevrait ces commandes comme
+données. Un modem branché pendant que la RS232 le tient n'est initialisé
+qu'au retour sur la prise Minitel.
+
+`TELESTRA.CFG rs232=uext` : UART0 de l'UEXT (GPIO 28/29, carte
+`olimex_neo6502` du pico-sdk et `serial.cpp` du firmware officiel), réglé
+d'après les registres de l'ACIA (`mos6551acia_format`) à chaque changement ;
+l'ACIA cadençant émission et réception au débit programmé, l'UART ne bloque
+ni ne déborde (FIFO de 32 octets). Marque et espace, absents de l'UART du
+RP2040, sont émis sans parité. Sans ce réglage, l'UART porte les messages du
+firmware (stdio).
 
 Protocole de `SSAVE`/`SLOAD` (TELEMON `$EE0A`/`$EE56`, observé au banc) : 50 x
 `$16`, `$24`, nom sur 12 octets, `$00`, 7 octets `$052C`-`$0532` (début

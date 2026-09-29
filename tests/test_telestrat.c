@@ -23,6 +23,7 @@
 #include "devices/mos6551acia.h"
 #include "devices/minitel_port.h"
 #include "devices/hayes_line.h"
+#include "devices/modem_mux.h"
 #include "systems/telestrat.h"
 #include "telestrat_video.h"
 
@@ -729,6 +730,51 @@ static void test_hayes_line(void) {
     CHECK(!l2.dial(l2.ctx), "sans numéro : pas d'appel sortant");
 }
 
+// --- Un modem pour les deux prises (modem_mux.h) --------------------------------
+static void test_modem_mux(void) {
+    hayes_line_t h;
+    modem_mux_t m;
+    modem_mux_init(&m, &h);
+    minitel_line_t l = hayes_line_line(&h);
+    modem_out_n = 0;
+    modem_mux_select(&m, true);  // RS232 au démarrage (PA4 = 1 au RESET)
+    modem_mux_attach(&m, modem_write, NULL, "go.minipavi.fr:516", 3615);
+    CHECK(modem_out_n == 0, "modem branché, RS232 : pas d'initialisation Hayes");
+    modem_mux_select(&m, false);
+    CHECK(strcmp(modem_out, "ATE0V1\rATS0=0\rAT$SP=3615\r") == 0, "retour Minitel : initialisation (%s)", modem_out);
+    modem_mux_feed(&m, 'R');
+    CHECK(modem_mux_rs232_recv(&m) == -1, "Minitel : rien vers la RS232");
+    const char* ring = "\r\nRING\r\n";
+    for (const char* c = ring; *c; c++) modem_mux_feed(&m, (uint8_t)*c);
+    CHECK(l.incoming(l.ctx), "Minitel : RING vu par hayes_line");
+    // Bascule sur la RS232 : octets bruts dans les deux sens
+    modem_out_n = 0;
+    modem_mux_select(&m, true);
+    CHECK(!l.incoming(l.ctx) && !l.carrier(l.ctx), "RS232 : ligne Minitel au repos");
+    modem_mux_rs232_send(&m, 'A');
+    modem_mux_rs232_send(&m, 'T');
+    CHECK(modem_out_n == 2 && modem_out[0] == 'A' && modem_out[1] == 'T', "RS232 : AT tapé par le Telestrat");
+    const char* ok = "OK\r\nCONNECT\r\n";
+    for (const char* c = ok; *c; c++) modem_mux_feed(&m, (uint8_t)*c);
+    CHECK(modem_mux_rs232_recv(&m) == 'O' && modem_mux_rs232_recv(&m) == 'K', "RS232 : réponses du modem transmises");
+    CHECK(!l.carrier(l.ctx), "RS232 : CONNECT non interprété par hayes_line");
+    modem_mux_tick(&m, 3000000);
+    CHECK(modem_out_n == 2, "RS232 : pas de temporisation Hayes");
+    // Retour sur la prise Minitel : file RS232 vidée, modem réinitialisé
+    modem_out_n = 0;
+    modem_mux_select(&m, false);
+    CHECK(modem_mux_rs232_recv(&m) == -1 && strncmp(modem_out, "ATE0V1", 6) == 0, "retour Minitel : réinitialisé");
+    modem_out_n = 0;
+    modem_mux_rs232_send(&m, 'X');
+    CHECK(modem_out_n == 0, "Minitel : la RS232 n'écrit pas au modem");
+    CHECK(l.dial(l.ctx) && strcmp(modem_out, "ATDgo.minipavi.fr:516\r") == 0, "Minitel : appel sortant (%s)", modem_out);
+    modem_mux_detach(&m);
+    modem_mux_select(&m, true);
+    modem_out_n = 0;
+    modem_mux_rs232_send(&m, 'Y');
+    CHECK(modem_out_n == 0, "modem débranché : rien n'est écrit");
+}
+
 // --- Rendu de l'écran : identique au rendu d'origine (oric.h) -----------------
 // Copie exacte de l'ancien telestrat_screen_update (oric_screen_update de
 // reload), comme référence
@@ -871,6 +917,7 @@ int main(void) {
     test_acia_format();
     test_minitel_port();
     test_hayes_line();
+    test_modem_mux();
     printf("test_telestrat : %d/%d vérifications réussies\n", checks - failures, checks);
     return failures ? 1 : 0;
 }

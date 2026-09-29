@@ -79,6 +79,7 @@ volatile uint32_t diag_io_n;
 #include "devices/mos6551acia.h"
 #include "devices/minitel_port.h"
 #include "devices/hayes_line.h"
+#include "devices/modem_mux.h"
 #include "systems/telestrat.h"
 
 #include "hardware/clocks.h"
@@ -86,6 +87,7 @@ volatile uint32_t diag_io_n;
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "hardware/uart.h"
+#include "pico/stdio_uart.h"
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/vreg.h"
 #include "pico/multicore.h"
@@ -118,9 +120,11 @@ state_t __not_in_flash() state;
 
 static minitel_port_t minitel;
 static hayes_line_t modem;
+static modem_mux_t mux;  // le modem suit PA4 : prise Minitel (Hayes géré ici) ou RS232 (octets bruts)
 static int modem_idx = -1;  // interface CDC du modem (-1 : absent)
 static char cfg_dial[64] = "";
 static int cfg_listen = 0;
+static bool cfg_rs232_uext = false;  // TELESTRA.CFG rs232=uext : prise RS232 sur l'UART de l'UEXT
 
 static void modem_write(void *ctx, const uint8_t *data, uint32_t len) {
     (void)ctx;
@@ -131,12 +135,15 @@ static void modem_write(void *ctx, const uint8_t *data, uint32_t len) {
 
 void tuh_cdc_mount_cb(uint8_t idx) {
     modem_idx = idx;
-    hayes_line_init(&modem, modem_write, NULL, cfg_dial, cfg_listen);
+    modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
     printf("Modem USB CDC %u branché\n", idx);
 }
 
 void tuh_cdc_umount_cb(uint8_t idx) {
-    if ((int)idx == modem_idx) modem_idx = -1;
+    if ((int)idx == modem_idx) {
+        modem_idx = -1;
+        modem_mux_detach(&mux);
+    }
 }
 
 static void modem_poll(void) {
@@ -144,7 +151,7 @@ static void modem_poll(void) {
     uint8_t buf[64];
     uint32_t n;
     while ((n = tuh_cdc_read((uint8_t)modem_idx, buf, sizeof(buf))) > 0) {
-        for (uint32_t i = 0; i < n; i++) hayes_line_feed(&modem, buf[i]);
+        for (uint32_t i = 0; i < n; i++) modem_mux_feed(&mux, buf[i]);
     }
 }
 
@@ -160,27 +167,35 @@ static int minitel_rx(void *user_data) {
     return minitel_port_to_telestrat(&minitel);
 }
 
-/*-- Prise RS232 : UART0 du connecteur UEXT ----------------------------------*/
-// Broches de la carte olimex_neo6502 (pico-sdk ; firmware officiel du
+/*-- Prise RS232 --------------------------------------------------------------*/
+// Par défaut vers le modem USB (PicoWiFiModemUSB), partagé avec la prise
+// Minitel par modem_mux.h : le logiciel du Telestrat lui parle Hayes
+// directement. TELESTRA.CFG rs232=uext : vers l'UART0 du connecteur UEXT,
+// broches de la carte olimex_neo6502 (pico-sdk ; firmware officiel du
 // Neo6502, serial.cpp) : TX GPIO 28 (UEXT 3), RX GPIO 29 (UEXT 4). L'UART
 // prend le format programmé dans l'ACIA (TELEMON : 9600 bauds 8N1), qui
-// cadence déjà émission et réception : la FIFO de l'UART ne déborde pas et
-// l'émission ne bloque pas.
+// cadence déjà émission et réception : la FIFO ne déborde pas et l'émission
+// ne bloque pas.
 #ifdef TELESTRAT_RS232_UART
 #define RS232_UART   uart0
 #define RS232_TX_PIN 28
 #define RS232_RX_PIN 29
 
 static uint16_t rs232_regs = 0xFFFF;  // commande << 8 | contrôle appliqués
+static bool rs232_uart_on = false;
 
-static void rs232_init(void) {
+// L'UART cesse de porter les messages (stdio) pour devenir la prise RS232
+static void rs232_uart_init(void) {
+    if (rs232_uart_on) return;
+    rs232_uart_on = true;
+    stdio_set_driver_enabled(&stdio_uart, false);
     uart_init(RS232_UART, 9600);
     gpio_set_function(RS232_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(RS232_RX_PIN, GPIO_FUNC_UART);
     uart_set_fifo_enabled(RS232_UART, true);
 }
 
-static void rs232_config(void) {
+static void rs232_uart_config(void) {
     const mos6551acia_t *a = &state.telestrat.acia;
     uint16_t regs = (uint16_t)(a->command << 8 | a->control);
     if (regs == rs232_regs) return;
@@ -192,19 +207,30 @@ static void rs232_config(void) {
     uart_set_baudrate(RS232_UART, f.baud);
     uart_set_format(RS232_UART, f.data_bits, f.stop_bits, parity[f.parity]);
 }
+#endif
 
 static void rs232_tx(uint8_t data, void *user_data) {
     (void)user_data;
-    rs232_config();
-    uart_putc_raw(RS232_UART, (char)data);
+#ifdef TELESTRAT_RS232_UART
+    if (cfg_rs232_uext) {
+        rs232_uart_config();
+        uart_putc_raw(RS232_UART, (char)data);
+        return;
+    }
+#endif
+    modem_mux_rs232_send(&mux, data);
 }
 
 static int rs232_rx(void *user_data) {
     (void)user_data;
-    rs232_config();
-    return uart_is_readable(RS232_UART) ? (uint8_t)uart_getc(RS232_UART) : -1;
-}
+#ifdef TELESTRAT_RS232_UART
+    if (cfg_rs232_uext) {
+        rs232_uart_config();
+        return uart_is_readable(RS232_UART) ? (uint8_t)uart_getc(RS232_UART) : -1;
+    }
 #endif
+    return modem_mux_rs232_recv(&mux);
+}
 
 static void audio_callback(const uint8_t sample, void *user_data) {
     (void)user_data;
@@ -216,9 +242,7 @@ static telestrat_desc_t telestrat_desc(void) {
     telestrat_desc_t d = {
         .audio = {.callback = {.func = audio_callback}, .sample_rate = 22050},
         .minitel = {.tx = minitel_tx, .rx = minitel_rx},
-#ifdef TELESTRAT_RS232_UART
         .rs232 = {.tx = rs232_tx, .rx = rs232_rx},
-#endif
     };
     d.banks[0].type = TELESTRAT_BANK_RAM;
 #ifdef TELESTRAT_RAM64K
@@ -345,11 +369,16 @@ static void read_config(void) {
             snprintf(cfg_dial, sizeof(cfg_dial), "%.63s", line + 5);
         } else if (!strncmp(line, "listen=", 7)) {
             cfg_listen = atoi(line + 7);
+        } else if (!strncmp(line, "rs232=", 6)) {
+#ifdef TELESTRAT_RS232_UART
+            cfg_rs232_uext = !strcmp(line + 6, "uext");
+            if (cfg_rs232_uext) rs232_uart_init();
+#endif
         }
     }
     f_close(&f);
-    printf("TELESTRA.CFG : dial=%s listen=%d\n", cfg_dial, cfg_listen);
-    if (modem_idx >= 0) hayes_line_init(&modem, modem_write, NULL, cfg_dial, cfg_listen);
+    printf("TELESTRA.CFG : dial=%s listen=%d rs232=%s\n", cfg_dial, cfg_listen, cfg_rs232_uext ? "uext" : "usb");
+    if (modem_idx >= 0) modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
 }
 
 /*-- Ligne de recette par sonde SWD (tools/carte.py ligne ...) ----------------*/
@@ -401,6 +430,7 @@ static void line_send(void *ctx, uint8_t data) {
 }
 
 void app_init(void) {
+    modem_mux_init(&mux, &modem);
     hayes = hayes_line_line(&modem);
     minitel_line_t line = {line_dial, line_answer, line_hangup, line_incoming, line_carrier, line_recv, line_send, NULL};
     minitel_port_init(&minitel, &line);
@@ -585,9 +615,7 @@ int main() {
     set_sys_clock_khz(DVI_TIMING.bit_clk_khz, true);
 
     stdio_init_all();
-#ifdef TELESTRAT_RS232_UART
-    rs232_init();
-#endif
+
     tusb_init();
 
     dvi0.timing = &DVI_TIMING;
@@ -616,8 +644,9 @@ int main() {
             for (uint32_t ticks = 0; ticks < n; ticks++) {
                 telestrat_tick(&state.telestrat);
             }
+            modem_mux_select(&mux, !cfg_rs232_uext && telestrat_serial_is_rs232(&state.telestrat));
             modem_poll();
-            hayes_line_tick(&modem, 1000);
+            modem_mux_tick(&mux, 1000);
             telestrat_set_ring(&state.telestrat, minitel_port_tick(&minitel, 1000));
         }
 

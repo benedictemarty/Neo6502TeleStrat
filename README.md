@@ -97,6 +97,7 @@ fichier `TELESTRA.CFG` facultatif à la racine de la clé règle la ligne :
 ```
 listen=3615            # port TCP où le modem attend les appels (AT$SP) : serveur TELEMATIC
 dial=hôte:port         # composé par ATD quand le Minitel émulé se connecte
+rs232=usb              # prise RS232 : modem USB (défaut) ou uext
 ```
 
 Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour
@@ -104,13 +105,16 @@ charger l'arborescence (`DEMO` sur la disquette STRATSED), ESC, « 2 Lancer le
 serveur » : « Attente de communication ». Un client Minitel TCP (émulateur ou
 passerelle) qui se connecte au port du modem est alors servi.
 
-**Prise RS232** : UART0 du connecteur UEXT, TX en UEXT 3 (GPIO 28), RX en
-UEXT 4 (GPIO 29), niveaux 3,3 V (brochage de la carte `olimex_neo6502` du
-pico-sdk et du firmware officiel ; **pas encore essayé sur carte**). L'UART
-prend le format programmé dans l'ACIA : 9600 bauds 8N1 avec TELEMON. En
-HYPER-BASIC : `SOUT n`, `SSAVE "NOM",A#début,E#fin`, `SLOAD`, `CONSOLE`.
-Les messages du firmware (`printf`) n'y passent plus
-(`-DTELESTRAT_RS232_UART=OFF` pour les retrouver).
+**Prise RS232** : par défaut vers le même PicoWiFiModemUSB, qui suit la prise
+choisie par le Telestrat (PA4). Sur la prise RS232, le modem reçoit les octets
+tels quels : le logiciel du Telestrat lui parle Hayes lui-même (`ATDT
+hôte:port`, `+++`, `ATH`…), comme à un modem RS232. Revenir à la prise
+Minitel réinitialise le modem pour TELEMATIC : raccrocher avant. En
+HYPER-BASIC : `SOUT n`, `SSAVE "NOM",A#début,E#fin`, `SLOAD`, `CONSOLE`
+(terminal). Avec `rs232=uext`, la prise va à l'UART0 du connecteur UEXT : TX
+en UEXT 3 (GPIO 28), RX en UEXT 4 (GPIO 29), 3,3 V, au format programmé dans
+l'ACIA (9600 bauds 8N1 avec TELEMON) ; les messages du firmware, qui sortent
+sinon sur cet UART, n'y passent plus. **Pas encore essayé sur carte.**
 
 | Touche | Effet |
 |---|---|
@@ -133,7 +137,7 @@ build/telestrat_headless -c standard -0 a.dsk -L listen:3615 -R ...  # ligne Min
 
 `-S listen:PORT` ou `-S connect:HÔTE:PORT` relie la prise RS232 (PA4 = 1) à
 une liaison TCP directe, sans modem (`tests/rs232_peer.py`) ; `-T` la trace en
-`RTX`/`RRX`.
+`RTX`/`RRX`, avec les bascules de prise (`PA4 RS232`, `PA4 MINITEL`).
 
 `-L listen:PORT` : un client TCP (par ex. `tests/minitel_client.py`) qui se
 connecte « appelle » le Telestrat ; `-L connect:HÔTE:PORT` : la connexion du

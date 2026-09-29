@@ -29,7 +29,8 @@
 //              listen:PORT (appel entrant = client TCP) ou connect:HOTE:PORT
 //   -S LIAISON branche la prise RS232 (PA4 = 1) sur TCP, liaison directe sans
 //              modem : listen:PORT (le premier client) ou connect:HOTE:PORT ;
-//              -T la trace en RTX/RRX (-B ne trace que la prise Minitel)
+//              -T la trace en RTX/RRX (-B ne trace que la prise Minitel) ;
+//              -T note aussi les bascules de prise (PA4)
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
 //   -B PRÉFIXE enregistre la trace (tests/replay.c, tools/rp2040_load.py) : PRÉFIXE.trace
 //              (un mot par cycle : adresse | R/W << 16 | IRQ << 17 | donnée << 24),
@@ -407,6 +408,12 @@ int main(int argc, char** argv) {
                                  ((uint32_t)sys.cpu.data << 24);
                     fwrite(&e, 4, 1, bench_trace);
                 }
+            }
+            if (serial_trace) {  // bascule de prise (PA4 du VIA 2), vue à la milliseconde
+                static int prise = -1;
+                int p = telestrat_serial_is_rs232(&sys);
+                if (p != prise) fprintf(serial_trace, "%d PA4 %s\n", frame, p ? "RS232" : "MINITEL");
+                prise = p;
             }
             if (minitel_on) {
                 bool ring = minitel_port_tick(&minitel, 1000);
