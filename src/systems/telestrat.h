@@ -59,6 +59,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "devices/oric_tape.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -140,6 +142,9 @@ typedef struct {
     kbd_t kbd;
     telestrat_fdc_t fdc;
     mos6551acia_t acia;
+    // Lecteur de cassette : CB1 du VIA 1, moteur sur PB6 (mode Atmos)
+    oric_tape_t tape;
+    uint32_t tape_due;  // cycle de la prochaine bascule du signal
     bool valid;
     chips_debug_t debug;
     chips_audio_callback_t audio_callback;
@@ -241,6 +246,8 @@ bool telestrat_serial_is_rs232(telestrat_t* sys);
 // Cartouche changée à chaud (menu) : ROM de 16 Ko en lecture seule, NULL =
 // banque vide ; telestrat_restore_bank remet le contenu du descripteur
 void telestrat_set_bank_rom(telestrat_t* sys, int bank, const uint8_t* rom);
+// Cassette (.tap) lue par read(ctx, …), rembobinée ; len = 0 : éjectée
+void telestrat_tape_insert(telestrat_t* sys, uint32_t len, oric_tape_read_t read, void* ctx);
 void telestrat_restore_bank(telestrat_t* sys, int bank);
 // Insère une image MFM_DISK dans le lecteur 0..3 (false si invalide)
 bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect);
@@ -296,6 +303,13 @@ void telestrat_select_bank(telestrat_t* sys, uint8_t bank) {
 
 // PA4 du VIA 2 : prise RS232 (1) ou Minitel (0)
 bool telestrat_serial_is_rs232(telestrat_t* sys) { return (mos6522via_get_pa(&sys->via2) & 0x10) != 0; }
+
+void telestrat_tape_insert(telestrat_t* sys, uint32_t len, oric_tape_read_t read, void* ctx) {
+    if (len) oric_tape_insert(&sys->tape, len, read, ctx);
+    else oric_tape_eject(&sys->tape);
+    sys->tape_due = sys->system_ticks;
+    _telestrat_input_changed(sys);
+}
 
 void telestrat_set_bank_rom(telestrat_t* sys, int bank, const uint8_t* rom) {
     if (bank < 0 || bank >= TELESTRAT_NUM_BANKS) return;
@@ -587,6 +601,27 @@ static inline uint32_t _telestrat_via_quiet(const mos6522via_t* c) {
     return k;
 }
 
+// Cassette : moteur sur PB6 du VIA 1 (sortie), bascules du signal sur CB1 à leur cycle
+// (multiples de 4 : alternances de 208 et 416 cycles, à partir d'un pas)
+static inline void _telestrat_update_tape(telestrat_t* sys) {
+    oric_tape_t* tp = &sys->tape;
+    const uint32_t t = sys->system_ticks;
+    // Sortie programmée seulement (ORB & DDRB) : au RESET, PB6 en entrée
+    // se lit à 1 et ne doit pas lancer le moteur
+    const bool motor = (sys->via.pb.outr & sys->via.pb.ddr & 0x40) != 0;
+    if (motor != tp->motor) {
+        oric_tape_set_motor(tp, motor);
+        sys->tape_due = t + (uint32_t)oric_tape_next(tp);
+    }
+    while (oric_tape_running(tp) && (int32_t)(t - sys->tape_due) >= 0) {
+        oric_tape_toggle(tp);
+        sys->tape_due += (uint32_t)oric_tape_next(tp);
+    }
+    // Niveau redonné à chaque pas, comme la sonnerie : le VIA de reload garde
+    // le front (c1_triggered) jusqu'à l'appel suivant
+    mos6522via_set_cb1(&sys->via, tp->level != 0);
+}
+
 // Pas avant qu'un compte à rebours (décrémenté de 4 par pas) n'atteigne 0
 static inline uint32_t _telestrat_delay_quiet(int32_t d) { return d > 0 ? (uint32_t)(d + 3) / 4 - 1 : UINT32_MAX; }
 
@@ -606,6 +641,12 @@ static inline uint32_t _telestrat_quiet_steps(telestrat_t* sys, uint32_t t) {
     const mos6551acia_t* a = &sys->acia;
     if (a->tsr_busy) {
         q = _telestrat_delay_quiet(a->tx_timer);
+        if (q < k) k = q;
+    }
+    // Prochaine bascule de la cassette : le pas qui la porte n'est pas sauté
+    if (oric_tape_running(&sys->tape)) {
+        const int32_t d = (int32_t)(sys->tape_due - t);
+        q = d > 4 ? (uint32_t)(d / 4) - 1 : 0;
         if (q < k) k = q;
     }
     // Interrogation de la réception tous les 64 cycles, si elle peut aboutir
@@ -656,6 +697,7 @@ TELESTRAT_SLOW static void _telestrat_step(telestrat_t* sys) {
 
     _telestrat_update_joysticks(sys);
     _telestrat_update_printer(sys, pb);
+    if (sys->tape.inserted) _telestrat_update_tape(sys);
 
     sys->inputs_dirty = false;
     sys->quiet_until = sys->system_ticks + 4 * (_telestrat_quiet_steps(sys, sys->system_ticks) + 1);

@@ -251,9 +251,45 @@ inutile pendant la pause ; la police et les tables sont en RAM. Pas de menu en
 800x480 (`TELESTRAT_VIDEO_480`) : la surface ne tient pas.
 
 Mémoire : cinq emplacements de 16 Ko (quatre ROM + un supplémentaire) au
-lieu de quatre ROM en RAM et deux emplacements (v0.6.0) ; il reste environ
-16,8 Ko de RAM libre dans la variante standard, 0,5 Ko avec la RAM 64 Ko (plus
-le tas de 2 Ko).
+lieu de quatre ROM en RAM et deux emplacements (v0.6.0). v0.7.0 : les
+tampons de `TELESTRA.CFG` (4 Ko) sont pris dans l'image du Telestrat, menu
+ouvert ; la variante RAM 64 Ko liste 32 fichiers de la clé (64 sinon). RAM
+libre : environ 16,7 Ko (standard), 2,2 Ko (RAM 64 Ko), plus le tas de 2 Ko.
+
+## Cassette et mode Atmos (sprint 7)
+
+Le Telestrat a une prise cassette DIN, comme l'Atmos, gérée par le VIA ; le
+chargement se fait avec la cartouche Atmos (TELEMON et HYPER-BASIC n'ont pas
+de chargeur de cassette) — information du PO (Wikipédia, Defence-Force,
+documentation cc65), non vérifiée par nous sur matériel.
+
+**Mode Atmos** : ORIC EXTENDED BASIC V1.1 (ROM d'`oric.uf2`, en flash) en
+banque 7, puis RESET à froid : la banque 7 est celle du RESET, et le matériel
+que la ROM attend (VIA en `$0300`, clavier, ULA) est celui du Telestrat.
+Observé au banc : « ORIC EXTENDED BASIC V1.1 … 37631 BYTES FREE ».
+
+**Lecteur** (`src/devices/oric_tape.h`, implémentation du projet) : faits du
+format relevés chez Oricutron (`tape.h`, GPL : aucune ligne de code reprise)
+— un bit commence sur un front montant, deux alternances de 208 cycles (1) ou
+416 (0) ; un octet = 1, 0, 8 bits (bit 0 d'abord), parité, 1, 1, 1 ; moteur
+démarré sur une synchro : 80 octets de synchro de plus ; environ 1281 cycles
+d'alternances courtes après l'en-tête ; fin : deux alternances. La ROM
+(`$E71C`, désassemblée) attend le drapeau CB1 du VIA 1 (front montant, PCR =
+`$10`), lit T2H (≥ `$FE` : bit 1) et relance T2.
+
+Dans le système : moteur = `ORB & DDRB & $40` (au RESET, PB6 en entrée se lit
+à 1 et ne doit pas lancer le moteur) ; chaque bascule est un événement à son
+cycle (multiple de 4), qui borne la fenêtre de repos ; le niveau est redonné
+à CB1 à chaque pas, comme la sonnerie (le VIA de reload garde le front
+jusqu'à l'appel suivant : sans cela, le drapeau se relève aussitôt effacé).
+Sans cassette, rien ne change (rejeu identique). En-tête `.tap` : adresse de
+fin **incluse** (sinon la ROM attend un octet de plus, observé).
+
+**Bandeau** : pendant que le moteur tourne, une rangée de texte (icône, nom,
+barre, pour cent) dans la marge sous l'image, dessinée par le cœur 0 à chaque
+trame, rendue par le cœur 1 comme une ligne du menu (8 lignes de tampon, même
+coût). La composition d'une ligne de sortie (menu, bandeau, image centrée)
+est commune au firmware et au banc (`telestrat_frame.h`, option `-D`).
 
 ## Démarrage sur disquette (observé au banc)
 

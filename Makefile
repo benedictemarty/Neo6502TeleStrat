@@ -16,15 +16,15 @@ CPPFLAGS += -Isrc -I$(RELOAD_DIR)/src
 
 BUILD := build
 ROMS_H := src/roms/telestrat_roms.h
-HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h
+HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/oric_tape.h src/osd/rom_builtin.h
 
 all: test
 
 $(ROMS_H): tools/fetch_roms.py
 	python3 tools/fetch_roms.py
 
-$(BUILD)/telestrat_headless: platforms/pc/telestrat_headless.c $(HEADERS) | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $<
+$(BUILD)/telestrat_headless: platforms/pc/telestrat_headless.c $(HEADERS) platforms/rp2040/src/telestrat_frame.h platforms/rp2040/src/telestrat_video.h | $(BUILD)
+	$(CC) $(CPPFLAGS) -Iplatforms/rp2040/src $(CFLAGS) -o $@ $<
 
 $(BUILD)/telestrat_headless_ref: platforms/pc/telestrat_headless.c $(HEADERS) src/systems/telestrat_ref.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DTELESTRAT_REF -o $@ $<
@@ -47,6 +47,7 @@ test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_hea
 	sh tests/test_minitel_emul.sh $(BUILD)/telestrat_headless
 	sh tests/test_rs232.sh $(BUILD)/telestrat_headless
 	sh tests/test_menu.sh $(BUILD)/telestrat_headless
+	sh tests/test_tape.sh $(BUILD)/telestrat_headless
 	sh tests/test_replay.sh $(BUILD)/telestrat_headless_ref $(BUILD)/replay
 
 uf2: $(ROMS_H)

@@ -23,3 +23,7 @@
 | `hid_app.c` et `msc_app.c` de reload-emulator | codes des touches (ASCII, sinon code HID \| 0x100) ; montage de la clé (FatFs, LUN 0) |
 | `dvi_timing.c` de PicoDVI | 960x544 : 1104 pixels par ligne à 37,2 MHz (budget d'une ligne de tampon : 59,35 µs) |
 | unscii-8 de Viznut, <http://viznut.fi/unscii/> (domaine public), copie `tools/fonts/unscii-8.hex` | texte du menu (ASCII, Latin-1) ; comparée à font8x8 de Daniel Hepper (domaine public) et à une police dessinée pour le projet |
+| Oricutron `tape.h`, `tape.c`, `roms/basic11b.pch` (GPL v2, lus seulement) | durées du format cassette (208 / 416 cycles), trame d'octet, synchro et silence d'en-tête ; adresses des routines cassette de BASIC 1.1 (`$E6C9`, `$E71C`, `$E735`) — aucune ligne de code reprise |
+| Wikipédia, Defence-Force (site matériel Oric), documentation cc65 — transmis par le PO | prise cassette DIN du Telestrat identique à l'Atmos ; chargement par la cartouche Atmos |
+| `oric_roms.h` de reload-emulator (local) | ROM ORIC EXTENDED BASIC V1.1 (md5 `a330779c42ad7d0c4ac6ef9e92788ec6`) |
+| `AIGLE.TAP` (« L'Aigle d'Or », Loriciels 1984), `~/Téléchargements` | essai manuel de chargement |

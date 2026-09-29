@@ -38,6 +38,9 @@
 //              majuscule = saut à l'initiale ; le menu se ferme sur Reprendre
 //              ou RESET, sinon à la fin des touches
 //   -O FICHIER image du menu (960 x 544, PPM) après les touches de -M
+//   -D FICHIER sortie DVI de la carte en fin d'exécution (960 x 544, PPM) : image
+//              du Telestrat centrée, bandeau de la cassette si le moteur tourne
+//   -K FICHIER cassette .tap insérée (mode Atmos : -c atmos, ou cartouche Atmos)
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
 //   -B PRÉFIXE enregistre la trace (tests/replay.c, tools/rp2040_load.py) : PRÉFIXE.trace
 //              (un mot par cycle : adresse | R/W << 16 | IRQ << 17 | donnée << 24),
@@ -96,6 +99,7 @@
 #include "line_tcp.h"
 #ifndef TELESTRAT_REF  // la référence figée n'a pas de menu
 #include "menu_pc.h"
+#include "telestrat_frame.h"
 #endif
 #include <time.h>
 
@@ -113,11 +117,15 @@ static int config_banks(const char* name, telestrat_desc_t* d) {
                                                 ROM(telestrat_telemon24)};
     const telestrat_bank_desc_t telemon[8] = {RAM(0), EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
                                               ROM(telestrat_telemon24)};
+    // Cartouche Atmos (BASIC 1.1) en banque 7 : mode Atmos, lecteur de cassette
+    const telestrat_bank_desc_t atmos[8] = {RAM(0), EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
+                                            ROM(telestrat_atmos)};
     const telestrat_bank_desc_t* src;
     if (!strcmp(name, "standard")) src = standard;
     else if (!strcmp(name, "ram64k")) src = ram64k;
     else if (!strcmp(name, "oricutron")) src = oricutron;
     else if (!strcmp(name, "telemon")) src = telemon;
+    else if (!strcmp(name, "atmos")) src = atmos;
     else return 0;
     memcpy(d->banks, src, sizeof(d->banks));
     return 1;
@@ -198,6 +206,48 @@ static int rs232_rx(void* user_data) {
     return c;
 }
 
+#ifndef TELESTRAT_REF
+// Sortie DVI de la carte (telestrat_frame.h) : 960 x 272 lignes doublées
+static void write_dvi(const char* path, const char* tape_name) {
+    static osd_row_t banner;
+    const bool on = oric_tape_running(&sys.tape);
+    if (on) {
+        const char* base = strrchr(tape_name, '/');
+        osd_tape_banner(&banner, base ? base + 1 : tape_name, oric_tape_percent(&sys.tape));
+    }
+    telestrat_video_init();
+    FILE* f = fopen(path, "wb");
+    if (!f) {
+        perror(path);
+        return;
+    }
+    fprintf(f, "P6\n960 544\n255\n");
+    static uint32_t r[30], g[30], b[30];
+    static uint8_t rgb[960 * 3];
+    for (int y = 0; y < TELESTRAT_FRAME_LINES; y++) {
+        telestrat_frame_line(y, 960, TELESTRAT_FRAME_LINES, sys.fb, NULL, on ? &banner : NULL, r, g, b);
+        for (int x = 0; x < 960; x++) {
+            rgb[3 * x] = (r[x >> 5] >> (x & 31) & 1) ? 255 : 0;
+            rgb[3 * x + 1] = (g[x >> 5] >> (x & 31) & 1) ? 255 : 0;
+            rgb[3 * x + 2] = (b[x >> 5] >> (x & 31) & 1) ? 255 : 0;
+        }
+        fwrite(rgb, 1, sizeof(rgb), f);
+        fwrite(rgb, 1, sizeof(rgb), f);
+    }
+    fclose(f);
+}
+#endif
+
+// Cassette en mémoire
+static uint8_t* tape_image;
+static size_t tape_size;
+static bool tape_read(void* ctx, uint32_t offset, uint8_t* buf, uint32_t len) {
+    (void)ctx;
+    if ((size_t)offset + len > tape_size) return false;
+    memcpy(buf, tape_image + offset, len);
+    return true;
+}
+
 static uint8_t* load_file(const char* path, size_t* size) {
     FILE* f = fopen(path, "rb");
     if (!f) {
@@ -261,6 +311,8 @@ int main(int argc, char** argv) {
     const char* line_spec = NULL;
     const char* rs232_spec = NULL;
     const char* usb_dir = NULL;
+    const char* tape_file = NULL;
+    const char* dvi_file = NULL;
     const char* menu_script = NULL;
     const char* menu_ppm = NULL;
     int menu_frame = -1;
@@ -273,7 +325,7 @@ int main(int argc, char** argv) {
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:S:U:M:O:RB:k:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:T:L:S:U:M:O:K:D:RB:k:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -294,6 +346,8 @@ int main(int argc, char** argv) {
                 menu_script = strchr(optarg, ':') ? strchr(optarg, ':') + 1 : "";
                 break;
             case 'O': menu_ppm = optarg; break;
+            case 'K': tape_file = optarg; break;
+            case 'D': dvi_file = optarg; break;
             case 'R': realtime = 1; break;
             case 'k': key_period = atoi(optarg) < 2 ? 2 : atoi(optarg); break;
             case 'B': bench_prefix = optarg; break;
@@ -395,6 +449,15 @@ int main(int argc, char** argv) {
         return 2;
     }
 #endif
+    if (tape_file) {
+        tape_image = load_file(tape_file, &tape_size);
+#ifndef TELESTRAT_REF
+        telestrat_tape_insert(&sys, (uint32_t)tape_size, tape_read, NULL);
+#else
+        fprintf(stderr, "cassette absente de la référence\n");
+        return 2;
+#endif
+    }
     telestrat_reset(&sys);
 
     size_t pos = 0, len = text ? strlen(text) : 0;
@@ -495,6 +558,9 @@ int main(int argc, char** argv) {
     if (ppm) write_ppm(ppm);
 #ifndef TELESTRAT_REF
     if (usb_dir) menu_pc_finish(&menu_pc, &sys);
+    if (dvi_file) write_dvi(dvi_file, tape_file ? tape_file : menu_pc.tape_name);
+#else
+    (void)dvi_file;
 #endif
     if (write_disk && images[0]) {
         FILE* f = fopen(write_disk, "wb");

@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (160 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (186 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -54,6 +54,12 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   Suppr, gauche/droite, boutons, défilement), sélecteurs filtrés (.dsk / .rom),
   image déjà dans un autre lecteur signalée ; `.rom` répétée, tailles
   refusées, fusion de `TELESTRA.CFG` ;
+- cassette (`oric_tape.h`) : trames (parité), moteur arrêté, synchro
+  prolongée et fin d'en-tête, premier front, durées des alternances,
+  silence après l'en-tête, fin de bande, arrêt en cours d'octet, éjection ;
+- menu : ligne Cassette (sélecteur des `.tap`, insertion, éjection, barre),
+  ROM intégrées d'abord dans le choix d'une banque, lettre, bandeau (icône,
+  nom, barre, fond tramé) ;
 - banque vide instable (bus flottant) ;
 - rendu de l'écran identique au rendu d'origine (copie d'oric_screen_update)
   sur 600 écrans aléatoires : texte, HIRES, attributs série, double hauteur,
@@ -129,6 +135,17 @@ seul) :
 | menu (`-M 400:heSerdeHezueue`) : STRATSED en A, hyperbas.rom en banque 6, Enregistrer, RESET | messages du menu ; « 32 Ko ROM », STRATSED V2.0c et HYPER BASIC V2.0b après le RESET (à froid) ; `TELESTRA.CFG` = `a=`, `bank6=` |
 | configuration `standard`, `TELESTRA.CFG` du menu plus `bank5=teleass.rom` | TELEASS deux fois (banques 2 et 5) ; `SAVE "MENUOK"` réécrit dans le fichier de la clé |
 | `telemon` : `.rom` de 1000 octets puis teleass.rom en banque 5, hyperbas.rom en banque 4, image du menu (`-O`) | « taille invalide » ; banque 5 prise (emplacement supplémentaire) ; « plus de place » ; PPM 960 x 544 |
+
+## Cassette — `tests/test_tape.sh` (9 vérifications)
+
+Configuration `atmos` (BASIC 1.1 en banque 7). `10 PRINT "CASSETTE OK"` et
+`20 PRINT 6*7` tapés, RAM relevée (`-r`), cassette faite par
+`tools/mktap.py` (51 octets) ; `CLOAD""` (`-K`) : « Loading .. ESSAI »
+pendant la lecture, `LIST` et `RUN` (« CASSETTE OK », 42) ; sans cassette,
+« Searching ». Par le menu depuis un Telestrat standard (`-U`, `-M`) : ROM
+Atmos intégrée en banque 7, `essai.tap`, RESET, `CLOAD`, `RUN` ; bandeau
+(jaune et bleu) sur la sortie DVI (`-D`) pendant la lecture. Essai manuel :
+« L'Aigle d'Or » (Loriciels, `AIGLE.TAP`) se charge et démarre.
 
 ## Coût du menu sur le cœur 1 — `make charge-menu`
 

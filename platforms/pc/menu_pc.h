@@ -18,6 +18,7 @@
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
 #include "osd/rom_pool.h"
+#include "osd/rom_builtin.h"
 
 // Comme le firmware : un emplacement par ROM intégrée, plus un supplémentaire
 #define MENU_PC_EXTRA_SLOTS 1
@@ -26,6 +27,9 @@ typedef struct {
     const char* dir;
     osd_menu_t menu;
     osd_surface_t surf;
+    uint8_t* tape;
+    size_t tape_size;
+    char tape_name[OSD_NAME_LEN];
     uint8_t* disk[4];
     size_t disk_size[4];
     char disk_name[4][OSD_NAME_LEN];
@@ -72,8 +76,9 @@ static void menu_pc_scan(menu_pc_t* p) {
     snprintf(m->usb_label, sizeof(m->usb_label), "Répertoire %s", p->dir);
     struct dirent* e;
     while ((e = readdir(d)) && m->nfiles < OSD_MENU_FILES) {
-        bool dsk = _menu_pc_ext(e->d_name, ".dsk"), rom = _menu_pc_ext(e->d_name, ".rom");
-        if ((!dsk && !rom) || strlen(e->d_name) >= OSD_NAME_LEN) continue;
+        bool dsk = _menu_pc_ext(e->d_name, ".dsk"), rom = _menu_pc_ext(e->d_name, ".rom"),
+             tap = _menu_pc_ext(e->d_name, ".tap");
+        if ((!dsk && !rom && !tap) || strlen(e->d_name) >= OSD_NAME_LEN) continue;
         char path[512];
         struct stat st;
         _menu_pc_path(p, e->d_name, path, sizeof(path));
@@ -81,7 +86,7 @@ static void menu_pc_scan(menu_pc_t* p) {
         osd_file_t* f = &m->files[m->nfiles++];
         snprintf(f->name, sizeof(f->name), "%s", e->d_name);
         f->size = (uint32_t)st.st_size;
-        f->kind = dsk ? OSD_FILE_DSK : OSD_FILE_ROM;
+        f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : OSD_FILE_ROM;
     }
     closedir(d);
     qsort(m->files, (size_t)m->nfiles, sizeof(m->files[0]), _menu_pc_cmp);
@@ -178,16 +183,40 @@ static const char* menu_pc_bank_label(const menu_pc_t* p, const telestrat_t* sys
 }
 
 // État du menu d'après le système
+static bool _menu_pc_tape_read(void* ctx, uint32_t off, uint8_t* buf, uint32_t len) {
+    const menu_pc_t* p = ctx;
+    if ((size_t)off + len > p->tape_size) return false;
+    memcpy(buf, p->tape + off, len);
+    return true;
+}
+
+// Cassette de la clé (la même : rembobinée)
+static bool menu_pc_tape(menu_pc_t* p, telestrat_t* sys, const char* name) {
+    size_t size = 0;
+    uint8_t* img = _menu_pc_read(p, name, &size);
+    if (!img) return false;
+    free(p->tape);
+    p->tape = img;
+    p->tape_size = size;
+    snprintf(p->tape_name, sizeof(p->tape_name), "%s", name);
+    telestrat_tape_insert(sys, (uint32_t)size, _menu_pc_tape_read, p);
+    return true;
+}
+
 static void menu_pc_refresh(menu_pc_t* p, telestrat_t* sys) {
     osd_menu_t* m = &p->menu;
+    snprintf(m->tape, sizeof(m->tape), "%s", sys->tape.inserted ? p->tape_name : "");
+    m->tape_percent = oric_tape_percent(&sys->tape);
+    m->tape_motor = sys->tape.motor && sys->tape.inserted;
+    for (int k = 0; k < ROM_BUILTINS && k < OSD_BUILTINS; k++) m->builtin[k] = rom_builtins[k].label;
     for (int d = 0; d < 4; d++) {
         snprintf(m->drive[d], sizeof(m->drive[d]), "%s", p->disk[d] ? p->disk_name[d] : "");
         m->drive_ro[d] = p->disk[d] && sys->fdc.wd.disk[d].write_protect;
     }
     for (int b = 0; b < 8; b++) {
         if (p->pool.name[b][0]) {
-            snprintf(m->bank[b], sizeof(m->bank[b]), "%s", p->pool.name[b]);
-            m->bank_kind[b] = OSD_BANK_ROM_USB;
+            snprintf(m->bank[b], sizeof(m->bank[b]), "%s", rom_builtin_label(p->pool.name[b]));
+            m->bank_kind[b] = p->pool.name[b][0] == '@' ? OSD_BANK_ROM : OSD_BANK_ROM_USB;
             continue;
         }
         snprintf(m->bank[b], sizeof(m->bank[b]), "%s", menu_pc_bank_label(p, sys, b));
@@ -225,7 +254,10 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
             char key[8];
             const char* err = "";
             snprintf(key, sizeof(key), "bank%d", b);
-            if ((v = osd_config_value(line, key)) && !menu_pc_load_rom(p, sys, b, v, &err))
+            if (!(v = osd_config_value(line, key))) continue;
+            const rom_builtin_t* rb = v[0] == '@' ? rom_builtin_find(v) : NULL;
+            if (v[0] == '@' && !rb) err = "ROM intégrée inconnue";
+            if (rb ? !rom_pool_load_builtin(&p->pool, sys, b, rb, &err) : !menu_pc_load_rom(p, sys, b, v, &err))
                 fprintf(stderr, "TELESTRA.CFG : %s : %s\n", v, err);
         }
     }
@@ -289,6 +321,28 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
             telestrat_cold_reset(sys);
             return true;
         case OSD_ACT_SAVE: menu_pc_save(p); break;
+        case OSD_ACT_TAPE_INSERT:
+            if (menu_pc_tape(p, sys, m->files[a.file].name)) {
+                snprintf(msg, sizeof(msg), "Cassette : %s (au début)", m->files[a.file].name);
+                osd_menu_message(m, false, msg);
+            } else {
+                snprintf(msg, sizeof(msg), "%s : illisible", m->files[a.file].name);
+                osd_menu_message(m, true, msg);
+            }
+            break;
+        case OSD_ACT_TAPE_EJECT:
+            telestrat_tape_insert(sys, 0, NULL, NULL);
+            osd_menu_message(m, false, "Cassette éjectée");
+            break;
+        case OSD_ACT_LOAD_BUILTIN:
+            if (a.file < ROM_BUILTINS && rom_pool_load_builtin(&p->pool, sys, a.target, &rom_builtins[a.file], &err)) {
+                snprintf(msg, sizeof(msg), "Banque %d : %s — RESET conseillé", a.target, rom_builtins[a.file].label);
+                osd_menu_message(m, false, msg);
+            } else {
+                snprintf(msg, sizeof(msg), "Banque %d : %s", a.target, err);
+                osd_menu_message(m, true, msg);
+            }
+            break;
         case OSD_ACT_RESUME: return true;
         default: break;
     }

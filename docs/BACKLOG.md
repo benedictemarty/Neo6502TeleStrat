@@ -91,6 +91,16 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-67 | Police libre pour le menu : unscii-8 (domaine public) | ✅ v0.6.1 |
 | US-68 | RAM : ROM intégrées en flash copiées dans des emplacements ; une cartouche de la clé prend l'emplacement de la ROM qu'elle remplace, plus une banque supplémentaire | ✅ v0.6.1 : 16,8 Ko libres (0,5 Ko avant) |
 
+## Sprint 7 — v0.7.0 — « Cassettes et mode Atmos » ✅ au banc (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-70 | Cartouche Atmos (BASIC 1.1) intégrée au firmware, proposée par le menu (`bank7=@atmos`) | ✅ banc, ⏳ carte |
+| US-71 | Lecteur de cassette `.tap` en temps réel (CB1 / PB6 du VIA 1), implémentation propre | ✅ banc : CLOAD, « L'Aigle d'Or » |
+| US-72 | Menu : ligne Cassette, sélecteur des `.tap`, éjection, position, moteur | ✅ banc, ⏳ carte |
+| US-73 | Bandeau de la cassette sous l'image pendant la lecture | ✅ banc (`-D`), ⏳ carte |
+| US-74 | Banc : `-c atmos`, `-K`, `-D` ; `tools/mktap.py` ; `tests/test_tape.sh` | ✅ 9/9 |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
@@ -98,7 +108,11 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
   `CONSOLE`), puis retour à TELEMATIC ; en option l'UEXT.
 - Vérifier sur matériel la cadence de sonnerie (seule hypothèse Minitel restante).
 - Essai croisé sur carte : TELEMATIC (Neo6502TeleStrat) appelé par NeoTel sur un second Neo6502.
-- Menu sur carte : rendu (temps du cœur 1), clavier, clé, cartouches.
+- Menu sur carte : rendu (temps du cœur 1), clavier, clé, cartouches,
+  cassette et bandeau.
+- Cassette : chargement accéléré (BASIC 1.1, au niveau du bus sur le
+  Neo6502), `CSAVE` vers un `.tap` (PB7), fichiers `.tap` à plusieurs parties
+  à vérifier.
 - TELEMON + HYPER-BASIC seuls : le démarrage sur STRATSED s'arrête après la
   liste des ROM (observé au banc, non expliqué ; comparer à Oricutron).
 - Clé retirée puis rebranchée : non gérée (montage au premier branchement).

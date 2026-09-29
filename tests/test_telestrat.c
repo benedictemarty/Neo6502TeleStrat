@@ -865,6 +865,77 @@ static void test_drive_set(void) {
     CHECK(s.slot[0] == 2 && s.slot[1] == -1, "même image demandée deux fois : seul le 1er lecteur l'a");
 }
 
+// --- Cassette (oric_tape.h) -------------------------------------------------------
+static const uint8_t* tap_data;
+static bool tap_read(void* ctx, uint32_t off, uint8_t* buf, uint32_t len) {
+    (void)ctx;
+    memcpy(buf, tap_data + off, len);
+    return true;
+}
+
+// Durées des alternances d'un octet : 2 par bit, à partir du front montant
+static int tape_byte_halves(oric_tape_t* t, int* halves) {
+    int n = 0;
+    for (int i = 0; i < 28; i++) {
+        halves[n++] = oric_tape_next(t);
+        oric_tape_toggle(t);
+    }
+    return n;
+}
+
+static void test_oric_tape(void) {
+    CHECK(_oric_tape_frame(0x00) == (1 | 1 << 10 | 7 << 11), "trame de $00 : parité 1 (zéro 1, pair)");
+    CHECK(_oric_tape_frame(0x01) == (1 | 1 << 2 | 7 << 11), "trame de $01 : parité 0");
+    static const uint8_t img[] = {0x16, 0x16, 0x16, 0x24, 0, 0, 0, 0, 0x05, 0x02, 0x05, 0x01, 0, 'A', 0, 0xA5, 0x5A};
+    tap_data = img;
+    oric_tape_t t;
+    oric_tape_init(&t);
+    oric_tape_insert(&t, sizeof(img), tap_read, NULL);
+    CHECK(!oric_tape_running(&t), "moteur arrêté : le signal ne bouge pas");
+    oric_tape_set_motor(&t, true);
+    CHECK(oric_tape_running(&t) && t.extra_sync == ORIC_TAPE_SYNC_MORE && t.header_end == 15,
+          "moteur sur une synchro : 80 octets de plus, fin d'en-tête en 15 (%u)", t.header_end);
+    CHECK(oric_tape_next(&t) == 4 && oric_tape_toggle(&t) == 1, "premier front montant aussitôt");
+    // Le front montant a commencé le premier bit : on remonte à l'alternance basse
+    int h[28];
+    int first = oric_tape_next(&t);
+    oric_tape_toggle(&t);  // fin du bit 0 (basse)
+    CHECK(first == ORIC_TAPE_SHORT, "bit 0 de la trame : 1 (208 cycles)");
+    tape_byte_halves(&t, h);
+    // h[0] : alternance basse du bit 0 ; puis bit 1 (synchro 0), bits de $16
+    CHECK(h[0] == ORIC_TAPE_SHORT && h[1] == ORIC_TAPE_LONG && h[2] == ORIC_TAPE_LONG,
+          "bit 1 : synchro 0 (deux alternances de 416 cycles)");
+    CHECK(h[3] == ORIC_TAPE_LONG && h[5] == ORIC_TAPE_SHORT && h[7] == ORIC_TAPE_SHORT,
+          "$16 : bit 0 = 0, bits 1 et 2 = 1");
+    // Avance jusqu'à la fin de l'en-tête : 80 + 15 octets
+    int guard = 0;
+    while (t.phase == ORIC_TAPE_DATA && guard++ < 100000) oric_tape_toggle(&t);
+    CHECK(t.phase == ORIC_TAPE_GAP_RUN && t.pos == 15 && t.extra_sync == 0, "fin de l'en-tête : silence (pos %u)", t.pos);
+    int gap = 0;
+    while (t.phase == ORIC_TAPE_GAP_RUN) {
+        gap += oric_tape_next(&t);
+        oric_tape_toggle(&t);
+    }
+    CHECK(gap >= ORIC_TAPE_GAP && gap < ORIC_TAPE_GAP + 2 * ORIC_TAPE_SHORT && t.phase == ORIC_TAPE_DATA,
+          "silence d'environ 1281 cycles (%d)", gap);
+    while (t.phase == ORIC_TAPE_DATA && guard++ < 200000) oric_tape_toggle(&t);
+    CHECK(t.phase == ORIC_TAPE_TAIL && t.pos == sizeof(img) && oric_tape_percent(&t) == 100, "fin des données");
+    oric_tape_toggle(&t);
+    oric_tape_toggle(&t);
+    CHECK(!oric_tape_running(&t), "fin de bande : deux alternances puis plus rien");
+    // Arrêt du moteur au milieu d'un octet : reprise à l'octet suivant
+    oric_tape_rewind(&t);
+    t.pos = 15;
+    oric_tape_set_motor(&t, false);
+    oric_tape_set_motor(&t, true);
+    for (int i = 0; i < 9; i++) oric_tape_toggle(&t);
+    oric_tape_set_motor(&t, false);
+    CHECK(t.pos == 16 && !oric_tape_running(&t), "moteur arrêté en cours d'octet : octet suivant (%u)", t.pos);
+    oric_tape_eject(&t);
+    oric_tape_set_motor(&t, true);
+    CHECK(!oric_tape_running(&t) && !t.inserted, "éjectée : rien ne bouge");
+}
+
 // --- Menu (OSD) : texte, rendu d'une ligne, navigation ---------------------------
 static osd_surface_t osd_s;
 static osd_menu_t osd_m;
@@ -893,6 +964,59 @@ static void test_osd_render(void) {
     osd_render_line(&osd_s, 1, r, g, b);
     const uint16_t wide = _osd_widen(osd_font['T'][1]);
     CHECK((r[0] & 0xFFFF) == wide, "grande lettre : T élargi (%04X / %04X)", (unsigned)(r[0] & 0xFFFF), wide);
+}
+
+// Cassette et ROM intégrées dans le menu ; bandeau
+static void test_osd_tape_menu(void) {
+    osd_menu_init(&osd_m);
+    const char* names[4] = {"JEUX.DSK", "aigle.tap", "orix.rom", "zorgon.tap"};
+    const uint8_t kinds[4] = {OSD_FILE_DSK, OSD_FILE_TAP, OSD_FILE_ROM, OSD_FILE_TAP};
+    for (int i = 0; i < 4; i++) {
+        strcpy(osd_m.files[i].name, names[i]);
+        osd_m.files[i].kind = kinds[i];
+    }
+    osd_m.nfiles = 4;
+    osd_m.builtin[0] = "ORIC BASIC 1.1 (Atmos)";
+    strcpy(osd_m.tape, "zorgon.tap");
+    osd_m.cursor = OSD_ITEM_DRIVE0 + 3;
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    CHECK(osd_m.cursor == OSD_ITEM_TAPE, "sous le lecteur D : la cassette");
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_count == 2 && osd_m.browse_cursor == 2,
+          "sélecteur des seules .tap, curseur sur la cassette en place");
+    osd_menu_key(&osd_m, OSD_KEY_UP);
+    osd_action_t a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_TAPE_INSERT && a.file == 1, "aigle.tap insérée (%d %d)", a.type, a.file);
+    a = osd_menu_key(&osd_m, OSD_KEY_DEL);
+    CHECK(a.type == OSD_ACT_TAPE_EJECT, "Suppr sur la cassette : éjecter");
+    osd_menu_key(&osd_m, OSD_KEY_RIGHT);
+    CHECK(osd_m.cursor == OSD_ITEM_BANK7 + 4, "droite depuis la cassette : banque 3");
+    osd_m.cursor = OSD_ITEM_BANK7;  // banque 7
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(osd_m.browse_count == 2 && osd_m.browse_list[0] == -2, "banque : ROM intégrée d'abord, puis les .rom");
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_LOAD_BUILTIN && a.target == 7 && a.file == 0, "ROM Atmos en banque 7");
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    osd_menu_key(&osd_m, 'O');
+    CHECK(osd_m.browse_cursor == 1, "lettre O : la ROM intégrée (ORIC…) avant orix.rom");
+    osd_menu_key(&osd_m, 'O');
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_LOAD_ROM && a.file == 2, "lettre O encore : orix.rom");
+    osd_m.tape_percent = 50;
+    osd_m.tape_motor = true;
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(osd_s.ch[15][6] == OSD_TAPE_L && osd_s.ch[15][41] == OSD_TRI_R && osd_s.ch[15][49] == OSD_FULL &&
+              osd_s.ch[15][54] == OSD_SHADE,
+          "ligne Cassette : icône, moteur, barre à moitié");
+    static osd_row_t row;
+    osd_tape_banner(&row, "AIGLE.TAP", 40);
+    CHECK(row.ch[18] == OSD_TAPE_L && !memcmp(&row.ch[30], "AIGLE.TAP", 9) && row.ch[66] == OSD_FULL &&
+              row.ch[66 + 29] == OSD_SHADE,
+          "bandeau : icône, nom, barre");
+    uint32_t r[30], g[30], b[30];
+    osd_render_cells(row.ch, row.attr, row.big, 0, 0, r, g, b);
+    CHECK(b[0] == 0x55555555u && r[0] == 0, "bandeau : fond bleu tramé");
 }
 
 static void test_osd_config(void) {
@@ -1134,9 +1258,11 @@ int main(void) {
     test_hayes_line();
     test_modem_mux();
     test_drive_set();
+    test_oric_tape();
     test_osd_render();
     test_osd_menu();
     test_osd_config();
+    test_osd_tape_menu();
     printf("test_telestrat : %d/%d vérifications réussies\n", checks - failures, checks);
     return failures ? 1 : 0;
 }

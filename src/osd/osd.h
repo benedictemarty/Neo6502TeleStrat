@@ -204,18 +204,14 @@ static inline void osd_init_luts(void) {
     osd_lut_ready = true;
 }
 
-// Une ligne de tampon (0 à OSD_LINES - 1) dans les plans rouge, vert, bleu.
-// Par cellule : l'octet du glyphe recopié dans les trois octets d'un mot
-// (multiplication, un cycle sur le RP2040), masqué par l'encre ; son
-// complément par le fond.
-static inline void OSD_RAM osd_render_line(const osd_surface_t* s, int line, uint32_t* red, uint32_t* green,
-                                           uint32_t* blue) {
+// Une ligne (y = 0 à 7) d'une rangée de cellules dans les plans rouge, vert,
+// bleu ; parity : parité de la ligne de tampon (trame). Par cellule : l'octet
+// du glyphe recopié dans les trois octets d'un mot (multiplication, un cycle
+// sur le RP2040), masqué par l'encre ; son complément par le fond.
+static inline void OSD_RAM osd_render_cells(const uint8_t* chs, const uint8_t* attrs, const uint8_t* bigs, int y,
+                                            int parity, uint32_t* red, uint32_t* green, uint32_t* blue) {
     if (!osd_lut_ready) osd_init_luts();
-    const int row = line >> 3, y = line & 7;
-    const uint8_t* chs = s->ch[row];
-    const uint8_t* attrs = s->attr[row];
-    const uint8_t* bigs = s->big[row];
-    const uint32_t* paper_lut = osd_paper_lut[line & 1];
+    const uint32_t* paper_lut = osd_paper_lut[parity & 1];
     for (int w = 0; w < OSD_COLS / 4; w++) {
         uint32_t r = 0, g = 0, b = 0;
         for (int k = 0; k < 4; k++) {
@@ -238,4 +234,34 @@ static inline void OSD_RAM osd_render_line(const osd_surface_t* s, int line, uin
         green[w] = g;
         blue[w] = b;
     }
+}
+
+// Une ligne de tampon (0 à OSD_LINES - 1) de la surface
+static inline void OSD_RAM osd_render_line(const osd_surface_t* s, int line, uint32_t* red, uint32_t* green,
+                                           uint32_t* blue) {
+    const int row = line >> 3;
+    osd_render_cells(s->ch[row], s->attr[row], s->big[row], line & 7, line & 1, red, green, blue);
+}
+
+// Une rangée seule (bandeau incrusté hors du menu)
+typedef struct {
+    uint8_t ch[OSD_COLS];
+    uint8_t attr[OSD_COLS];
+    uint8_t big[OSD_COLS];
+} osd_row_t;
+
+static inline void osd_row_clear(osd_row_t* r, uint8_t attr) {
+    memset(r->ch, ' ', sizeof(r->ch));
+    memset(r->attr, attr, sizeof(r->attr));
+    memset(r->big, 0, sizeof(r->big));
+}
+
+static inline int osd_row_puts(osd_row_t* r, int col, const char* str, uint8_t attr) {
+    int n = 0;
+    while (*str && col + n < OSD_COLS) {
+        r->ch[col + n] = osd_next_char(&str);
+        r->attr[col + n] = attr;
+        n++;
+    }
+    return n;
 }

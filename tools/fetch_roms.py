@@ -11,6 +11,7 @@ Usage : tools/fetch_roms.py [--offline] [--out src/roms/telestrat_roms.h]
 import argparse
 import hashlib
 import os
+import re
 import sys
 import urllib.request
 
@@ -32,14 +33,22 @@ ROMS = [
     ("telestrat_telematic", 0x2000, 0x2000, "0a814078410353744e2947a8e9342e4e",
      os.path.join(HOME, "Telematic/original/telematic.rom"),
      "https://raw.githubusercontent.com/assinie/Telematic/master/original/telematic.rom"),
+    # Cartouche Atmos : ORIC EXTENDED BASIC V1.1 (ROM d'oric.uf2, en-tête C de
+    # reload-emulator, non versionné : pas d'URL). Proposée par le menu, en
+    # banque 7 pour démarrer en mode Atmos (lecteur de cassette).
+    ("telestrat_atmos", 0x4000, 0x0000, "a330779c42ad7d0c4ac6ef9e92788ec6",
+     os.path.join(HOME, "reload-emulator/src/roms/oric_roms.h"), None),
 ]
 
 
 def load(local, url, offline):
     if os.path.isfile(local):
         with open(local, "rb") as f:
-            return f.read(), local
-    if offline:
+            data = f.read()
+        if local.endswith(".h"):  # tableau C : octets 0x.. dans l'ordre, les 16 premiers Ko
+            data = bytes(int(x, 16) for x in re.findall(rb"0x([0-9A-Fa-f]{2})", data))[:0x4000]
+        return data, local
+    if offline or not url:
         raise FileNotFoundError(local)
     with urllib.request.urlopen(url, timeout=30) as r:
         return r.read(), url

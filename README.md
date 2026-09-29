@@ -96,17 +96,30 @@ le RP2040 ; le Telestrat ne la voit pas directement mais par ce qu'on y prend
 - images `.rom` de 16 Ko (ou 8, 4, 2, 1 Ko, répétées) : cartouches, copiées en
   RAM à la place de la ROM de la banque (TELE-ASS, TELEMATIC, HYPER-BASIC,
   TELEMON) ; une seule de plus dans une banque vide (aucune avec la variante
-  RAM 64 Ko).
+  RAM 64 Ko) ;
+- cassettes `.tap` : lues par le lecteur de cassette émulé (prise DIN du
+  Telestrat, comme l'Atmos : signal sur CB1 du VIA 1, moteur sur PB6), en
+  temps réel.
 
-**Menu (F1)** : disquettes des lecteurs A à D, cartouches des banques 7 à 1
-(une `.rom` de la clé ou le contenu d'origine), Redémarrer (à froid, pour que
-TELEMON inventorie les cartouches), Enregistrer la configuration dans
-`TELESTRA.CFG`, Reprendre. L'émulation est en pause tant qu'il est ouvert.
-Flèches, Entrée, Suppr (éjecter / contenu d'origine), une lettre (aller au
-fichier), Échap. **Pas encore essayé sur carte** (aperçus du banc PC) :
+**Menu (F1)** : disquettes des lecteurs A à D, cassette (position, moteur),
+cartouches des banques 7 à 1 (ROM intégrée, `.rom` de la clé ou contenu
+d'origine), Redémarrer (à froid, pour que TELEMON inventorie les
+cartouches), Enregistrer la configuration dans `TELESTRA.CFG`, Reprendre.
+L'émulation est en pause tant qu'il est ouvert. Flèches, Entrée, Suppr
+(éjecter / contenu d'origine), une lettre (aller au fichier), Échap.
+
+**Mode Atmos et cassettes** : le firmware intègre la cartouche Atmos (ORIC
+EXTENDED BASIC V1.1). Menu : banque 7 → « ORIC BASIC 1.1 (Atmos) », Cassette →
+un `.tap`, Redémarrer ; puis `CLOAD""` (et `RUN`). Pendant la lecture, un
+bandeau sous l'image montre la cassette et sa position. TELEMON et
+HYPER-BASIC n'ont pas de chargeur de cassette : le mode Atmos est le moyen de
+lire les cassettes sur Telestrat.
+
+**Pas encore essayé sur carte** (aperçus du banc PC) :
 
 ![Menu](docs/images/menu.png)
-![Choix d'une disquette](docs/images/menu_disquettes.png)
+![Choix d'une cartouche](docs/images/menu_cartouches.png)
+![Cassette en lecture, bandeau](docs/images/cassette_bandeau.png)
 
 **Télématique** : brancher un PicoWiFiModemUSB (modem Hayes USB, Wi-Fi) sur le
 port USB hôte — avec un concentrateur s'il faut aussi le clavier et la clé. Un
@@ -118,6 +131,7 @@ dial=hôte:port         # composé par ATD quand le Minitel émulé se connecte
 rs232=usb              # prise RS232 : modem USB (défaut) ou uext
 a=STRATSED.DSK         # lecteurs A à D (a= … d=), écrits par le menu
 bank5=orix.rom         # cartouches de la clé (bank1= … bank7=), écrites par le menu
+bank7=@atmos           # ROM intégrée : cartouche Atmos (BASIC 1.1)
 ```
 
 Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour
@@ -138,7 +152,7 @@ sinon sur cet UART, n'y passent plus. **Pas encore essayé sur carte.**
 
 | Touche | Effet |
 |---|---|
-| F1 | menu : disquettes, cartouches, RESET, configuration |
+| F1 | menu : disquettes, cassette, cartouches, RESET, configuration |
 | F12 | RESET |
 | F11 | NMI |
 | Windows gauche | FUNCT |
@@ -154,6 +168,11 @@ build/telestrat_headless -c oricutron -0 STRATSED.DSK -f 1200 -w 500 -t '1~~~~~~
 build/telestrat_headless -0 a.dsk -W a2.dsk -P imprimante.txt ...   # disque réécrit, imprimante
 build/telestrat_headless -c standard -0 a.dsk -L listen:3615 -R ...  # ligne Minitel sur TCP, temps réel
 ```
+
+Cassette au banc : `-c atmos` (cartouche Atmos en banque 7), `-K jeu.tap`,
+puis `-t 'CLOAD""\n'` ; `-D sortie.ppm` écrit la sortie DVI de la carte
+(960 x 544 : image centrée, bandeau de la cassette pendant la lecture).
+`tools/mktap.py` fait un `.tap` d'un programme BASIC relevé dans la RAM (`-r`).
 
 Menu au banc : `-U RÉP` fait d'un répertoire la clé USB (`.dsk`, `.rom`,
 `TELESTRA.CFG` appliqué au démarrage) ; `-M T:TOUCHES` ouvre le menu à la
