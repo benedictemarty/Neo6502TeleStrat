@@ -48,6 +48,7 @@ test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_hea
 	sh tests/test_rs232.sh $(BUILD)/telestrat_headless
 	sh tests/test_menu.sh $(BUILD)/telestrat_headless
 	sh tests/test_tape.sh $(BUILD)/telestrat_headless
+	sh tests/test_stratoric.sh $(BUILD)/telestrat_headless
 	sh tests/test_replay.sh $(BUILD)/telestrat_headless_ref $(BUILD)/replay
 
 uf2: $(ROMS_H)

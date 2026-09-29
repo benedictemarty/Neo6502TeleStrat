@@ -118,9 +118,19 @@ sans redémarrer (les cartouches déjà chargées restent). Une piste modifiée
 mais pas encore réécrite au moment du retrait est perdue. **Non essayé sur
 carte.**
 
-**Mode Atmos et cassettes** : le firmware intègre la cartouche Atmos (ORIC
-EXTENDED BASIC V1.1). Menu : banque 7 → « ORIC BASIC 1.1 (Atmos) », Cassette →
-un `.tap`, Redémarrer ; puis `CLOAD""` (et `RUN`). `CSAVE"NOM"` enregistre
+**Cartouche STRATORIC (mode Atmos, disquettes SEDORIC)** : intégrée au
+firmware, comme la décrit le manuel du développeur Telestrat (banque 7 SEDORIC
++ démarrage, 6 ORIC BASIC V1.1, 5 ORIC BASIC V1.0). Menu : banque 7 →
+« STRATORIC 4.0 » (charge les trois banques), Redémarrer : « STRATORIC V4.0 ».
+Les disquettes SEDORIC des jeux Oric/Atmos démarrent (« 3D Munch » de
+Loriciels au banc), et les cassettes se lisent. `TELESTRA.CFG` :
+`bank7=@stratoric`. Il faut l'emplacement supplémentaire : pas avec la
+variante RAM 64 Ko.
+
+![STRATORIC, disquette SEDORIC](docs/images/stratoric_sedoric.png)
+
+**Mode Atmos simple et cassettes** : banque 7 → « ORIC BASIC 1.1 (Atmos) »,
+Cassette → un `.tap`, Redémarrer ; puis `CLOAD""` (et `RUN`). `CSAVE"NOM"` enregistre
 `NOM.TAP` à la racine de la clé. Pendant la lecture ou l'écriture, un bandeau
 sous l'image montre la cassette et sa position. TELEMON et
 HYPER-BASIC n'ont pas de chargeur de cassette : le mode Atmos est le moyen de
@@ -142,7 +152,7 @@ dial=hôte:port         # composé par ATD quand le Minitel émulé se connecte
 rs232=usb              # prise RS232 : modem USB (défaut) ou uext
 a=STRATSED.DSK         # lecteurs A à D (a= … d=), écrits par le menu
 bank5=orix.rom         # cartouches de la clé (bank1= … bank7=), écrites par le menu
-bank7=@atmos           # ROM intégrée : cartouche Atmos (BASIC 1.1)
+bank7=@stratoric       # ROM intégrée : STRATORIC (banques 7, 6, 5) ; @atmos : BASIC 1.1 seul
 imprimante=IMPRIM.TXT  # sortie de l'imprimante, ajoutée à ce fichier (vide : pas d'impression)
 ```
 

@@ -30,6 +30,8 @@
 #include "osd/osd_config.h"
 #include "systems/telestrat.h"
 #include "osd/rom_pool.h"
+#include "roms/telestrat_roms.h"
+#include "osd/rom_builtin.h"
 #include "telestrat_video.h"
 
 static int failures = 0, checks = 0;
@@ -141,6 +143,28 @@ static void test_rom_pool(void) {
     dst = rom_pool_claim(&p, &sys, 1, sizeof(img), &err);
     rom_pool_abort(&p, &sys, 1);
     CHECK(rom_pool_free(&p) == 1 && sys.bank_type[1] == TELESTRAT_BANK_RAM, "lecture échouée : banque 1 rendue à sa RAM");
+}
+
+// ROM intégrées : cartouche STRATORIC complète (banques 7, 6, 5)
+static void test_rom_builtin(void) {
+    static uint8_t slots[3][OSD_BANK_BYTES];
+    rom_pool_t p;
+    rom_pool_init(&p, slots, 3);
+    boot();
+    const char* err = "";
+    const rom_builtin_t* s = rom_builtin_find("@stratoric");
+    CHECK(s && rom_builtin_find("ORIC BASIC 1.1 (Atmos)") == &rom_builtins[1], "recherche par identifiant et libellé");
+    CHECK(rom_pool_load_builtin(&p, &sys, 7, s, &err), "STRATORIC chargée (%s)", err);
+    CHECK(sys.bank_rd[7] && !memcmp(sys.bank_rd[7], telestrat_stratoric, 16) && !memcmp(sys.bank_rd[6], telestrat_atmos, 16) &&
+              !memcmp(sys.bank_rd[5], telestrat_basic10, 16),
+          "banques 7, 6, 5 : STRATORIC, BASIC 1.1, BASIC 1.0");
+    CHECK(!strcmp(rom_builtin_label(p.name[7]), "STRATORIC 4.0") && !strcmp(p.name[5], "@basic10"),
+          "noms : panneau court, identifiant pour TELESTRA.CFG");
+    rom_pool_t q;
+    rom_pool_init(&q, slots, 2);
+    boot();
+    CHECK(!rom_pool_load_builtin(&q, &sys, 7, s, &err) && strstr(err, "plus de place"), "deux emplacements : plus de place");
+    telestrat_select_bank(&sys, 7);
 }
 
 static void test_bank_switch_and_ram(void) {
@@ -1342,6 +1366,7 @@ int main(void) {
     test_reset_bank();
     test_bank_hot_swap();
     test_rom_pool();
+    test_rom_builtin();
     test_bank_switch_and_ram();
     test_bank_ddr_keeps_inputs();
     test_fdc_no_disk();

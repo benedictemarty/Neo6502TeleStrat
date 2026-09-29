@@ -272,6 +272,28 @@ libre : environ 16,7 Ko (standard), 2,2 Ko (RAM 64 Ko), plus le tas de 2 Ko.
 v0.9.0 (enregistreur, imprimante) : 14 Ko (standard), **208 octets** (RAM
 64 Ko) — la variante RAM 64 Ko n'a plus de marge.
 
+## STRATORIC et banques vides (sprint 10)
+
+**STRATORIC** (dépôt jedeoric/stratoric, `B7STRA40.ROM`) : cartouche du mode
+Atmos du Telestrat d'après le manuel du développeur (F. Broche, 1987, page 3) :
+banque 7 SEDORIC + démarrage, 6 ORIC BASIC V1.1, 5 ORIC BASIC V1.0. Intégrée
+(`rom_builtin.h`) comme « cartouche complète » : choisie en banque 7, elle
+charge aussi les banques 6 et 5 (emplacement supplémentaire). Au banc :
+« STRATORIC V4.0 », BASIC, cassette, disquette SEDORIC (3D Munch).
+
+**Banque vide et démarrage à froid d'HYPER-BASIC** (enquête v0.9.1) : sans
+`BONJOUR.COM` sur la disquette (`FLGTEL` `$020D` bit 2), HYPER-BASIC lancé
+seul appelle `$C000` de la banque 5 (`$FFAC` : EXBNK) — là où la cartouche
+« TELE-ASS gauche » met TELE-ASS. Banque 5 vide (cartouche HYPER-BASIC seule
+à gauche, cartouche RAM 64 Ko à droite : configuration de la notice), notre
+bus flottant renvoie des octets pseudo-aléatoires, l'exécution s'égare et
+TELEMON est relancé, sans langage : « Logiciel ecrit par Fabrice BROCHE ».
+Avec deux langages, TELEMON affiche son menu et entre autrement dans
+HYPER-BASIC (pas d'appel à la banque 5) ; avec un `BONJOUR.COM`, la variante
+RAM 64 Ko démarre (« 44 Ko libres »). Ce que renvoie une banque vide sur un
+vrai Telestrat (bus flottant, rappel à `$FF`…) : **non établi** (manuel du
+développeur : l'octet d'état `$FFFB` a un bit 4 « ignorer la banque »).
+
 ## Imprimante et clé retirée (sprint 9)
 
 **Imprimante** : le système appelle `printer_out` à chaque octet (STROBE,

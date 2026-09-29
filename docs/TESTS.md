@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (196 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (201 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -44,6 +44,8 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   A, `b=`/`d=` sans casse, nom inconnu ignoré, image demandée deux fois ;
 - cartouche changée à chaud (`telestrat_set_bank_rom`), lecture seule,
   contenu d'origine rendu (ROM, RAM), banque courante vidée ;
+- ROM intégrées (`rom_builtin.h`) : STRATORIC charge les banques 7, 6 et 5,
+  noms court et identifiant, plus de place avec deux emplacements ;
 - emplacements de banque (`rom_pool.h`) : ROM intégrée copiée, le 65C02
   tourne depuis l'emplacement, cartouche à la place d'une ROM (même
   emplacement), 8 Ko répétés, emplacement supplémentaire, plus de place,
@@ -170,6 +172,14 @@ et exige 0 différence : octet placé sur le bus et ligne IRQ à chaque cycle,
 |---|---|
 | A (20 M cycles, config. `oricutron`) | démarrage STRATSED, HYPER-BASIC, PING, ZAP, DIR |
 | B (60 M cycles, config. `standard`) | serveur TELEMATIC : sonnerie, connexion, pages, ENVOI, raccrochage |
+
+## STRATORIC — `tests/test_stratoric.sh` (5 vérifications)
+
+Telestrat standard, répertoire-clé (`-U`) : `bank7=@stratoric` → « STRATORIC
+V4.0 », `PRINT 6*7` ; par le menu (banque 7 → STRATORIC, RESET) ; cassette
+(programme fait en mode Atmos, `CLOAD`, `RUN`) ; disquette SEDORIC « 3D Munch »
+(si présente) : copyright Loriciels dans les lignes de texte du mode HIRES
+(`$BF68`).
 
 ## Oracle Oricutron — `tools/oracle/oracle.sh` (manuel)
 

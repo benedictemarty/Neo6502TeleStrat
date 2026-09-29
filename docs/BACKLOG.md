@@ -116,6 +116,14 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-91 | Clé retirée puis rebranchée : lecteurs vidés puis remis, sans redémarrer | ✅ code, ⏳ carte (non testable au banc) |
 | US-92 | Oracle Oricutron sans fenêtre (v0.8.1) | ✅ |
 
+## Sprint 10 — v0.10.0 — « STRATORIC » ✅ au banc (2026-09-29)
+
+| US | Récit | État |
+|---|---|---|
+| US-100 | Cartouche STRATORIC intégrée (banques 7, 6, 5), `bank7=@stratoric` | ✅ banc : STRATORIC V4.0, BASIC, cassette |
+| US-101 | Disquettes SEDORIC (jeux Oric/Atmos) | ✅ 3D Munch, démo 1337 au banc |
+| US-102 | Démarrage de la variante RAM 64 Ko sans `BONJOUR.COM` expliqué (appel d'HYPER-BASIC à la banque 5 vide) | ✅ expliqué ; ⏳ lecture d'une banque vide sur le vrai matériel |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

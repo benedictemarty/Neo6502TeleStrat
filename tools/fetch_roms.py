@@ -38,6 +38,14 @@ ROMS = [
     # banque 7 pour démarrer en mode Atmos (lecteur de cassette).
     ("telestrat_atmos", 0x4000, 0x0000, "a330779c42ad7d0c4ac6ef9e92788ec6",
      os.path.join(HOME, "reload-emulator/src/roms/oric_roms.h"), None),
+    # Cartouche STRATORIC (manuel du développeur Telestrat, F. Broche 1987) :
+    # banque 7 SEDORIC + démarrage, banque 6 ORIC BASIC V1.1, banque 5 ORIC
+    # BASIC V1.0 — mode Atmos avec disquettes SEDORIC et cassettes
+    ("telestrat_stratoric", 0x4000, 0x0000, "19c56dfcab72a082f449d2bc6ec15032",
+     os.path.join(HOME, "stratoric/B7STRA40.ROM"),
+     "https://raw.githubusercontent.com/jedeoric/stratoric/master/B7STRA40.ROM"),
+    ("telestrat_basic10", 0x4000, 0x0000, "ebe418ec8a6c85d5ac32956c9a96c179",
+     os.path.join(HOME, "Oric1/roms/basic10.rom"), None),
 ]
 
 

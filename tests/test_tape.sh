@@ -23,13 +23,13 @@ python3 "$(dirname "$0")/../tools/mktap.py" "$TMP/ram.bin" "$TMP/essai.tap" ESSA
 # Chargement suivi : nom affiché pendant la lecture
 "$BIN" -c atmos -K "$TMP/essai.tap" -f 260 -w 150 -k 8 -t 'CLOAD""\n' -s > "$TMP/pendant.txt"
 
-# Par le menu : h r e d e = banque 7 <- ROM intégrée Atmos ; l d d d d e d e =
+# Par le menu : h r e d d e = banque 7 <- ROM intégrée Atmos ; l d d d d e d e =
 # cassette <- essai.tap ; z u u e = RESET (à froid)
 mkdir "$TMP/cle"
 cp "$TMP/essai.tap" "$TMP/cle/essai.tap"
-"$BIN" -c standard -U "$TMP/cle" -M "300:hredelddddedezuue" -f 1700 -w 450 -k 8 -t "CLOAD\"\"\n${W}RUN\n" -s \
+"$BIN" -c standard -U "$TMP/cle" -M "300:hreddelddddedezuue" -f 1700 -w 450 -k 8 -t "CLOAD\"\"\n${W}RUN\n" -s \
     > "$TMP/menu.txt" 2> "$TMP/menu_msg.txt"
-"$BIN" -c standard -U "$TMP/cle" -M "300:hredelddddedezuue" -f 560 -w 450 -k 8 -t 'CLOAD""\n' -D "$TMP/dvi.ppm" \
+"$BIN" -c standard -U "$TMP/cle" -M "300:hreddelddddedezuue" -f 560 -w 450 -k 8 -t 'CLOAD""\n' -D "$TMP/dvi.ppm" \
     > /dev/null 2>&1
 
 # CSAVE vers un fichier, puis relecture
