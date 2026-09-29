@@ -38,6 +38,8 @@
 #include <string.h>
 
 #include <pico/platform.h>
+// Images en RAM, comme les emplacements de banque du firmware
+#define TELESTRAT_ROM_SECTION(x) __not_in_flash(x)
 #include "roms/telestrat_roms.h"
 
 #define TELESTRAT_HOT __attribute__((section(".time_critical.telestrat")))

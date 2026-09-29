@@ -88,6 +88,8 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-64 | RESET à froid (TELEMON n'inventorie les cartouches qu'à froid) | ✅ |
 | US-65 | Banc : `-U` (répertoire = clé), `-M` (touches du menu), `-O` (image du menu) ; `tests/test_menu.sh` | ✅ 9/9 |
 | US-66 | Coût du menu sur le cœur 1 mesuré sans carte (`make charge-menu`) | ✅ ≈ 48 µs sur 59,35 (estimation) |
+| US-67 | Police libre pour le menu : unscii-8 (domaine public) | ✅ v0.6.1 |
+| US-68 | RAM : ROM intégrées en flash copiées dans des emplacements ; une cartouche de la clé prend l'emplacement de la ROM qu'elle remplace, plus une banque supplémentaire | ✅ v0.6.1 : 16,8 Ko libres (0,5 Ko avant) |
 
 ## Plus tard
 
@@ -100,8 +102,7 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 - TELEMON + HYPER-BASIC seuls : le démarrage sur STRATSED s'arrête après la
   liste des ROM (observé au banc, non expliqué ; comparer à Oricutron).
 - Clé retirée puis rebranchée : non gérée (montage au premier branchement).
-- RAM du firmware standard presque pleine (≈ 0,5 Ko + tas) : ROM intégrées en
-  flash ? (coût des lectures de banque à mesurer).
+- Variante RAM 64 Ko : ≈ 0,5 Ko de RAM libre.
 - Imprimante vers l'UART ou la clé USB sur le Neo6502.
 - Instantanés (savestates), sélecteur de ROM au démarrage.
 - Test « golden » image contre Oricutron (PPM), ROM ORIX.

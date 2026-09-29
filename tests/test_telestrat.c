@@ -28,6 +28,7 @@
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
 #include "systems/telestrat.h"
+#include "osd/rom_pool.h"
 #include "telestrat_video.h"
 
 static int failures = 0, checks = 0;
@@ -95,6 +96,50 @@ static void test_bank_hot_swap(void) {
     telestrat_restore_bank(&sys, 5);
     CHECK(sys.rd_cur == NULL, "banque courante vidée : bus flottant");
     telestrat_select_bank(&sys, 7);
+}
+
+// Emplacements de banque : ROM intégrées copiées, cartouches de la clé
+static void test_rom_pool(void) {
+    static uint8_t slots[3][OSD_BANK_BYTES];
+    static uint8_t flash7[OSD_BANK_BYTES], flash6[OSD_BANK_BYTES], img[0x2000];
+    rom_pool_t p;
+    rom_pool_init(&p, slots, 3);  // 2 ROM intégrées + 1 supplémentaire
+    const uint8_t prog[] = {0x4C, 0x00, 0xC0};
+    load_program(prog, sizeof(prog));
+    memcpy(flash7, rom7, sizeof(flash7));
+    memset(flash6, 0x66, sizeof(flash6));
+    telestrat_desc_t d = {0};
+    d.banks[0].type = TELESTRAT_BANK_RAM;
+    d.banks[1].type = TELESTRAT_BANK_RAM;
+    d.banks[6] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom_pool_builtin(&p, 6, flash6)};
+    d.banks[7] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom_pool_builtin(&p, 7, flash7)};
+    telestrat_init(&sys, &d);
+    telestrat_reset(&sys);
+    CHECK(sys.bank_rd[6] == slots[0] && slots[0][5] == 0x66 && rom_pool_free(&p) == 1, "ROM intégrée copiée en RAM");
+    run(50);
+    CHECK(sys.bank == 7, "le 65C02 tourne depuis l'emplacement de TELEMON");
+    const char* err = "";
+    for (int i = 0; i < 0x2000; i++) img[i] = (uint8_t)(i ^ 0x5A);
+    uint8_t* dst = rom_pool_claim(&p, &sys, 6, sizeof(img), &err);
+    CHECK(dst == slots[0], "cartouche en banque 6 : emplacement de HYPER-BASIC réutilisé");
+    memcpy(dst, img, sizeof(img));
+    rom_pool_commit(&p, &sys, 6, sizeof(img), "orix.rom");
+    CHECK(slots[0][0x2003] == (3 ^ 0x5A) && sys.bank_rd[6] == slots[0] && !strcmp(p.name[6], "orix.rom"),
+          "8 Ko répétés, banque branchée");
+    dst = rom_pool_claim(&p, &sys, 5, sizeof(img), &err);
+    CHECK(dst == slots[2] && rom_pool_free(&p) == 0, "banque 5 vide : emplacement supplémentaire");
+    rom_pool_commit(&p, &sys, 5, sizeof(img), "forth.rom");
+    CHECK(!rom_pool_claim(&p, &sys, 1, sizeof(img), &err) && strstr(err, "plus de place"),
+          "banque 1 : plus de place (%s)", err);
+    CHECK(sys.bank_type[1] == TELESTRAT_BANK_RAM, "refus : banque 1 intacte (RAM)");
+    CHECK(!rom_pool_claim(&p, &sys, 4, 1000, &err) && strstr(err, "taille"), "taille refusée avant la place");
+    rom_pool_restore(&p, &sys, 6);
+    CHECK(slots[0][5] == 0x66 && sys.bank_rd[6] == slots[0] && !p.name[6][0], "banque 6 : HYPER-BASIC recopié de la flash");
+    rom_pool_restore(&p, &sys, 5);
+    CHECK(rom_pool_free(&p) == 1 && sys.bank_rd[5] == NULL, "banque 5 : emplacement libéré, banque vide");
+    dst = rom_pool_claim(&p, &sys, 1, sizeof(img), &err);
+    rom_pool_abort(&p, &sys, 1);
+    CHECK(rom_pool_free(&p) == 1 && sys.bank_type[1] == TELESTRAT_BANK_RAM, "lecture échouée : banque 1 rendue à sa RAM");
 }
 
 static void test_bank_switch_and_ram(void) {
@@ -1073,6 +1118,7 @@ static void test_acia(void) {
 int main(void) {
     test_reset_bank();
     test_bank_hot_swap();
+    test_rom_pool();
     test_bank_switch_and_ram();
     test_bank_ddr_keeps_inputs();
     test_fdc_no_disk();

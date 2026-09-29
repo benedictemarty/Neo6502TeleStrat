@@ -22,4 +22,4 @@
 | `olimex_neo6502.h` du pico-sdk ; `serial.cpp` du firmware officiel du Neo6502 (Paul Robson) | UART0 de l'UEXT : TX GPIO 28, RX GPIO 29 |
 | `hid_app.c` et `msc_app.c` de reload-emulator | codes des touches (ASCII, sinon code HID \| 0x100) ; montage de la clé (FatFs, LUN 0) |
 | `dvi_timing.c` de PicoDVI | 960x544 : 1104 pixels par ligne à 37,2 MHz (budget d'une ligne de tampon : 59,35 µs) |
-| Police du menu (`tools/gen_osd_font.py`) | dessin original du projet (aucune police tierce) |
+| unscii-8 de Viznut, <http://viznut.fi/unscii/> (domaine public), copie `tools/fonts/unscii-8.hex` | texte du menu (ASCII, Latin-1) ; comparée à font8x8 de Daniel Hepper (domaine public) et à une police dessinée pour le projet |

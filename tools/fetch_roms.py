@@ -52,7 +52,10 @@ def main():
     args = ap.parse_args()
 
     lines = ["#pragma once", "", "// Généré par tools/fetch_roms.py : ne pas modifier, ne pas versionner.",
-             "#include <stdint.h>", "", "#ifndef __not_in_flash", "#define __not_in_flash(x)", "#endif", ""]
+             "#include <stdint.h>", "",
+             "// Emplacement des images : en flash par défaut (le firmware les copie dans ses",
+             "// emplacements de banque en RAM) ; TELESTRAT_ROM_SECTION(nom) les place ailleurs",
+             "#ifndef TELESTRAT_ROM_SECTION", "#define TELESTRAT_ROM_SECTION(x)", "#endif", ""]
     for name, size, offset, md5, local, url in ROMS:
         data, src = load(local, url, args.offline)
         got = hashlib.md5(data).hexdigest()
@@ -62,7 +65,7 @@ def main():
         for base in range(0, 0x4000, size):
             bank[base:base + size] = data
         lines.append(f"// {src} (md5 {md5}, {size} octets en +${offset:04X})")
-        lines.append(f"uint8_t __not_in_flash(\"{name}\") {name}[0x4000] = {{")
+        lines.append(f"const uint8_t TELESTRAT_ROM_SECTION(\"{name}\") {name}[0x4000] = {{")
         for i in range(0, 0x4000, 16):
             lines.append("    " + ", ".join(f"0x{b:02X}" for b in bank[i:i + 16]) + ",")
         lines.append("};")

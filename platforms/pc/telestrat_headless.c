@@ -369,6 +369,10 @@ int main(int argc, char** argv) {
         desc.minitel.tx = serial_tx;
         desc.minitel.rx = serial_rx;
     }
+#ifndef TELESTRAT_REF
+    if (menu_script && !usb_dir) usb_dir = ".";
+    if (usb_dir) menu_pc_prepare(&menu_pc, &desc);
+#endif
     telestrat_init(&sys, &desc);
     uint8_t* images[4] = {NULL, NULL, NULL, NULL};
     size_t image_sizes[4] = {0, 0, 0, 0};
@@ -381,7 +385,6 @@ int main(int argc, char** argv) {
         }
     }
 #ifndef TELESTRAT_REF
-    if (menu_script && !usb_dir) usb_dir = ".";
     if (usb_dir) menu_pc_init(&menu_pc, &sys, usb_dir, "banc PC");
 #else
     (void)usb_dir;

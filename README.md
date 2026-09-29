@@ -94,7 +94,9 @@ le RP2040 ; le Telestrat ne la voit pas directement mais par ce qu'on y prend
   lecteurs A à D, lues et réécrites piste par piste (`SAVE`… modifie le
   fichier) ; au montage, la première va dans A ;
 - images `.rom` de 16 Ko (ou 8, 4, 2, 1 Ko, répétées) : cartouches, copiées en
-  RAM dans une banque (deux à la fois ; aucune avec la variante RAM 64 Ko).
+  RAM à la place de la ROM de la banque (TELE-ASS, TELEMATIC, HYPER-BASIC,
+  TELEMON) ; une seule de plus dans une banque vide (aucune avec la variante
+  RAM 64 Ko).
 
 **Menu (F1)** : disquettes des lecteurs A à D, cartouches des banques 7 à 1
 (une `.rom` de la clé ou le contenu d'origine), Redémarrer (à froid, pour que

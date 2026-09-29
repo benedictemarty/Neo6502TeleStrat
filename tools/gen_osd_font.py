@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Génère src/osd/osd_font.h : police 8 x 8 du menu (OSD), dessin original.
+"""Génère src/osd/osd_font.h : police 8 x 8 du menu (OSD).
+
+Texte (ASCII 32-126, Latin-1 0xA0-0xFF, tiret cadratin, points de
+suspension) : unscii-8 de Viznut, domaine public (tools/fonts/unscii-8.hex,
+voir tools/fonts/README.md). Filets arrondis et icônes (0x80-0x9F) : dessin
+du projet. Les glyphes dessinés à la main plus bas (CAPS, LOWER…) restent
+disponibles avec --maison (première version).
 
 Le menu est rendu à 960 x 272 lignes de tampon, chaque ligne affichée deux
 fois (DVI_VERTICAL_REPEAT = 2) : les pixels sont deux fois plus hauts que
@@ -11,9 +17,24 @@ Codage : ASCII 32-126, Latin-1 pour les lettres accentuées françaises
 (0xC0-0xFF), filets et icônes en 0x80-0x9F (voir ICONES). Sortie : 256 x 8
 octets, bit 0 = pixel de gauche (ordre de tmds_encode_1bpp).
 
-Usage : gen_osd_font.py [sortie.h] [aperçu.png]
+Usage : gen_osd_font.py [--maison] [sortie.h] [aperçu.png]
 """
+import os
 import sys
+
+UNSCII = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "unscii-8.hex")
+
+
+def unscii():
+    """Glyphes unscii-8 : code -> 8 lignes de '.'/'#' (pixel de gauche en premier)"""
+    font = {}
+    for line in open(UNSCII):
+        code, h = line.strip().split(":")
+        if len(h) != 16:
+            continue  # glyphes larges (16 x 8)
+        font[int(code, 16)] = ["".join("#" if int(h[2 * i:2 * i + 2], 16) >> (7 - x) & 1 else "." for x in range(8))
+                               for i in range(8)]
+    return font
 
 B = "........"
 
@@ -181,7 +202,16 @@ def glyph_rows(first, rows):
     return g
 
 
-def build():
+def build(maison=False):
+    if not maison:
+        u = unscii()
+        table = [list(u.get(c, [B] * 8)) if (32 <= c < 127 or c >= 0xA0) else [B] * 8 for c in range(256)]
+        for i, (name, g) in enumerate(ICONES):
+            table[0x80 + i] = g
+        idx = {name: 0x80 + i for i, (name, _) in enumerate(ICONES)}
+        table[idx["EMDASH"]] = u[0x2014]
+        table[idx["ELLIPSIS"]] = u[0x2026]
+        return table
     font = {}
     for ch, rows in CAPS.items():
         font[ch] = glyph_rows(1, rows)
@@ -212,11 +242,14 @@ def build():
 
 
 def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else "src/osd/osd_font.h"
-    table = build()
+    args = [a for a in sys.argv[1:] if a != "--maison"]
+    out = args[0] if args else "src/osd/osd_font.h"
+    table = build("--maison" in sys.argv)
     with open(out, "w") as f:
-        f.write("#pragma once\n\n// osd_font.h — généré par tools/gen_osd_font.py (dessin original, 8 x 8,\n"
-                "// bit 0 = pixel de gauche). Ne pas modifier à la main.\n\n#include <stdint.h>\n\n")
+        f.write("#pragma once\n\n// osd_font.h — généré par tools/gen_osd_font.py. Ne pas modifier à la main.\n"
+                "// 8 x 8, bit 0 = pixel de gauche. Texte : unscii-8 de Viznut (domaine public,\n"
+                "// http://viznut.fi/unscii/) ; filets et icônes (0x80-0x9F) : dessin du projet.\n\n"
+                "#include <stdint.h>\n\n")
         for i, (name, _) in enumerate(ICONES):
             f.write("#define OSD_%-8s 0x%02X\n" % (name, 0x80 + i))
         f.write("\n// Section de la police (le firmware la met en RAM, lue par le cœur 1)\n"
@@ -226,7 +259,7 @@ def main():
             vals = [sum(1 << x for x in range(8) if r[x] == "#") for r in g]
             f.write("    {%s},  // 0x%02X\n" % (", ".join("0x%02X" % v for v in vals), code))
         f.write("};\n")
-    if len(sys.argv) > 2:
+    if len(args) > 1:
         from PIL import Image
         img = Image.new("RGB", (16 * 10, 16 * 20), (0, 0, 0))
         px = img.load()
@@ -236,7 +269,7 @@ def main():
                 for x in range(8):
                     if table[code][y][x] == "#":
                         px[cx + x, cy + 2 * y] = px[cx + x, cy + 2 * y + 1] = (255, 255, 255)
-        img.resize((img.width * 3, img.height * 3), Image.NEAREST).save(sys.argv[2])
+        img.resize((img.width * 3, img.height * 3), Image.NEAREST).save(args[1])
 
 
 if __name__ == "__main__":

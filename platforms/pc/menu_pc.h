@@ -17,8 +17,10 @@
 
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
+#include "osd/rom_pool.h"
 
-#define MENU_PC_ROM_SLOTS 2
+// Comme le firmware : un emplacement par ROM intégrée, plus un supplémentaire
+#define MENU_PC_EXTRA_SLOTS 1
 
 typedef struct {
     const char* dir;
@@ -27,10 +29,19 @@ typedef struct {
     uint8_t* disk[4];
     size_t disk_size[4];
     char disk_name[4][OSD_NAME_LEN];
-    uint8_t rom[MENU_PC_ROM_SLOTS][OSD_BANK_BYTES];
-    int rom_bank[MENU_PC_ROM_SLOTS];  // banque tenue par l'emplacement, -1 : libre
-    char rom_name[8][OSD_NAME_LEN];   // cartouche de la clé en banque b ("" : origine)
+    uint8_t rom[ROM_POOL_MAX][OSD_BANK_BYTES];
+    rom_pool_t pool;
 } menu_pc_t;
+
+// Avant telestrat_init : ROM intégrées du descripteur copiées dans les emplacements
+static void menu_pc_prepare(menu_pc_t* p, telestrat_desc_t* desc) {
+    int builtin = 0;
+    for (int b = 0; b < 8; b++) builtin += desc->banks[b].type == TELESTRAT_BANK_ROM && desc->banks[b].rom;
+    rom_pool_init(&p->pool, p->rom, builtin + MENU_PC_EXTRA_SLOTS);
+    for (int b = 0; b < 8; b++)
+        if (desc->banks[b].type == TELESTRAT_BANK_ROM && desc->banks[b].rom)
+            desc->banks[b].rom = rom_pool_builtin(&p->pool, b, desc->banks[b].rom);
+}
 
 static bool _menu_pc_ext(const char* name, const char* ext) {
     size_t n = strlen(name), e = strlen(ext);
@@ -138,12 +149,7 @@ static void menu_pc_eject(menu_pc_t* p, telestrat_t* sys, int d) {
     p->disk_name[d][0] = 0;
 }
 
-static void menu_pc_restore(menu_pc_t* p, telestrat_t* sys, int bank) {
-    telestrat_restore_bank(sys, bank);
-    for (int s = 0; s < MENU_PC_ROM_SLOTS; s++)
-        if (p->rom_bank[s] == bank) p->rom_bank[s] = -1;
-    p->rom_name[bank][0] = 0;
-}
+static void menu_pc_restore(menu_pc_t* p, telestrat_t* sys, int bank) { rom_pool_restore(&p->pool, sys, bank); }
 
 // Cartouche de la clé en banque ; message d'erreur dans err
 static bool menu_pc_load_rom(menu_pc_t* p, telestrat_t* sys, int bank, const char* name, const char** err) {
@@ -153,28 +159,17 @@ static bool menu_pc_load_rom(menu_pc_t* p, telestrat_t* sys, int bank, const cha
         *err = "fichier illisible";
         return false;
     }
-    int slot = -1;
-    for (int s = 0; s < MENU_PC_ROM_SLOTS; s++)
-        if (p->rom_bank[s] == bank) slot = s;
-    for (int s = 0; s < MENU_PC_ROM_SLOTS && slot < 0; s++)
-        if (p->rom_bank[s] < 0) slot = s;
-    bool ok = false;
-    if (!osd_rom_size_ok(size)) *err = "taille invalide (16, 8, 4, 2 ou 1 Ko)";
-    else if (slot < 0) *err = "plus de place : rendre une banque à son contenu d'origine";
-    else ok = true;
-    if (ok) {
-        telestrat_set_bank_rom(sys, bank, NULL);  // l'emplacement change
-        osd_rom_fill(p->rom[slot], data, size);
-        p->rom_bank[slot] = bank;
-        telestrat_set_bank_rom(sys, bank, p->rom[slot]);
-        snprintf(p->rom_name[bank], sizeof(p->rom_name[bank]), "%s", name);
+    uint8_t* dst = rom_pool_claim(&p->pool, sys, bank, size, err);
+    if (dst) {
+        memcpy(dst, data, size);
+        rom_pool_commit(&p->pool, sys, bank, size, name);
     }
     free(data);
-    return ok;
+    return dst != NULL;
 }
 
-static const char* menu_pc_bank_label(const telestrat_t* sys, int b) {
-    const uint8_t* r = sys->bank_rd_orig[b];
+static const char* menu_pc_bank_label(const menu_pc_t* p, const telestrat_t* sys, int b) {
+    const uint8_t* r = p->pool.builtin[b];
     if (r == telestrat_telemon24) return "TELEMON 2.4";
     if (r == telestrat_hyperbas) return "HYPER-BASIC";
     if (r == telestrat_teleass) return "TELE-ASS";
@@ -190,12 +185,12 @@ static void menu_pc_refresh(menu_pc_t* p, telestrat_t* sys) {
         m->drive_ro[d] = p->disk[d] && sys->fdc.wd.disk[d].write_protect;
     }
     for (int b = 0; b < 8; b++) {
-        if (p->rom_name[b][0]) {
-            snprintf(m->bank[b], sizeof(m->bank[b]), "%s", p->rom_name[b]);
+        if (p->pool.name[b][0]) {
+            snprintf(m->bank[b], sizeof(m->bank[b]), "%s", p->pool.name[b]);
             m->bank_kind[b] = OSD_BANK_ROM_USB;
             continue;
         }
-        snprintf(m->bank[b], sizeof(m->bank[b]), "%s", menu_pc_bank_label(sys, b));
+        snprintf(m->bank[b], sizeof(m->bank[b]), "%s", menu_pc_bank_label(p, sys, b));
         m->bank_kind[b] = sys->bank_type[b] == TELESTRAT_BANK_RAM   ? OSD_BANK_RAM
                           : sys->bank_type[b] == TELESTRAT_BANK_ROM ? OSD_BANK_ROM
                                                                     : OSD_BANK_EMPTY;
@@ -211,11 +206,10 @@ static char* _menu_pc_read_cfg(const menu_pc_t* p) {
     return s;
 }
 
-// TELESTRA.CFG au démarrage : lecteurs et cartouches
+// TELESTRA.CFG au démarrage : lecteurs et cartouches (après menu_pc_prepare
+// et telestrat_init)
 static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const char* version) {
-    memset(p, 0, sizeof(*p));
     p->dir = dir;
-    for (int s = 0; s < MENU_PC_ROM_SLOTS; s++) p->rom_bank[s] = -1;
     osd_menu_init(&p->menu);
     p->menu.version = version;
     menu_pc_scan(p);
@@ -243,7 +237,7 @@ static void menu_pc_save(menu_pc_t* p) {
     const char* drives[4];
     const char* banks[8];
     for (int d = 0; d < 4; d++) drives[d] = p->disk[d] ? p->disk_name[d] : NULL;
-    for (int b = 0; b < 8; b++) banks[b] = p->rom_name[b];
+    for (int b = 0; b < 8; b++) banks[b] = p->pool.name[b];
     static char out[4096];
     size_t n = osd_config_merge(old, drives, banks, out, sizeof(out));
     free(old);

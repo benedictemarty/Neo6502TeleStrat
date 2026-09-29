@@ -86,6 +86,7 @@ volatile uint32_t diag_io_n;
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
 #include "systems/telestrat.h"
+#include "osd/rom_pool.h"
 
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
@@ -242,6 +243,20 @@ static void audio_callback(const uint8_t sample, void *user_data) {
     audio_push_sample(sample);
 }
 
+// Emplacements de banque en RAM (src/osd/rom_pool.h) : un par ROM intégrée
+// (copiée depuis la flash au démarrage), plus un supplémentaire pour une
+// cartouche de la clé dans une banque vide. Variante RAM 64 Ko : pas de
+// supplémentaire (sa RAM de banques prend la place).
+#ifdef TELESTRAT_RAM64K
+#define ROM_BUILTIN     2
+#define ROM_EXTRA_SLOTS 0
+#else
+#define ROM_BUILTIN     4
+#define ROM_EXTRA_SLOTS 1
+#endif
+static uint8_t rom_slots[ROM_BUILTIN + ROM_EXTRA_SLOTS][OSD_BANK_BYTES];
+static rom_pool_t pool;
+
 // Banques : notice « Extension RAM 64 Ko » (F. Broche, 1987), chapitre IV
 static telestrat_desc_t telestrat_desc(void) {
     telestrat_desc_t d = {
@@ -249,16 +264,17 @@ static telestrat_desc_t telestrat_desc(void) {
         .minitel = {.tx = minitel_tx, .rx = minitel_rx},
         .rs232 = {.tx = rs232_tx, .rx = rs232_rx},
     };
+    rom_pool_init(&pool, rom_slots, ROM_BUILTIN + ROM_EXTRA_SLOTS);
     d.banks[0].type = TELESTRAT_BANK_RAM;
 #ifdef TELESTRAT_RAM64K
     // Cartouche RAM 64 Ko dans le port droit (banques 1-4)
     for (int i = 1; i <= 4; i++) d.banks[i].type = TELESTRAT_BANK_RAM;
 #else
-    d.banks[2] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_teleass};
-    d.banks[3] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_telematic};
+    d.banks[2] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom_pool_builtin(&pool, 2, telestrat_teleass)};
+    d.banks[3] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom_pool_builtin(&pool, 3, telestrat_telematic)};
 #endif
-    d.banks[6] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_hyperbas};
-    d.banks[7] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, telestrat_telemon24};
+    d.banks[6] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom_pool_builtin(&pool, 6, telestrat_hyperbas)};
+    d.banks[7] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom_pool_builtin(&pool, 7, telestrat_telemon24)};
     return d;
 }
 
@@ -269,11 +285,6 @@ static telestrat_desc_t telestrat_desc(void) {
 // banques (cartouches, copiées en RAM). Réglages dans TELESTRA.CFG : a= … d=,
 // bank1= … bank7= (src/osd/osd_config.h), réécrits par le menu.
 
-#ifdef TELESTRAT_RAM64K
-#define ROM_SLOTS 0  // la RAM des banques prend la place des cartouches
-#else
-#define ROM_SLOTS 2
-#endif
 
 static osd_menu_t menu;
 static volatile bool osd_open = false;
@@ -282,11 +293,6 @@ static FIL drive_fil[4];
 static bool drive_open[4];
 static char drive_name[4][OSD_NAME_LEN];  // "" : vide ; image en flash : nom réservé
 static const char FLASH_NAME[] = "(image en flash)";
-#if ROM_SLOTS
-static uint8_t rom_slot[ROM_SLOTS][OSD_BANK_BYTES];
-static int rom_slot_bank[ROM_SLOTS] = {-1, -1};
-#endif
-static char rom_name[8][OSD_NAME_LEN];    // cartouche de la clé en banque b ("" : origine)
 static char cfg_drive[4][OSD_NAME_LEN];   // TELESTRA.CFG : a= … d=
 static char cfg_bank[8][OSD_NAME_LEN];    // TELESTRA.CFG : bank1= … bank7=
 
@@ -383,71 +389,41 @@ static void insert_flash_disk(void) {
 #endif
 }
 
-static void bank_restore(int bank) {
-    telestrat_restore_bank(&state.telestrat, bank);
-#if ROM_SLOTS
-    for (int s = 0; s < ROM_SLOTS; s++)
-        if (rom_slot_bank[s] == bank) rom_slot_bank[s] = -1;
-#endif
-    rom_name[bank][0] = 0;
-}
+static void bank_restore(int bank) { rom_pool_restore(&pool, &state.telestrat, bank); }
 
 // Cartouche de la clé en banque ; *err : raison d'un refus
 static bool bank_load(int bank, const char *name, const char **err) {
-#if ROM_SLOTS
     FIL f;
     if (f_open(&f, name, FA_READ) != FR_OK) {
         *err = "fichier illisible";
         return false;
     }
     const size_t size = f_size(&f);
-    int slot = -1;
-    for (int s = 0; s < ROM_SLOTS; s++)
-        if (rom_slot_bank[s] == bank) slot = s;
-    for (int s = 0; s < ROM_SLOTS && slot < 0; s++)
-        if (rom_slot_bank[s] < 0) slot = s;
-    bool ok = false;
+    uint8_t *dst = rom_pool_claim(&pool, &state.telestrat, bank, size, err);
     UINT n = 0;
-    if (!osd_rom_size_ok(size)) *err = "taille invalide (16, 8, 4, 2 ou 1 Ko)";
-    else if (slot < 0) *err = "plus de place : rendre une banque à son contenu d'origine";
-    else ok = true;
+    bool ok = dst != NULL;
+    if (ok && (f_read(&f, dst, (UINT)size, &n) != FR_OK || n != size)) {
+        *err = "lecture impossible";
+        rom_pool_abort(&pool, &state.telestrat, bank);
+        ok = false;
+    }
     if (ok) {
-        telestrat_set_bank_rom(&state.telestrat, bank, NULL);  // l'emplacement change
-        if (f_read(&f, rom_slot[slot], size, &n) != FR_OK || n != size) {
-            *err = "lecture impossible";
-            ok = false;
-            rom_slot_bank[slot] = -1;
-            telestrat_restore_bank(&state.telestrat, bank);
-        } else {
-            for (size_t base = size; base < OSD_BANK_BYTES; base += size) memcpy(rom_slot[slot] + base, rom_slot[slot], size);
-            // Une banque tenue par un autre emplacement est rendue à son origine
-            if (rom_slot_bank[slot] >= 0 && rom_slot_bank[slot] != bank) bank_restore(rom_slot_bank[slot]);
-            rom_slot_bank[slot] = bank;
-            telestrat_set_bank_rom(&state.telestrat, bank, rom_slot[slot]);
-            snprintf(rom_name[bank], sizeof(rom_name[bank]), "%s", name);
-            printf("Banque %d : %s\n", bank, name);
-        }
+        rom_pool_commit(&pool, &state.telestrat, bank, size, name);
+        printf("Banque %d : %s\n", bank, name);
     }
     f_close(&f);
     return ok;
-#else
-    (void)bank;
-    (void)name;
-    *err = "pas de cartouche de la clé avec la RAM 64 Ko";
-    return false;
-#endif
 }
 
 static const char *bank_label(int b) {
-    const telestrat_t *sys = &state.telestrat;
-    const uint8_t *r = sys->bank_rd_orig[b];
+    const uint8_t *r = pool.builtin[b];
     if (r == telestrat_telemon24) return "TELEMON 2.4";
     if (r == telestrat_hyperbas) return "HYPER-BASIC";
 #ifndef TELESTRAT_RAM64K
     if (r == telestrat_teleass) return "TELE-ASS";
     if (r == telestrat_telematic) return "TELEMATIC";
 #endif
-    return sys->bank_type_orig[b] == TELESTRAT_BANK_RAM ? (b == 0 ? "RAM interne" : "RAM 16 Ko") : "";
+    return state.telestrat.bank_type_orig[b] == TELESTRAT_BANK_RAM ? (b == 0 ? "RAM interne" : "RAM 16 Ko") : "";
 }
 
 static void menu_refresh(void) {
@@ -457,8 +433,8 @@ static void menu_refresh(void) {
         menu.drive_ro[d] = drive_name[d][0] && sys->fdc.wd.disk[d].write_protect;
     }
     for (int b = 0; b < 8; b++) {
-        if (rom_name[b][0]) {
-            snprintf(menu.bank[b], sizeof(menu.bank[b]), "%.47s", rom_name[b]);
+        if (pool.name[b][0]) {
+            snprintf(menu.bank[b], sizeof(menu.bank[b]), "%.47s", pool.name[b]);
             menu.bank_kind[b] = OSD_BANK_ROM_USB;
         } else {
             snprintf(menu.bank[b], sizeof(menu.bank[b]), "%s", bank_label(b));
@@ -481,7 +457,7 @@ static void config_save(void) {
     }
     const char *drives[4], *banks[8];
     for (int d = 0; d < 4; d++) drives[d] = strcmp(drive_name[d], FLASH_NAME) ? drive_name[d] : NULL;
-    for (int b = 0; b < 8; b++) banks[b] = rom_name[b];
+    for (int b = 0; b < 8; b++) banks[b] = pool.name[b];
     const size_t len = osd_config_merge(old, drives, banks, out, sizeof(out));
     bool ok = len > 0 && f_open(&f, "TELESTRA.CFG", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
     if (ok) {

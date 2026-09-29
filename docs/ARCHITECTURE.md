@@ -216,11 +216,16 @@ lecteurs (fichier ouvert en écriture). Au montage : `TELESTRA.CFG` (`a=` …
 `d=`, `bank1=` … `bank7=`, `src/osd/osd_config.h`), sinon la première image
 dans A (`src/devices/drive_set.h`) ; cartouches chargées, puis RESET à froid.
 
-**Cartouches** : `.rom` de 16 Ko, ou 8/4/2/1 Ko répétées (comme TELEMATIC,
-8 Ko, par `tools/fetch_roms.py`), copiées dans un des deux emplacements de
-16 Ko en RAM (aucun avec `TELESTRAT_RAM64K`, dont les banques de RAM prennent
-la place) ; `telestrat_set_bank_rom` / `telestrat_restore_bank` changent la
-banque à chaud (contenu d'origine gardé à l'initialisation).
+**Banques de ROM et cartouches** (`src/osd/rom_pool.h`, v0.6.1) : les ROM
+intégrées restent en flash (`tools/fetch_roms.py` les génère `const`) ;
+chacune est copiée au démarrage dans un emplacement de 16 Ko en RAM, d'où le
+65C02 lit sans attente. Une `.rom` de la clé (16 Ko, ou 8/4/2/1 Ko répétées
+comme TELEMATIC) **réutilise l'emplacement de la ROM qu'elle remplace** ; un
+emplacement supplémentaire (la « banque USB supplémentaire ») sert à une
+cartouche dans une banque vide ou de RAM (aucun avec `TELESTRAT_RAM64K`).
+Contenu d'origine : la ROM est recopiée depuis la flash, sinon l'emplacement
+est libéré. `telestrat_set_bank_rom` / `telestrat_restore_bank` changent la
+banque à chaud.
 
 **RESET du menu = à froid** (`telestrat_cold_reset` : RAM effacée puis RESET).
 Observé au banc : après un RESET à chaud, TELEMON n'inventorie pas les banques
@@ -232,7 +237,7 @@ le démarrage sur STRATSED s'arrête après la liste des ROM (BACKLOG).
 
 | Fichier | Rôle |
 |---|---|
-| `osd_font.h` | police 8 x 8 originale (`tools/gen_osd_font.py`) : pixels deux fois plus hauts que larges (lignes répétées par PicoDVI), fûts de 2 pixels, accents français, filets arrondis, icônes |
+| `osd_font.h` | police 8 x 8 générée par `tools/gen_osd_font.py` : texte en **unscii-8** de Viznut (domaine public, `tools/fonts`), ASCII et Latin-1 ; filets arrondis et icônes dessinés pour le projet. Pixels deux fois plus hauts que larges (lignes répétées par PicoDVI), comme le texte CGA |
 | `osd.h` | surface de 120 x 34 cellules (caractère, encre, fond, fond tramé, grandes lettres) ; `osd_render_line` : une ligne de tampon dans les 3 plans 1 bpp |
 | `osd_menu.h` | état, navigation (touches -> actions) et dessin : lecteurs, banques, clé, boutons, sélecteur de fichiers défilant |
 | `osd_config.h` | `.rom` dans une banque, fusion de `TELESTRA.CFG` (lignes du menu remplacées, autres gardées) |
@@ -245,9 +250,10 @@ sur le RP2040) puis masqué par l'encre et, complémenté, par le fond (tables d
 inutile pendant la pause ; la police et les tables sont en RAM. Pas de menu en
 800x480 (`TELESTRAT_VIDEO_480`) : la surface ne tient pas.
 
-Mémoire (variante standard) : il reste environ 0,5 Ko de RAM libre, plus le
-tas de 2 Ko (les quatre ROM intégrées sont en RAM depuis le sprint 4, pour la
-vitesse des lectures de banque).
+Mémoire : cinq emplacements de 16 Ko (quatre ROM + un supplémentaire) au
+lieu de quatre ROM en RAM et deux emplacements (v0.6.0) ; il reste environ
+16,8 Ko de RAM libre dans la variante standard, 0,5 Ko avec la RAM 64 Ko (plus
+le tas de 2 Ko).
 
 ## Démarrage sur disquette (observé au banc)
 
