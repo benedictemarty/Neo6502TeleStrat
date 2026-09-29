@@ -54,6 +54,7 @@ test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_hea
 	sh tests/test_stratoric.sh $(BUILD)/telestrat_headless
 	sh tests/test_printer.sh $(BUILD)/telestrat_headless $(BUILD)/printer_render
 	sh tests/test_state.sh $(BUILD)/telestrat_headless
+	sh tests/test_profiles.sh $(BUILD)/telestrat_headless
 	sh tests/test_replay.sh $(BUILD)/telestrat_headless_ref $(BUILD)/replay
 
 uf2: $(ROMS_H)

@@ -29,6 +29,11 @@ static const rom_builtin_t rom_builtins[] = {
      {{6, "@atmos"}, {5, "@basic10"}}},
     {"@atmos", "ORIC BASIC 1.1 (Atmos)", "ORIC BASIC 1.1", telestrat_atmos, {{0, NULL}, {0, NULL}}},
     {"@basic10", "ORIC BASIC 1.0 (Oric-1)", "ORIC BASIC 1.0", telestrat_basic10, {{0, NULL}, {0, NULL}}},
+    // ORIX 1.0 (Oricutron, roms/orixbank7, 6, 5) : noyau, BASIC, shell
+    {"@orix", "ORIX 1.0 (+ BASIC en 6, shell en 5)", "ORIX 1.0", telestrat_orix_kernel,
+     {{6, "@orixbasic"}, {5, "@orixshell"}}},
+    {"@orixbasic", "BASIC d'ORIX", "BASIC ORIX", telestrat_orix_basic, {{0, NULL}, {0, NULL}}},
+    {"@orixshell", "Shell d'ORIX", "SHELL ORIX", telestrat_orix_shell, {{0, NULL}, {0, NULL}}},
 };
 #define ROM_BUILTINS ((int)(sizeof(rom_builtins) / sizeof(rom_builtins[0])))
 
@@ -37,6 +42,29 @@ static inline const rom_builtin_t* rom_builtin_find(const char* name) {
     for (int i = 0; i < ROM_BUILTINS; i++)
         if (!strcmp(rom_builtins[i].id, name) || !strcmp(rom_builtins[i].label, name)) return &rom_builtins[i];
     return NULL;
+}
+
+// Profils de démarrage (TELESTRA.CFG « demarrage=choix » : proposés au
+// démarrage ; « demarrage=ID » : appliqué) : banques 1-7 d'origine, puis la
+// cartouche complète de la banque 7 (bank7 vide : Telestrat d'origine)
+typedef struct {
+    const char* id;
+    const char* label;
+    const char* bank7;
+} rom_profile_t;
+
+static const rom_profile_t rom_profiles[] = {
+    {"telestrat", "Telestrat : TELEMON 2.4, HYPER-BASIC, TELE-ASS, TELEMATIC", ""},
+    {"stratoric", "STRATORIC : mode Atmos, disquettes SEDORIC, cassettes", "@stratoric"},
+    {"atmos", "ORIC BASIC 1.1 : mode Atmos simple, cassettes", "@atmos"},
+    {"orix", "ORIX 1.0 (fichiers de la clé : CH376 pas encore émulé)", "@orix"},
+};
+#define ROM_PROFILES ((int)(sizeof(rom_profiles) / sizeof(rom_profiles[0])))
+
+static inline int rom_profile_find(const char* id) {
+    for (int i = 0; i < ROM_PROFILES; i++)
+        if (!strcmp(rom_profiles[i].id, id)) return i;
+    return -1;
 }
 
 // Nom du contenu d'une banque tenu par le pool (cartouche de la clé ou ROM intégrée)
@@ -64,4 +92,17 @@ static inline bool rom_pool_load_builtin(rom_pool_t* p, telestrat_t* sys, int ba
         if (w && !_rom_pool_load_one(p, sys, b->with[i].bank, w, err)) return false;
     }
     return true;
+}
+
+// Profil appliqué (banques ; le démarrage à froid est à faire ensuite)
+static inline bool rom_profile_apply(rom_pool_t* p, telestrat_t* sys, int profile, const char** err) {
+    if (profile < 0 || profile >= ROM_PROFILES) {
+        *err = "profil inconnu";
+        return false;
+    }
+    for (int b = 1; b < 8; b++) rom_pool_restore(p, sys, b);
+    const char* id = rom_profiles[profile].bank7;
+    if (!id[0]) return true;
+    const rom_builtin_t* rb = rom_builtin_find(id);
+    return rb && rom_pool_load_builtin(p, sys, 7, rb, err);
 }

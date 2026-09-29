@@ -41,6 +41,7 @@
 enum { OSD_FILE_DSK = 0, OSD_FILE_ROM = 1, OSD_FILE_TAP = 2, OSD_FILE_STA = 3 };
 
 #define OSD_BUILTINS 4  // ROM intégrées proposées pour une banque
+#define OSD_PROFILES 6  // profils de démarrage
 
 // Contenu d'une banque
 enum { OSD_BANK_EMPTY = 0, OSD_BANK_RAM, OSD_BANK_ROM, OSD_BANK_ROM_USB };
@@ -71,6 +72,7 @@ enum {
     OSD_ACT_TAPE_MOTOR,   // cassette : moteur toujours en marche / relais
     OSD_ACT_STATE_SAVE,   // nouvel instantané
     OSD_ACT_STATE_LOAD,   // file = instantané à reprendre
+    OSD_ACT_PROFILE,      // démarrage : file = profil, -1 : configuration de la clé
 };
 
 typedef struct {
@@ -98,6 +100,7 @@ typedef struct {
 #define OSD_ITEM_SAVE    18
 #define OSD_ITEM_RESUME  19
 #define OSD_ITEMS        20
+#define OSD_ITEM_BOOT    100  // page de démarrage (hors de la page principale)
 
 typedef struct {
     // --- Rempli par la plate-forme ---
@@ -109,6 +112,7 @@ typedef struct {
     int tape_percent;
     bool tape_motor;
     const char* builtin[OSD_BUILTINS];  // ROM intégrées proposées (NULL : fin)
+    const char* profile[OSD_PROFILES];  // profils de démarrage (NULL : fin)
     bool printer_on;              // impression vers le fichier printer_file
     const char* printer_model;    // « Texte », « Epson FX-80 »… (NULL : non affiché)
     char printer_file[OSD_NAME_LEN];  // fichier texte ou dernière page écrite
@@ -150,10 +154,25 @@ static inline bool _osd_item_is_bank(int item) { return item >= OSD_ITEM_BANK7 &
 // Ouverture du sélecteur pour un lecteur ou une banque
 // Nom d'un élément de la liste du sélecteur
 static inline const char* _osd_entry_name(const osd_menu_t* m, int entry) {
+    if (entry <= -100) return m->profile[-100 - entry];
     return entry >= 0 ? m->files[entry].name : m->builtin[-2 - entry];
 }
 
+static inline void _osd_open_browser(osd_menu_t* m, int item);
+
+// Page de démarrage : profils (TELESTRA.CFG « demarrage=choix »)
+static inline void osd_menu_open_boot(osd_menu_t* m) { _osd_open_browser(m, OSD_ITEM_BOOT); }
+
 static inline void _osd_open_browser(osd_menu_t* m, int item) {
+    if (item == OSD_ITEM_BOOT) {
+        m->browse_count = 0;
+        for (int k = 0; k < OSD_PROFILES && m->profile[k]; k++) m->browse_list[m->browse_count++] = -100 - k;
+        m->browse_target = item;
+        m->browse_cursor = 0;
+        m->browse_scroll = 0;
+        m->page = OSD_PAGE_BROWSE;
+        return;
+    }
     const uint8_t kind = _osd_item_is_drive(item) ? OSD_FILE_DSK
                          : item == OSD_ITEM_TAPE  ? OSD_FILE_TAP
                          : item == OSD_ITEM_STATE ? OSD_FILE_STA
@@ -201,12 +220,18 @@ static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
             case OSD_KEY_HOME: m->browse_cursor = 0; break;
             case OSD_KEY_END: m->browse_cursor = n - 1; break;
             case OSD_KEY_ESC:
-            case OSD_KEY_LEFT: m->page = OSD_PAGE_MAIN; break;
+            case OSD_KEY_LEFT:
+                m->page = OSD_PAGE_MAIN;
+                if (m->browse_target == OSD_ITEM_BOOT) a.type = OSD_ACT_RESUME;  // configuration de la clé
+                break;
             case OSD_KEY_ENTER: {
                 const int item = m->browse_target;
                 const int file = m->browse_cursor ? m->browse_list[m->browse_cursor - 1] : -1;
                 const bool none = m->browse_cursor == 0;
-                if (_osd_item_is_drive(item)) {
+                if (item == OSD_ITEM_BOOT) {
+                    a.type = OSD_ACT_PROFILE;
+                    a.file = none ? -1 : -100 - file;
+                } else if (_osd_item_is_drive(item)) {
                     a.target = item - OSD_ITEM_DRIVE0;
                     a.type = none ? OSD_ACT_EJECT : OSD_ACT_INSERT;
                 } else if (item == OSD_ITEM_TAPE) {
@@ -217,7 +242,7 @@ static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
                     a.target = _osd_item_bank(item);
                     a.type = none ? OSD_ACT_RESTORE : file >= 0 ? OSD_ACT_LOAD_ROM : OSD_ACT_LOAD_BUILTIN;
                 }
-                a.file = none ? -1 : file >= 0 ? file : -2 - file;
+                if (item != OSD_ITEM_BOOT) a.file = none ? -1 : file >= 0 ? file : -2 - file;
                 m->page = OSD_PAGE_MAIN;
                 break;
             }
@@ -519,10 +544,12 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
 
     // Sélecteur de fichiers, par-dessus
     const int item = m->browse_target;
-    const bool drive = _osd_item_is_drive(item), tape = item == OSD_ITEM_TAPE, state = item == OSD_ITEM_STATE;
+    const bool drive = _osd_item_is_drive(item), tape = item == OSD_ITEM_TAPE, state = item == OSD_ITEM_STATE,
+               boot = item == OSD_ITEM_BOOT;
     if (drive) snprintf(buf, sizeof(buf), "Disquette pour le lecteur %c", 'A' + item);
     else if (tape) snprintf(buf, sizeof(buf), "Cassette (la même : rembobinée)");
     else if (state) snprintf(buf, sizeof(buf), "Instantanés (reprendre : la machine revient à cet instant)");
+    else if (boot) snprintf(buf, sizeof(buf), "Démarrer sur…");
     else snprintf(buf, sizeof(buf), "Cartouche pour la banque %d", _osd_item_bank(item));
     const int top = 6, left = 22, width = 76, height = OSD_BROWSE_VISIBLE + 4;
     osd_fill(s, top + 1, left + 2, height, width, OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER));  // ombre
@@ -546,12 +573,17 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
                      drive   ? "Éjecter la disquette"
                      : tape  ? "Éjecter la cassette"
                      : state ? "Enregistrer un nouvel instantané (ETATnnnn.STA)"
+                     : boot  ? "Configuration de la clé (TELESTRA.CFG)"
                              : "Contenu d'origine de la banque",
                      dim,
                      -1);
             continue;
         }
         const int entry = m->browse_list[idx - 1];
+        if (entry <= -100) {  // profil de démarrage
+            osd_puts(s, row, left + 4, m->profile[-100 - entry], base, width - 8);
+            continue;
+        }
         if (entry < 0) {  // ROM intégrée
             osd_puts(s, row, left + 4, m->builtin[-2 - entry], base, 50);
             osd_puts(s, row, left + width - 13, "intégrée", dim, -1);

@@ -331,6 +331,25 @@ affiché : absent, prêt, sonnerie, en ligne, prise RS232. Au banc : `-P`
 
 RAM : 13,6 Ko libres (standard), **88 octets** (RAM 64 Ko).
 
+## Choix des ROM au démarrage, ORIX (sprint 15)
+
+**Profils** (`rom_builtin.h`, `rom_profiles`) : banques 1-7 remises à
+l'origine, puis une cartouche complète en banque 7 (`@stratoric`,
+`@atmos`, `@orix` ; rien pour le Telestrat d'origine) ; démarrage à froid
+ensuite. `TELESTRA.CFG` `demarrage=choix` : au premier montage de la clé,
+le menu s'ouvre sur la page « Démarrer sur… » (le sélecteur de fichiers,
+pseudo-élément `OSD_ITEM_BOOT`, entrées `-100 - profil`) ; Échap ou la
+première ligne gardent la configuration de la clé. `demarrage=ID` : profil
+appliqué sans page.
+
+**ORIX 1.0** : `@orix` (noyau, banque 7) avec `@orixbasic` (6) et
+`@orixshell` (5), ROM `roms/orixbank7`, `6`, `5` d'Oricutron (mêmes md5 que
+le dépôt pete-gordon/oricutron). Relevé dans ces ROM : accès aux registres
+`$0340`/`$0341` (CH376 de la carte Twilighte : 110 références), commandes
+envoyées en `$0341` : `$01 $05 $06 $0C $15 $22 $27 $2D $2F $31 $32 $33 $34
+$35 $3B $3D $3E $3F $40`. Sans CH376, le shell répond « Usb drive
+controller not found ! ». Flash : 527 Ko (les trois ROM ajoutent 48 Ko).
+
 ## Instantanés (sprint 14)
 
 **Registres du processeur** (`telestrat.h`, `telestrat_cpu_capture` /

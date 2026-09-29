@@ -168,6 +168,26 @@ static void test_rom_builtin(void) {
     boot();
     CHECK(!rom_pool_load_builtin(&q, &sys, 7, s, &err) && strstr(err, "plus de place"), "deux emplacements : plus de place");
     telestrat_select_bank(&sys, 7);
+    // Profils de démarrage : ORIX (banques 7, 6, 5), puis retour au Telestrat
+    {
+        static uint8_t slots2[5][OSD_BANK_BYTES];
+        rom_pool_t pp;
+        telestrat_desc_t d = {0};
+        d.banks[0].type = TELESTRAT_BANK_RAM;
+        rom_pool_init(&pp, slots2, 5);
+        d.banks[7] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom_pool_builtin(&pp, 7, telestrat_telemon24)};
+        d.banks[6] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom_pool_builtin(&pp, 6, telestrat_hyperbas)};
+        telestrat_init(&sys, &d);
+        const char* err = "";
+        CHECK(rom_profile_find("orix") == 3 && rom_profile_find("amiga") < 0, "profils par identifiant");
+        CHECK(rom_profile_apply(&pp, &sys, rom_profile_find("orix"), &err) && !strcmp(pp.name[7], "@orix") &&
+                  !strcmp(pp.name[6], "@orixbasic") && !strcmp(pp.name[5], "@orixshell") &&
+                  sys.bank_rd[7][0x3FFC] == telestrat_orix_kernel[0x3FFC],
+              "profil ORIX : noyau en 7, BASIC en 6, shell en 5 (%s)", err);
+        CHECK(rom_profile_apply(&pp, &sys, rom_profile_find("telestrat"), &err) && !pp.name[7][0] && !pp.name[5][0] &&
+                  sys.bank_rd[7][0x3FFC] == telestrat_telemon24[0x3FFC] && sys.bank_type[5] == TELESTRAT_BANK_EMPTY,
+              "profil Telestrat : TELEMON en 7, banque 5 vide");
+    }
 }
 
 static void test_bank_switch_and_ram(void) {
@@ -1314,6 +1334,26 @@ static void test_osd_tape_menu(void) {
     CHECK(osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_target == OSD_ITEM_STATE, "Entrée : sélecteur des instantanés");
     CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_STATE_SAVE, "première ligne : enregistrer");
     osd_m.page = OSD_PAGE_MAIN;
+    // Page de démarrage : configuration de la clé, profils, Échap
+    {
+        const int cursor = osd_m.cursor;
+        for (int k = 0; k < ROM_PROFILES && k < OSD_PROFILES; k++) osd_m.profile[k] = rom_profiles[k].label;
+        osd_menu_open_boot(&osd_m);
+        CHECK(osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_count == ROM_PROFILES, "démarrage : %d profils", ROM_PROFILES);
+        osd_action_t pa = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+        CHECK(pa.type == OSD_ACT_PROFILE && pa.file == -1, "démarrage : configuration de la clé");
+        osd_menu_open_boot(&osd_m);
+        osd_menu_key(&osd_m, OSD_KEY_DOWN);
+        osd_menu_key(&osd_m, OSD_KEY_DOWN);
+        pa = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+        CHECK(pa.type == OSD_ACT_PROFILE && pa.file == 1, "démarrage : deuxième profil (%d)", pa.file);
+        osd_menu_open_boot(&osd_m);
+        osd_menu_draw(&osd_m, &osd_s);
+        CHECK(!memcmp(&osd_s.ch[6][28], "D\xe9marrer sur", 12), "démarrage : titre de la page");
+        CHECK(osd_menu_key(&osd_m, OSD_KEY_ESC).type == OSD_ACT_RESUME && osd_m.page == OSD_PAGE_MAIN,
+              "démarrage : Échap garde la configuration");
+        osd_m.cursor = cursor;
+    }
     osd_menu_key(&osd_m, OSD_KEY_DOWN);
     CHECK(osd_m.cursor == OSD_ITEM_PRINTER, "puis l'imprimante");
     CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_PRINTER, "Entrée : imprimante activée / coupée");

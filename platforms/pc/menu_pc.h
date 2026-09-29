@@ -32,6 +32,7 @@ typedef struct {
     int printer_type;          // OSD_PRINTER_* (imprimante_type=)
     int printer_types;         // modèles proposés par le menu (3 avec -G, sinon 1)
     const char* printer_last;  // dernière page ou dernier tracé écrit (-G)
+    bool boot_pending;         // demarrage=choix : page de démarrage à la première ouverture
     bool tape_turbo;           // cassette_rapide= (-Z)
     bool tape_motor_always;    // cassette_moteur= (-Y)
     bool line_present;         // -L
@@ -237,6 +238,7 @@ static void menu_pc_refresh(menu_pc_t* p, telestrat_t* sys) {
     m->tape_percent = oric_tape_percent(&sys->tape);
     m->tape_motor = sys->tape.motor && sys->tape.inserted;
     for (int k = 0; k < ROM_BUILTINS && k < OSD_BUILTINS; k++) m->builtin[k] = rom_builtins[k].label;
+    for (int k = 0; k < ROM_PROFILES && k < OSD_PROFILES; k++) m->profile[k] = rom_profiles[k].label;
     for (int d = 0; d < 4; d++) {
         snprintf(m->drive[d], sizeof(m->drive[d]), "%s", p->disk[d] ? p->disk_name[d] : "");
         m->drive_ro[d] = p->disk[d] && sys->fdc.wd.disk[d].write_protect;
@@ -273,6 +275,7 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
     p->menu.version = version;
     menu_pc_scan(p);
     char* cfg = _menu_pc_read_cfg(p);
+    bool profile_applied = false;
     for (char* line = cfg ? strtok(cfg, "\r\n") : NULL; line; line = strtok(NULL, "\r\n")) {
         const char* v;
         if ((v = osd_config_value(line, "impression"))) p->printer_on = osd_config_yes(v, true);
@@ -282,6 +285,15 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
         }
         if ((v = osd_config_value(line, "modem"))) p->modem_on = osd_config_yes(v, true);
         if ((v = osd_config_value(line, "cassette_rapide"))) p->tape_turbo = osd_config_yes(v, p->tape_turbo);
+        if ((v = osd_config_value(line, "demarrage"))) {
+            if (!strcmp(v, "choix")) {
+                p->boot_pending = true;
+            } else if (rom_profile_find(v) >= 0) {
+                const char* err = "";
+                if (rom_profile_apply(&p->pool, sys, rom_profile_find(v), &err)) profile_applied = true;
+                else fprintf(stderr, "TELESTRA.CFG : demarrage=%s : %s\n", v, err);
+            }
+        }
         if ((v = osd_config_value(line, "cassette_moteur"))) p->tape_motor_always = !strcmp(v, "toujours");
         for (int d = 0; d < 4; d++) {
             const char key[2] = {(char)('a' + d), 0};
@@ -301,6 +313,7 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
     }
     free(cfg);
     menu_pc_tape_options(p, sys);
+    if (profile_applied) telestrat_cold_reset(sys);
 }
 
 static void menu_pc_save(menu_pc_t* p) {
@@ -446,6 +459,21 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
             p->modem_on = !p->modem_on;
             osd_menu_message(m, false, p->modem_on ? "Modem activé" : "Modem coupé (ligne raccrochée)");
             break;
+        case OSD_ACT_PROFILE:
+            if (a.file < 0) {
+                osd_menu_message(m, false, "Démarrage : configuration de la clé");
+                return true;
+            }
+            if (rom_profile_apply(&p->pool, sys, a.file, &err)) {
+                if (p->tape_turbo) oric_turbo_apply_all(p->rom, p->pool.nslots, true);
+                telestrat_cold_reset(sys);
+                snprintf(msg, sizeof(msg), "Démarrage : %s", rom_profiles[a.file].label);
+                osd_menu_message(m, false, msg);
+                return true;
+            }
+            snprintf(msg, sizeof(msg), "Démarrage : %s", err);
+            osd_menu_message(m, true, msg);
+            break;
         case OSD_ACT_STATE_SAVE:
             if (menu_pc_state_save(p, sys, m->state_last, sizeof(m->state_last), &err)) {
                 snprintf(msg, sizeof(msg), "Instantané enregistré : %s", m->state_last);
@@ -515,6 +543,10 @@ static bool menu_pc_script(menu_pc_t* p, telestrat_t* sys, const char* keys) {
     menu_pc_refresh(p, sys);
     p->menu.page = OSD_PAGE_MAIN;
     p->menu.cursor = OSD_ITEM_RESUME;
+    if (p->boot_pending) {
+        p->boot_pending = false;
+        osd_menu_open_boot(&p->menu);
+    }
     for (const char* k = keys; *k; k++) {
         int key = *k;
         switch (*k) {

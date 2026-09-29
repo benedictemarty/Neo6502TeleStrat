@@ -46,6 +46,17 @@ ROMS = [
      "https://raw.githubusercontent.com/jedeoric/stratoric/master/B7STRA40.ROM"),
     ("telestrat_basic10", 0x4000, 0x0000, "ebe418ec8a6c85d5ac32956c9a96c179",
      os.path.join(HOME, "Oric1/roms/basic10.rom"), None),
+    # ORIX 1.0 pour Telestrat, tel que distribué avec Oricutron (roms/orixbank7,
+    # 6, 5) : banque 7 noyau, 6 BASIC, 5 shell. Fichiers par le CH376 ($0340).
+    ("telestrat_orix_kernel", 0x4000, 0x0000, "f276ca4771967fd980a9a6da8d410b7e",
+     os.path.join(HOME, "oricutron/roms/orixbank7.rom"),
+     "https://raw.githubusercontent.com/pete-gordon/oricutron/master/roms/orixbank7.rom"),
+    ("telestrat_orix_basic", 0x4000, 0x0000, "a295798bb9a2f3dac1229bb03899fddc",
+     os.path.join(HOME, "oricutron/roms/orixbank6.rom"),
+     "https://raw.githubusercontent.com/pete-gordon/oricutron/master/roms/orixbank6.rom"),
+    ("telestrat_orix_shell", 0x4000, 0x0000, "b04fe8599fe56474b38dccb613a1e837",
+     os.path.join(HOME, "oricutron/roms/orixbank5.rom"),
+     "https://raw.githubusercontent.com/pete-gordon/oricutron/master/roms/orixbank5.rom"),
 ]
 
 

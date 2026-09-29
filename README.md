@@ -109,6 +109,18 @@ cartouches), Enregistrer la configuration dans `TELESTRA.CFG`, Reprendre.
 L'émulation est en pause tant qu'il est ouvert. Flèches, Entrée, Suppr
 (éjecter / contenu d'origine), une lettre (aller au fichier), Échap.
 
+**Démarrage** : `demarrage=choix` dans `TELESTRA.CFG` ouvre, dès le montage
+de la clé, la page « Démarrer sur… » : configuration de la clé, Telestrat
+(TELEMON 2.4, HYPER-BASIC, TELE-ASS, TELEMATIC), STRATORIC (mode Atmos,
+disquettes SEDORIC), ORIC BASIC 1.1 (mode Atmos simple, cassettes), ORIX
+1.0. `demarrage=telestrat|stratoric|atmos|orix` applique directement un
+profil. **ORIX 1.0** (ROM distribuées avec Oricutron : noyau en banque 7,
+BASIC en 6, shell en 5 ; aussi « ORIX 1.0 » dans le choix d'une cartouche)
+démarre jusqu'à son shell, mais ses commandes passent par le contrôleur USB
+CH376 de la carte Twilighte, pas encore émulé : elles répondent « Usb drive
+controller not found ! ». Variante RAM 64 Ko : pas de place pour ORIX (trois
+banques de ROM).
+
 **Instantanés** : « Instantanés » dans le menu (Entrée) enregistre la
 machine entière dans `ETAT0001.STA`, `ETAT0002.STA`… à la racine de la clé
 (processeur, RAM, banques de RAM, puces, contrôleur de disquettes, cadence),
@@ -224,6 +236,7 @@ imprimante_type=fx80   # texte, fx80 (pages PNG) ou mcp40 (tracés SVG) ; écrit
 modem=oui              # modem activé (non : ligne coupée) ; écrit par le menu
 cassette_rapide=oui    # CLOAD du BASIC 1.1 immédiat (non : vitesse réelle) ; écrit par le menu
 cassette_moteur=relais # toujours : bande défilant sans relais moteur ; écrit par le menu
+demarrage=choix        # page « Démarrer sur… » au montage de la clé ; ou telestrat, stratoric, atmos, orix
 ```
 
 Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour
