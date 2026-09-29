@@ -170,6 +170,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-150 | Profils de démarrage (Telestrat, STRATORIC, Atmos), page « Démarrer sur… » (`demarrage=choix`) ou profil direct | ✅ banc (`test_profiles`), ⏳ carte |
 | US-151 | ROM ORIX 1.0 | ❌ abandonné (v0.15.1) : fichiers par un CH376, extension absente d'un Telestrat d'origine |
+| US-152 | Profils définis sur la clé (`profil=`), le choix des ROM revient à l'utilisateur (v0.15.2) | ✅ banc, ⏳ carte |
 
 ## Plus tard
 

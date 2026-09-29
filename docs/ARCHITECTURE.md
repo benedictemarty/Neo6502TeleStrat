@@ -342,6 +342,15 @@ pseudo-élément `OSD_ITEM_BOOT`, entrées `-100 - profil`) ; Échap ou la
 première ligne gardent la configuration de la clé. `demarrage=ID` : profil
 appliqué sans page ; identifiant inconnu : ignoré.
 
+**Profils de la clé** (v0.15.2) : `profil=Libellé;bank7=X;…` (trois au
+plus), proposés après les profils intégrés ; `rom_user_profile_apply`
+remet les banques 1-7 d'origine puis charge chaque `bankN=` (ROM intégrée,
+ou fichier par le chargeur de la plate-forme). Seuls les libellés sont gardés
+en mémoire (120 octets) : la ligne est relue dans `TELESTRA.CFG` quand on
+choisit le profil. `read_config` lit des lignes de 160 caractères et saute
+la fin d'une ligne plus longue (elle n'est plus lue comme une autre ligne).
+RAM libre : 8,1 Ko (standard), 672 octets (RAM 64 Ko).
+
 **ORIX, écarté (v0.15.1)** : les ROM ORIX 1.0 d'Oricutron démarrent jusqu'au
 shell, mais tous leurs fichiers passent par un CH376 en `$0340`/`$0341`
 (contrôleur USB/SD de la carte Twilighte), absent d'un Telestrat d'origine.

@@ -112,8 +112,23 @@ L'émulation est en pause tant qu'il est ouvert. Flèches, Entrée, Suppr
 **Démarrage** : `demarrage=choix` dans `TELESTRA.CFG` ouvre, dès le montage
 de la clé, la page « Démarrer sur… » : configuration de la clé, Telestrat
 (TELEMON 2.4, HYPER-BASIC, TELE-ASS, TELEMATIC), STRATORIC (mode Atmos,
-disquettes SEDORIC), ORIC BASIC 1.1 (mode Atmos simple, cassettes).
-`demarrage=telestrat|stratoric|atmos` applique directement un profil.
+disquettes SEDORIC), ORIC BASIC 1.1 (mode Atmos simple, cassettes), puis
+les profils de la clé. `demarrage=telestrat|stratoric|atmos` applique
+directement un profil intégré, `demarrage=Libellé` un profil de la clé.
+
+**Profils de la clé** : chacun choisit ses ROM, sur sa clé, sans rien
+embarquer dans le firmware. Jusqu'à trois lignes `profil=` dans
+`TELESTRA.CFG` : un libellé, puis les banques (`.rom` de la clé ou ROM
+intégrée `@…` ; les banques non citées gardent leur contenu d'origine) :
+
+```
+profil=ORIX 1.0;bank7=orixbank7.rom;bank6=orixbank6.rom;bank5=orixbank5.rom
+profil=Mes jeux;bank7=@stratoric;bank4=jeu.rom
+demarrage=choix
+```
+
+(ORIX, par exemple, démarre ainsi jusqu'à son shell ; ses fichiers demandent
+un CH376 qui n'est pas émulé.)
 
 **Instantanés** : « Instantanés » dans le menu (Entrée) enregistre la
 machine entière dans `ETAT0001.STA`, `ETAT0002.STA`… à la racine de la clé
@@ -230,7 +245,8 @@ imprimante_type=fx80   # texte, fx80 (pages PNG) ou mcp40 (tracés SVG) ; écrit
 modem=oui              # modem activé (non : ligne coupée) ; écrit par le menu
 cassette_rapide=oui    # CLOAD du BASIC 1.1 immédiat (non : vitesse réelle) ; écrit par le menu
 cassette_moteur=relais # toujours : bande défilant sans relais moteur ; écrit par le menu
-demarrage=choix        # page « Démarrer sur… » au montage de la clé ; ou telestrat, stratoric, atmos
+demarrage=choix        # page « Démarrer sur… » au montage de la clé ; ou telestrat, stratoric, atmos, Libellé
+profil=Libellé;bank7=a.rom;bank6=@atmos   # profil de la clé (trois au plus), proposé au démarrage
 ```
 
 Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour

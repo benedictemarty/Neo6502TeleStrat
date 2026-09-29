@@ -170,7 +170,11 @@ static bool modem_enabled = true;
 static bool tape_turbo = false;
 // TELESTRA.CFG « demarrage=choix » (page de démarrage) ou « demarrage=ID »
 // (profil appliqué au premier montage de la clé : rom_builtin.h)
-static char cfg_boot[16];
+static char cfg_boot[ROM_USER_LABEL];
+// Profils de la clé (« profil=Libellé;bank7=…;… ») : libellés ; la ligne
+// est relue dans TELESTRA.CFG quand on en choisit un
+static char user_label[ROM_USER_PROFILES][ROM_USER_LABEL];
+static int user_n;
 static bool tape_motor_always = false;
 static bool printer_enabled = true;
 
@@ -649,7 +653,9 @@ static void menu_refresh(void) {
     menu.tape_percent = oric_tape_percent(&sys->tape);
     menu.tape_motor = sys->tape.inserted && sys->tape.motor;
     for (int k = 0; k < ROM_BUILTINS && k < OSD_BUILTINS; k++) menu.builtin[k] = rom_builtins[k].label;
+    for (int k = 0; k < OSD_PROFILES; k++) menu.profile[k] = NULL;
     for (int k = 0; k < ROM_PROFILES && k < OSD_PROFILES; k++) menu.profile[k] = rom_profiles[k].label;
+    for (int k = 0; k < user_n && ROM_PROFILES + k < OSD_PROFILES; k++) menu.profile[ROM_PROFILES + k] = user_label[k];
     for (int d = 0; d < 4; d++) {
         snprintf(menu.drive[d], sizeof(menu.drive[d]), "%.47s", drive_name[d]);
         menu.drive_ro[d] = drive_name[d][0] && sys->fdc.wd.disk[d].write_protect;
@@ -806,6 +812,31 @@ static void menu_close(void) {
     state.telestrat.screen_dirty = true;  // l'image a servi de surface au menu
 }
 
+// Profil de la clé : la k-ième ligne « profil= » de TELESTRA.CFG
+static bool bank_load_cb(void *ctx, int bank, const char *name, const char **err) {
+    (void)ctx;
+    return bank_load(bank, name, err);
+}
+
+static bool user_profile_apply(int k, const char **err) {
+    FIL f;
+    *err = "profil absent de TELESTRA.CFG";
+    if (f_open(&f, "TELESTRA.CFG", FA_READ) != FR_OK) return false;
+    char line[160];
+    int n = 0;
+    bool ok = false;
+    while (f_gets(line, sizeof(line), &f)) {
+        char *e = line + strlen(line);
+        while (e > line && (e[-1] == '\r' || e[-1] == '\n' || e[-1] == ' ')) *--e = 0;
+        const char *v = osd_config_value(line, "profil");
+        if (!v || n++ != k) continue;
+        ok = rom_user_profile_apply(&pool, &state.telestrat, v, bank_load_cb, NULL, err);
+        break;
+    }
+    f_close(&f);
+    return ok;
+}
+
 static void menu_action(osd_action_t a) {
     char msg[96];
     const char *err = "";
@@ -872,7 +903,8 @@ static void menu_action(osd_action_t a) {
                 menu_close();  // configuration de la clé
                 return;
             }
-            if (rom_profile_apply(&pool, &state.telestrat, a.file, &err)) {
+            if (a.file < ROM_PROFILES ? rom_profile_apply(&pool, &state.telestrat, a.file, &err)
+                                      : user_profile_apply(a.file - ROM_PROFILES, &err)) {
                 telestrat_cold_reset(&state.telestrat);
                 menu_close();
                 return;
@@ -1096,11 +1128,18 @@ static void usb_poll(void) {
         if (rb ? rom_pool_load_builtin(&pool, &state.telestrat, b, rb, &err) : bank_load(b, cfg_bank[b], &err)) banks = true;
         else printf("TELESTRA.CFG : %s : %s\n", cfg_bank[b], err);
     }
-    // Profil de démarrage
-    const int profile = rom_profile_find(cfg_boot);
-    if (profile >= 0) {
-        const char *err = "";
-        if (rom_profile_apply(&pool, &state.telestrat, profile, &err)) banks = true;
+    // Profil de démarrage : intégré (identifiant) ou de la clé (libellé)
+    if (cfg_boot[0] && strcmp(cfg_boot, "choix")) {
+        const char *err = "profil inconnu";
+        bool ok = false;
+        const int profile = rom_profile_find(cfg_boot);
+        if (profile >= 0) {
+            ok = rom_profile_apply(&pool, &state.telestrat, profile, &err);
+        } else {
+            for (int k = 0; k < user_n; k++)
+                if (!strcmp(cfg_boot, user_label[k])) ok = user_profile_apply(k, &err);
+        }
+        if (ok) banks = true;
         else printf("TELESTRA.CFG : demarrage=%s : %s\n", cfg_boot, err);
     }
     tape_options_apply();
@@ -1120,10 +1159,18 @@ static void read_config(void) {
     memset(cfg_drive, 0, sizeof(cfg_drive));
     memset(cfg_bank, 0, sizeof(cfg_bank));
     cfg_boot[0] = 0;
+    user_n = 0;
     snprintf(cfg_printer, sizeof(cfg_printer), "IMPRIM.TXT");
     if (f_open(&f, "TELESTRA.CFG", FA_READ) != FR_OK) return;
-    char line[96];
+    char line[160];
     while (f_gets(line, sizeof(line), &f)) {
+        // Ligne plus longue que le tampon : la suite est sautée (pas lue
+        // comme une autre ligne)
+        if (!strchr(line, '\n') && !f_eof(&f)) {
+            char skip[32];
+            while (f_gets(skip, sizeof(skip), &f) && !strchr(skip, '\n')) {
+            }
+        }
         char *e = line + strlen(line);
         while (e > line && (e[-1] == '\r' || e[-1] == '\n' || e[-1] == ' ')) *--e = 0;
         const char *v;
@@ -1134,7 +1181,9 @@ static void read_config(void) {
         } else if ((v = osd_config_value(line, "impression"))) {
             printer_enabled = osd_config_yes(v, true);
         } else if ((v = osd_config_value(line, "demarrage"))) {
-            snprintf(cfg_boot, sizeof(cfg_boot), "%.15s", v);
+            snprintf(cfg_boot, sizeof(cfg_boot), "%.*s", (int)sizeof(cfg_boot) - 1, v);
+        } else if ((v = osd_config_value(line, "profil"))) {
+            if (user_n < ROM_USER_PROFILES) rom_user_profile_label(v, user_label[user_n++], ROM_USER_LABEL);
         } else if ((v = osd_config_value(line, "cassette_rapide"))) {
             tape_turbo = osd_config_yes(v, tape_turbo);
         } else if ((v = osd_config_value(line, "cassette_moteur"))) {

@@ -5,7 +5,10 @@
 #      la clé (Telestrat) ;
 #   2. demarrage=atmos : ORIC BASIC 1.1 sans passer par le menu ;
 #   3. demarrage=stratoric : STRATORIC sans passer par le menu ; profil inconnu
-#      (demarrage=orix, retiré) : configuration de la clé.
+#      (demarrage=orix, retiré) : configuration de la clé ;
+#   4. profils de la clé (« profil=Libellé;bank7=…;… ») : proposés après les
+#      profils intégrés, choisis par la page ou par demarrage=Libellé ; une
+#      cartouche .rom de la clé et une ROM intégrée.
 set -u
 BIN=${1:-build/telestrat_headless}
 TMP=$(mktemp -d)
@@ -31,6 +34,20 @@ mkdir "$TMP/c4"
 printf 'demarrage=orix\n' > "$TMP/c4/TELESTRA.CFG"
 "$BIN" -c standard -U "$TMP/c4" -f 300 -s > "$TMP/inconnu.txt" 2>&1
 
+# 4. Profils de la clé (la ROM TELE-ASS copiée sur la clé tient lieu de cartouche)
+ROM2=${TELEASS_ROM:-$HOME/tele-ass/original/teleass.rom}
+mkdir "$TMP/c5"
+if [ -f "$ROM2" ]; then cp "$ROM2" "$TMP/c5/outil.rom"; else head -c 16384 /dev/zero > "$TMP/c5/outil.rom"; fi
+printf 'profil=Atmos et outil;bank7=@atmos;bank4=outil.rom\nprofil=Absent;bank5=absent.rom\ndemarrage=choix\n' > "$TMP/c5/TELESTRA.CFG"
+"$BIN" -c standard -U "$TMP/c5" -M "5:" -O "$TMP/page5.txt" -f 8 > /dev/null 2>&1
+"$BIN" -c standard -U "$TMP/c5" -M "5:dddde" -O "$TMP/menu5.txt" -f 300 -s > "$TMP/prof5.txt" 2> "$TMP/prof5_msg.txt"
+"$BIN" -c standard -U "$TMP/c5" -M "5:ddddde" -f 20 > /dev/null 2> "$TMP/prof6_msg.txt"
+sed -i 's/^demarrage=choix/demarrage=Atmos et outil/' "$TMP/c5/TELESTRA.CFG"
+"$BIN" -c standard -U "$TMP/c5" -f 300 -s > "$TMP/prof7.txt" 2>&1
+check "profils de la clé proposés après les intégrés" "grep -q 'ORIC BASIC 1.1 : mode Atmos simple' '$TMP/page5.txt' && grep -q 'Atmos et outil' '$TMP/page5.txt' && grep -q 'Absent' '$TMP/page5.txt'"
+check "profil de la clé choisi : BASIC 1.1, outil.rom en banque 4" "grep -q 'Démarrage : Atmos et outil' '$TMP/prof5_msg.txt' && grep -q 'ORIC EXTENDED BASIC V1.1' '$TMP/prof5.txt' && grep -q 'Banque 4 *outil.rom' '$TMP/menu5.txt' && grep -q 'Banque 7 *ORIC BASIC 1.1' '$TMP/menu5.txt'"
+check "profil de la clé : fichier absent signalé" "grep -q 'Démarrage : ' '$TMP/prof6_msg.txt' && ! grep -q 'Démarrage : Absent' '$TMP/prof6_msg.txt'"
+check "demarrage=Libellé : profil de la clé sans page" "grep -q 'ORIC EXTENDED BASIC V1.1' '$TMP/prof7.txt'"
 check "page de démarrage : titre et profils" "grep -q 'Démarrer sur' '$TMP/page.txt' && grep -q 'Configuration de la clé' '$TMP/page.txt' && grep -q 'ORIC BASIC 1.1' '$TMP/page.txt' && ! grep -q ORIX '$TMP/page.txt'"
 check "choix STRATORIC : STRATORIC V4.0" "grep -q 'Démarrage : STRATORIC' '$TMP/strat_msg.txt' && grep -q 'STRATORIC V4.0' '$TMP/strat.txt'"
 check "Échap : Telestrat de la clé" "grep -q 'TELESTRAT' '$TMP/echap.txt' && ! grep -q STRATORIC '$TMP/echap.txt'"

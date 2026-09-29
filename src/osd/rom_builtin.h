@@ -88,6 +88,57 @@ static inline bool rom_pool_load_builtin(rom_pool_t* p, telestrat_t* sys, int ba
     return true;
 }
 
+// Profils de la clé : TELESTRA.CFG « profil=Libellé;bank7=X;bank6=Y;… »
+// (X : fichier .rom de la clé ou ROM intégrée « @… » ; banques non citées :
+// contenu d'origine), proposés après les profils intégrés. Au plus
+// ROM_USER_PROFILES ; libellés de ROM_USER_LABEL - 1 caractères au plus.
+#define ROM_USER_PROFILES 3
+#define ROM_USER_LABEL    40
+
+// Libellé d'une valeur « profil= » (jusqu'au premier « ; »)
+static inline void rom_user_profile_label(const char* v, char* out, size_t cap) {
+    size_t n = 0;
+    while (v[n] && v[n] != ';' && n + 1 < cap) {
+        out[n] = v[n];
+        n++;
+    }
+    while (n && out[n - 1] == ' ') n--;
+    out[n] = 0;
+}
+
+// Chargement d'un fichier .rom de la clé en banque (plate-forme)
+typedef bool (*rom_load_file_t)(void* ctx, int bank, const char* name, const char** err);
+
+// Profil de la clé appliqué (le démarrage à froid est à faire ensuite)
+static inline bool rom_user_profile_apply(rom_pool_t* p, telestrat_t* sys, const char* v, rom_load_file_t load,
+                                          void* ctx, const char** err) {
+    for (int b = 1; b < 8; b++) rom_pool_restore(p, sys, b);
+    const char* f = strchr(v, ';');
+    while (f) {
+        f++;
+        const char* end = strchr(f, ';');
+        const size_t n = end ? (size_t)(end - f) : strlen(f);
+        char item[64];
+        if (n < sizeof(item)) {
+            memcpy(item, f, n);
+            item[n] = 0;
+            for (size_t k = n; k && item[k - 1] == ' '; k--) item[k - 1] = 0;
+            if (!strncmp(item, "bank", 4) && item[4] >= '1' && item[4] <= '7' && item[5] == '=' && item[6]) {
+                const int b = item[4] - '0';
+                const char* name = item + 6;
+                const rom_builtin_t* rb = name[0] == '@' ? rom_builtin_find(name) : NULL;
+                if (name[0] == '@' && !rb) {
+                    *err = "ROM intégrée inconnue";
+                    return false;
+                }
+                if (rb ? !rom_pool_load_builtin(p, sys, b, rb, err) : !load(ctx, b, name, err)) return false;
+            }
+        }
+        f = end;
+    }
+    return true;
+}
+
 // Profil appliqué (banques ; le démarrage à froid est à faire ensuite)
 static inline bool rom_profile_apply(rom_pool_t* p, telestrat_t* sys, int profile, const char** err) {
     if (profile < 0 || profile >= ROM_PROFILES) {

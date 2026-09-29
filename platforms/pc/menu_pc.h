@@ -33,6 +33,8 @@ typedef struct {
     int printer_types;         // modèles proposés par le menu (3 avec -G, sinon 1)
     const char* printer_last;  // dernière page ou dernier tracé écrit (-G)
     bool boot_pending;         // demarrage=choix : page de démarrage à la première ouverture
+    char user_label[ROM_USER_PROFILES][ROM_USER_LABEL];  // profils de la clé (profil=)
+    int user_n;
     bool tape_turbo;           // cassette_rapide= (-Z)
     bool tape_motor_always;    // cassette_moteur= (-Y)
     bool line_present;         // -L
@@ -238,7 +240,9 @@ static void menu_pc_refresh(menu_pc_t* p, telestrat_t* sys) {
     m->tape_percent = oric_tape_percent(&sys->tape);
     m->tape_motor = sys->tape.motor && sys->tape.inserted;
     for (int k = 0; k < ROM_BUILTINS && k < OSD_BUILTINS; k++) m->builtin[k] = rom_builtins[k].label;
+    for (int k = 0; k < OSD_PROFILES; k++) m->profile[k] = NULL;
     for (int k = 0; k < ROM_PROFILES && k < OSD_PROFILES; k++) m->profile[k] = rom_profiles[k].label;
+    for (int k = 0; k < p->user_n && ROM_PROFILES + k < OSD_PROFILES; k++) m->profile[ROM_PROFILES + k] = p->user_label[k];
     for (int d = 0; d < 4; d++) {
         snprintf(m->drive[d], sizeof(m->drive[d]), "%s", p->disk[d] ? p->disk_name[d] : "");
         m->drive_ro[d] = p->disk[d] && sys->fdc.wd.disk[d].write_protect;
@@ -265,6 +269,35 @@ static char* _menu_pc_read_cfg(const menu_pc_t* p) {
     return s;
 }
 
+// Profil de la clé : la k-ième ligne « profil= » de TELESTRA.CFG
+typedef struct {
+    menu_pc_t* p;
+    telestrat_t* sys;
+} _menu_pc_load_ctx_t;
+
+static bool menu_pc_load_rom(menu_pc_t* p, telestrat_t* sys, int bank, const char* name, const char** err);
+
+static bool _menu_pc_load_cb(void* ctx, int bank, const char* name, const char** err) {
+    _menu_pc_load_ctx_t* c = (_menu_pc_load_ctx_t*)ctx;
+    return menu_pc_load_rom(c->p, c->sys, bank, name, err);
+}
+
+static bool menu_pc_user_profile(menu_pc_t* p, telestrat_t* sys, int k, const char** err) {
+    char* cfg = _menu_pc_read_cfg(p);
+    bool ok = false;
+    *err = "profil absent de TELESTRA.CFG";
+    int n = 0;
+    for (char* line = cfg ? strtok(cfg, "\r\n") : NULL; line; line = strtok(NULL, "\r\n")) {
+        const char* v = osd_config_value(line, "profil");
+        if (!v || n++ != k) continue;
+        _menu_pc_load_ctx_t c = {p, sys};
+        ok = rom_user_profile_apply(&p->pool, sys, v, _menu_pc_load_cb, &c, err);
+        break;
+    }
+    free(cfg);
+    return ok;
+}
+
 // TELESTRA.CFG au démarrage : lecteurs et cartouches (après menu_pc_prepare
 // et telestrat_init)
 static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const char* version) {
@@ -276,6 +309,8 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
     menu_pc_scan(p);
     char* cfg = _menu_pc_read_cfg(p);
     bool profile_applied = false;
+    char boot[ROM_USER_LABEL] = "";
+    p->user_n = 0;
     for (char* line = cfg ? strtok(cfg, "\r\n") : NULL; line; line = strtok(NULL, "\r\n")) {
         const char* v;
         if ((v = osd_config_value(line, "impression"))) p->printer_on = osd_config_yes(v, true);
@@ -285,15 +320,9 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
         }
         if ((v = osd_config_value(line, "modem"))) p->modem_on = osd_config_yes(v, true);
         if ((v = osd_config_value(line, "cassette_rapide"))) p->tape_turbo = osd_config_yes(v, p->tape_turbo);
-        if ((v = osd_config_value(line, "demarrage"))) {
-            if (!strcmp(v, "choix")) {
-                p->boot_pending = true;
-            } else if (rom_profile_find(v) >= 0) {
-                const char* err = "";
-                if (rom_profile_apply(&p->pool, sys, rom_profile_find(v), &err)) profile_applied = true;
-                else fprintf(stderr, "TELESTRA.CFG : demarrage=%s : %s\n", v, err);
-            }
-        }
+        if ((v = osd_config_value(line, "profil")) && p->user_n < ROM_USER_PROFILES)
+            rom_user_profile_label(v, p->user_label[p->user_n++], ROM_USER_LABEL);
+        if ((v = osd_config_value(line, "demarrage"))) snprintf(boot, sizeof(boot), "%s", v);
         if ((v = osd_config_value(line, "cassette_moteur"))) p->tape_motor_always = !strcmp(v, "toujours");
         for (int d = 0; d < 4; d++) {
             const char key[2] = {(char)('a' + d), 0};
@@ -312,6 +341,20 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
         }
     }
     free(cfg);
+    // Démarrage : page de choix, profil intégré (identifiant) ou de la clé (libellé)
+    if (!strcmp(boot, "choix")) {
+        p->boot_pending = true;
+    } else if (boot[0]) {
+        const char* err = "profil inconnu";
+        const int b = rom_profile_find(boot);
+        if (b >= 0) {
+            profile_applied = rom_profile_apply(&p->pool, sys, b, &err);
+        } else {
+            for (int k = 0; k < p->user_n; k++)
+                if (!strcmp(boot, p->user_label[k])) profile_applied = menu_pc_user_profile(p, sys, k, &err);
+        }
+        if (!profile_applied) fprintf(stderr, "TELESTRA.CFG : demarrage=%s : %s\n", boot, err);
+    }
     menu_pc_tape_options(p, sys);
     if (profile_applied) telestrat_cold_reset(sys);
 }
@@ -464,11 +507,14 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
                 osd_menu_message(m, false, "Démarrage : configuration de la clé");
                 return true;
             }
-            if (rom_profile_apply(&p->pool, sys, a.file, &err)) {
+            if (a.file < ROM_PROFILES ? rom_profile_apply(&p->pool, sys, a.file, &err)
+                                      : menu_pc_user_profile(p, sys, a.file - ROM_PROFILES, &err)) {
                 if (p->tape_turbo) oric_turbo_apply_all(p->rom, p->pool.nslots, true);
                 telestrat_cold_reset(sys);
-                snprintf(msg, sizeof(msg), "Démarrage : %s", rom_profiles[a.file].label);
+                snprintf(msg, sizeof(msg), "Démarrage : %s",
+                         a.file < ROM_PROFILES ? rom_profiles[a.file].label : p->user_label[a.file - ROM_PROFILES]);
                 osd_menu_message(m, false, msg);
+                menu_pc_refresh(p, sys);  // image du menu (-O) à jour
                 return true;
             }
             snprintf(msg, sizeof(msg), "Démarrage : %s", err);

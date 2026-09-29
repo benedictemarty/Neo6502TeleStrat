@@ -149,6 +149,19 @@ static void test_rom_pool(void) {
 }
 
 // ROM intégrées : cartouche STRATORIC complète (banques 7, 6, 5)
+// Chargeur de fichier .rom factice (profils de la clé)
+static int test_loads, test_load_bank;
+static char test_load_name[32];
+static bool test_load_fail;
+static bool test_load_cb(void* ctx, int bank, const char* name, const char** err) {
+    (void)ctx;
+    test_loads++;
+    test_load_bank = bank;
+    snprintf(test_load_name, sizeof(test_load_name), "%s", name);
+    if (test_load_fail) *err = "absent";
+    return !test_load_fail;
+}
+
 static void test_rom_builtin(void) {
     static uint8_t slots[3][OSD_BANK_BYTES];
     rom_pool_t p;
@@ -184,6 +197,21 @@ static void test_rom_builtin(void) {
                   !strcmp(pp.name[6], "@atmos") && !strcmp(pp.name[5], "@basic10") &&
                   sys.bank_rd[7][0x3FFC] == telestrat_stratoric[0x3FFC],
               "profil STRATORIC : SEDORIC en 7, BASIC 1.1 en 6, 1.0 en 5 (%s)", err);
+        // Profil de la clé : libellé, ROM intégrée et fichier (chargeur de la plate-forme)
+        char label[ROM_USER_LABEL];
+        rom_user_profile_label("Mes jeux ;bank7=@atmos;bank4=jeu.rom", label, sizeof(label));
+        CHECK(!strcmp(label, "Mes jeux"), "profil de la clé : libellé « %s »", label);
+        test_loads = 0;
+        CHECK(rom_user_profile_apply(&pp, &sys, "Mes jeux;bank7=@atmos;bank4=jeu.rom ", test_load_cb, NULL, &err) &&
+                  !strcmp(pp.name[7], "@atmos") && !pp.name[6][0] && test_loads == 1 && test_load_bank == 4 &&
+                  !strcmp(test_load_name, "jeu.rom"),
+              "profil de la clé : BASIC 1.1 en 7, jeu.rom en 4, 6 d'origine (%s)", err);
+        CHECK(!rom_user_profile_apply(&pp, &sys, "X;bank7=@amiga", test_load_cb, NULL, &err) && strstr(err, "inconnue"),
+              "profil de la clé : ROM intégrée inconnue refusée");
+        test_load_fail = true;
+        CHECK(!rom_user_profile_apply(&pp, &sys, "X;bank5=absent.rom", test_load_cb, NULL, &err),
+              "profil de la clé : fichier absent refusé");
+        test_load_fail = false;
         CHECK(rom_profile_apply(&pp, &sys, rom_profile_find("telestrat"), &err) && !pp.name[7][0] && !pp.name[5][0] &&
                   sys.bank_rd[7][0x3FFC] == telestrat_telemon24[0x3FFC] && sys.bank_type[5] == TELESTRAT_BANK_EMPTY,
               "profil Telestrat : TELEMON en 7, banque 5 vide");

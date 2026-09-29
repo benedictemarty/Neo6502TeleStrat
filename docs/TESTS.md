@@ -2,7 +2,7 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
-## Tests unitaires — `tests/test_telestrat.c` (411 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (415 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -84,7 +84,8 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   actions, panneau : état) ; `TELESTRA.CFG` : `impression=`, `modem=`,
   valeurs oui / non ;
 - profils de démarrage : par identifiant, STRATORIC (SEDORIC, BASIC 1.1, 1.0
-  en 7, 6, 5), retour au Telestrat (banque 5 vide) ; page « Démarrer sur… » :
+  en 7, 6, 5), retour au Telestrat (banque 5 vide) ; profils de la clé
+  (libellé, ROM intégrée et fichier, ROM inconnue et fichier absent refusés) ; page « Démarrer sur… » :
   configuration de la clé, deuxième profil, titre, Échap ;
 - instantanés : capture des registres par NMI (A, X, Y, S, P comparés au
   65C02 émulé, reprise à la bonne adresse, moins de 60 cycles), le programme
@@ -213,12 +214,15 @@ Instantanés avec le dernier fichier (`-O menu.txt`). Fichier abîmé refusé
 (« pas un instantané »). Essai manuel : « L'Aigle d'Or » repris donne la
 même image que la suite d'origine.
 
-## Démarrage — `tests/test_profiles.sh` (6 vérifications)
+## Démarrage — `tests/test_profiles.sh` (10 vérifications)
 
 `demarrage=choix` : page « Démarrer sur… » (`-O page.txt` : titre, profils,
 plus d'ORIX) ; STRATORIC choisie → « STRATORIC V4.0 » ; Échap → Telestrat de
 la clé. `demarrage=atmos` → ORIC EXTENDED BASIC V1.1 ; `demarrage=stratoric`
 → STRATORIC V4.0 ; `demarrage=orix` (profil retiré) → Telestrat de la clé.
+Profils de la clé : proposés après les intégrés ; « Atmos et outil » choisi →
+BASIC 1.1, `outil.rom` en banque 4 (texte du menu) ; profil au fichier
+absent signalé ; `demarrage=Atmos et outil` sans page.
 
 ## Imprimantes — `tests/test_printer.sh` (12 vérifications)
 
