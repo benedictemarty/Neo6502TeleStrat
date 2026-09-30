@@ -237,6 +237,13 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-175 | `ay38910psg.h` et `hid_app.c` du socle ; AY à la cadence réelle du PWM ; `$80` sans disque (fiche) | ✅ `make` entier, deux variantes, charge 58 / 66 % ; ✅ carte (2026-10-01) : PING, ZAP, SHOOT, EXPLODE ; bmarty : « très bien le son » |
 
+## v0.16.18 — aigus de l'AY, lignes rouges comptées ✅ au banc (2026-10-01)
+
+| Id | Récit / anomalie | État |
+|---|---|---|
+| BUG-5 | « lignes DVI en retard : 0 » ne prouvait rien (compteur de PicoDVI qui redescend) | ✅ `diag_late_total` cumulé, `carte.py mesure` ; ⏳ relevé sur carte |
+| US-176 | Socle `-4` : aigus de l'AY justes, son sans `memset` en flash ni verrou partagé | ✅ test période 17 ; charge 59 / 67 % ; ⏳ écoute |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

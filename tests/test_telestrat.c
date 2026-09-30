@@ -1244,9 +1244,11 @@ static bool mem_state_read(void* ctx, void* d, uint32_t n) {
 // exactement sample_rate échantillons par seconde émulée
 static uint32_t audio_count, audio_first;
 static uint8_t audio_last;
+static uint32_t audio_edges;  // changements de valeur de l'échantillon
 static void audio_cb(const uint8_t sample, void* user_data) {
     (void)user_data;
     if (audio_count++ == 0) audio_first = sys.system_ticks;
+    if (audio_count > 1 && sample != audio_last) audio_edges++;
     audio_last = sample;
 }
 
@@ -1289,6 +1291,18 @@ static void test_audio(void) {
     psg_reg(AY38910PSG_REG_AMP_B, 0);
     psg_reg(AY38910PSG_REG_AMP_C, 0);
     CHECK(ay38910psg_sample_u8(&sys.psg) == 0, "silence : 0");
+    // Aigus (socle-2026-10-01-4) : période 17 = 1 MHz / 16 / 17 = 3 676 Hz,
+    // soit ~7 353 changements par seconde (avant : demi-période arrondie au
+    // multiple de 64 cycles, 2 604 Hz)
+    psg_reg(AY38910PSG_REG_PERIOD_A_FINE, 17);
+    psg_reg(AY38910PSG_REG_PERIOD_A_COARSE, 0);
+    psg_reg(AY38910PSG_REG_ENABLE, 0x3E);  // tonalité A seule
+    psg_reg(AY38910PSG_REG_AMP_A, 15);
+    audio_count = 0;
+    audio_edges = 0;
+    run(TELESTRAT_FREQUENCY);
+    CHECK(audio_edges > 7353 * 97 / 100 && audio_edges < 7353 * 103 / 100,
+          "période 17 : %u changements en 1 s (attendu ~7 353, 3 676 Hz)", audio_edges);
 }
 
 // Touches multimédia du clavier USB (v0.16.9) : descripteurs HID et volume

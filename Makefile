@@ -10,7 +10,7 @@
 # épinglé sur une étiquette de socle vérifiée (tools/reload_socle.sh, clone
 # local dans ~/.cache/reload-socle). Changer d'étiquette : RELOAD_SOCLE=… ;
 # un autre arbre (ex. la tête de reload) : RELOAD_DIR=~/reload-emulator.
-RELOAD_SOCLE ?= socle-2026-10-01-2
+RELOAD_SOCLE ?= socle-2026-10-01-4
 ifeq ($(origin RELOAD_DIR),undefined)
 RELOAD_DIR := $(HOME)/.cache/reload-socle/$(RELOAD_SOCLE)
 _SOCLE := $(shell sh tools/reload_socle.sh $(RELOAD_SOCLE) >&2 || echo erreur)

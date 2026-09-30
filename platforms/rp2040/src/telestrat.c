@@ -1357,7 +1357,8 @@ volatile uint32_t diag_keyq_head, diag_keyq_tail;
 volatile uint32_t diag_frames;            // trames émulées depuis le démarrage
 volatile uint32_t diag_frame_us_sum, diag_frame_us_max, diag_frame_n;  // travail du cœur 0 par trame
 volatile uint32_t diag_line_us_sum, diag_line_us_max, diag_line_n;     // rendu d'une ligne, cœur 1
-volatile uint32_t diag_late;              // lignes DVI en retard (PicoDVI)
+volatile uint32_t diag_late;              // lignes DVI en retard (PicoDVI) : valeur courante, redescend au rattrapage
+volatile uint32_t diag_late_total;        // cumul des hausses de ce compteur (au moins les lignes rouges)
 // Disposition de state pour la sonde : décalages de ram, fb, system_ticks, bank
 const volatile uint32_t diag_layout[4] = {offsetof(state_t, telestrat.ram), offsetof(state_t, telestrat.fb),
                                  offsetof(state_t, telestrat.system_ticks), offsetof(state_t, telestrat.bank)};
@@ -1549,10 +1550,22 @@ void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_stat
 
 // Cœur 1 : image -> plans 1 bpp -> trois encodages TMDS 1 bpp par ligne ;
 // menu ouvert : ses lignes à la place (même coût, plein écran)
+// Lignes rouges : late_scanline_ctr de PicoDVI monte à chaque ligne sans tampon
+// prêt et redescend quand il rattrape ; seul le cumul de ses hausses, relevé
+// deux fois par ligne rendue, le montre (une hausse rattrapée entre deux
+// relevés échappe : c'est un minimum)
+static uint32_t late_prev;
+static inline void __not_in_flash_func(late_sample)(void) {
+    const uint32_t late = dvi0.late_scanline_ctr;
+    if (late > late_prev) diag_late_total += late - late_prev;
+    late_prev = late;
+}
+
 static inline void __not_in_flash_func(render_frame)() {
     for (int y = 0; y < DISPLAY_LINES; y++) {
         uint32_t *tmdsbuf;
         queue_remove_blocking_u32(&dvi0.q_tmds_free, &tmdsbuf);
+        late_sample();
         const uint32_t t0 = time_us_32();
 #ifdef TELESTRAT_OSD
         const osd_surface_t *menu_surf = osd_open ? OSD_SURFACE : NULL;
@@ -1572,7 +1585,8 @@ static inline void __not_in_flash_func(render_frame)() {
         diag_line_n++;
         if (dt > diag_line_us_max) diag_line_us_max = dt;
         queue_add_blocking_u32(&dvi0.q_tmds_valid, &tmdsbuf);
-        diag_late = dvi0.late_scanline_ctr;
+        late_sample();
+        diag_late = late_prev;
     }
 }
 

@@ -49,6 +49,9 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
   `$80` sans disque en type II/III, fiche FD179X ; cadence réelle du PWM).
 - v0.16.17 : `socle-2026-10-01-2` (`AY38910_HOT` : l'AY en flash sans
   `push_macro`).
+- v0.16.18 : `socle-2026-10-01-4` (AY : aigus justes, périodes < 8 à
+  mi-volume ; `audio.c` : plus de `memset` en flash sur le cœur 1, verrou
+  réservé pour la section critique du son). Charge : 59 / 67 % (+1 point).
 
 ## Conséquences
 

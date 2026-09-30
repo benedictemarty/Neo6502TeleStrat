@@ -27,7 +27,7 @@ passés sur la copie locale `src/chips/w65c02cpu.h` (programme
 
 Seule la version PC utilise ce cœur. Sur la carte, c'est le vrai W65C02.
 
-## Tests unitaires — `tests/test_telestrat.c` (458 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (467 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -37,6 +37,8 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - DDRA partiel : les lignes en entrée gardent la banque précédente ;
 - VIA (v0.16.13) : T1 échu = IRQ ; T1 interdit par IER = IRQ relâchée,
   drapeau T1 gardé ;
+- son aigu (v0.16.18, AY du socle `-4`) : période 17 = ~7 353 changements
+  d'échantillon par seconde (3 676 Hz ; l'ancien AY donnait 5 208, 2 604 Hz) ;
 - son (v0.16.8) : exactement 22 050, 44 100 et 11 025 échantillons en une
   seconde émulée, 1er échantillon au bon cycle ; mélange de l'AY : une voie
   au maximum = 85, trois = 255 (sans repli sur 8 bits), silence = 0 ;
@@ -394,6 +396,16 @@ menu : 7 fichiers de la clé listés. Observé, cause inconnue :
 - OpenOCD a perdu la carte une fois au retrait et une fois au rebranchement
   (« Failed to write/read memory », « core1 Examination failed ») ; la lecture
   suivante a réussi.
+
+### Lignes rouges : ce que prouvent les relevés (v0.16.18)
+
+Jusqu'à la v0.16.17, `carte.py mesure` affichait `late_scanline_ctr` de
+PicoDVI, qui **redescend** quand PicoDVI rattrape son retard : les relevés
+« lignes DVI en retard : 0 » des essais sur carte (v0.4.1 à v0.16.17) ne
+prouvent pas l'absence de lignes rouges. Depuis la v0.16.18, le firmware
+cumule les hausses de ce compteur (`diag_late_total`, relevé deux fois par
+ligne rendue : un minimum) et `carte.py mesure` affiche les lignes rouges
+pendant la mesure et depuis le démarrage. Pas encore relevé sur carte.
 
 ### WD1793 et cassette du socle sur carte (v0.16.17, 2026-10-01)
 

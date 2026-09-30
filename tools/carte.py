@@ -218,11 +218,17 @@ def mesure(secondes=10):
     # Compteurs remis à zéro au début de la fenêtre (le démarrage, avec l'USB, fausse le maximum)
     raz = [f"mww 0x{s[n]:08x} 0" for n in ("diag_frame_us_sum", "diag_frame_us_max", "diag_frame_n",
                                             "diag_line_us_sum", "diag_line_us_max", "diag_line_n")]
-    journal = openocd(*raz, f"mdw 0x{ticks:08x} 1", f"mdw 0x{s['diag_frames']:08x} 1", f"sleep {secondes * 1000}",
-                      f"mdw 0x{ticks:08x} 1", f"mdw 0x{s['diag_frames']:08x} 1")
+    total = s.get("diag_late_total")  # absent des firmwares d'avant v0.16.18
+    lt = [f"mdw 0x{total:08x} 1"] if total else []
+    journal = openocd(*raz, f"mdw 0x{ticks:08x} 1", f"mdw 0x{s['diag_frames']:08x} 1", *lt, f"sleep {secondes * 1000}",
+                      f"mdw 0x{ticks:08x} 1", f"mdw 0x{s['diag_frames']:08x} 1", *lt)
     v = [int(l.split(":")[1], 16) for l in journal.splitlines() if re.match(r"^0x[0-9a-f]+:", l)]
-    t0, f0, t1, f1 = v
-    retard = lire_mots(s["diag_late"], 1)[0]
+    if total:
+        t0, f0, l0, t1, f1, l1 = v
+        retard = f"au moins {(l1 - l0) & 0xFFFFFFFF} pendant la mesure ({l1} depuis le démarrage)"
+    else:
+        t0, f0, t1, f1 = v
+        retard = f"{lire_mots(s['diag_late'], 1)[0]} (valeur courante, ne prouve rien)"
     # Lu variable par variable : l'ordre en mémoire dépend de l'éditeur de liens
     somme = lire_mots(s["diag_frame_us_sum"], 1)[0]
     maxi = lire_mots(s["diag_frame_us_max"], 1)[0]
@@ -234,7 +240,7 @@ def mesure(secondes=10):
     print(f"65C02 : {(t1 - t0) & 0xFFFFFFFF} cycles en {secondes} s = {mhz:.3f} MHz ; {f1 - f0} trames")
     print(f"cœur 0 : {somme / max(n, 1):.0f} µs de travail par trame de 19 968 µs en moyenne"
           f" ({100 * somme / max(n, 1) / 19968:.0f} %), {maxi} au pire")
-    print(f"cœur 1 : {lsum / max(ln, 1):.1f} µs par ligne (max {lmax}) ; lignes DVI en retard : {retard}")
+    print(f"cœur 1 : {lsum / max(ln, 1):.1f} µs par ligne (max {lmax}) ; lignes rouges : {retard}")
 
 
 # Clé USB (US-91) : variables du firmware lues par la sonde

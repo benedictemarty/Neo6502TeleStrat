@@ -3,11 +3,11 @@ cmake_minimum_required(VERSION 3.12)
 # Firmware telestrat.uf2 pour Olimex Neo6502. Réutilise le SDK Pico, PicoDVI,
 # tinyusb et les sources de plate-forme de reload-emulator (RELOAD_DIR).
 #
-#   cmake -S platforms/rp2040 -B build/rp2040 [-DRELOAD_DIR=~/.cache/reload-socle/socle-2026-10-01-2]
+#   cmake -S platforms/rp2040 -B build/rp2040 [-DRELOAD_DIR=~/.cache/reload-socle/socle-2026-10-01-4]
 #         [-DTELESTRAT_RAM64K=ON] [-DNEO_MULTIBOOT_DIR=... -DNEO_SLOT_TELESTRAT=n]
 
 # Par défaut : le socle reload épinglé (tools/reload_socle.sh, comme le Makefile)
-set(RELOAD_DIR "$ENV{HOME}/.cache/reload-socle/socle-2026-10-01-2" CACHE PATH "reload-emulator (puces, SDK Pico, PicoDVI, tinyusb)")
+set(RELOAD_DIR "$ENV{HOME}/.cache/reload-socle/socle-2026-10-01-4" CACHE PATH "reload-emulator (puces, SDK Pico, PicoDVI, tinyusb)")
 if(NOT EXISTS "${RELOAD_DIR}/platforms/rp2040/lib/pico-sdk/pico_sdk_init.cmake")
     message(FATAL_ERROR "reload-emulator absent de ${RELOAD_DIR} : lancer tools/reload_socle.sh (ou -DRELOAD_DIR=...)")
 endif()
