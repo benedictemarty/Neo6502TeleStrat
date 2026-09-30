@@ -368,7 +368,15 @@ multimédia au plus, quatre champs chacune.
 
 Limites : une touche multimédia envoyée dans le rapport principal du clavier
 (clavier en protocole « report ») n'est pas vue, le clavier étant mis en
-protocole « boot » ; non essayé sur un vrai clavier.
+protocole « boot ».
+
+**Sur carte** (2026-09-30, v0.16.12) : le clavier de bmarty présente ses
+touches multimédia sur l'interface 1, rapport 1, tableau d'un usage de 16 bits
+(forme du descripteur Consumer de TinyUSB) ; appuis reçus, jauge et volume
+vérifiés par bmarty ; `volume=5` enregistré par le menu puis relu après un
+reset (lu par la sonde : niveau 5, gain 91). Même séance : 65C02 à
+1,000 MHz, cœur 0 à 60-62 % en moyenne, 73 % au pire pendant `DIR` sur la
+clé, 0 ligne DVI en retard.
 
 ## Premiers essais sur carte depuis la v0.4.2 (sprint 16)
 

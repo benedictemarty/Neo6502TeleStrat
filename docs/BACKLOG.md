@@ -203,14 +203,14 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | Id | Récit | État |
 |---|---|---|
-| US-171 | Le volume est gardé d'un démarrage à l'autre (`volume=` dans `TELESTRA.CFG`, v0.16.10) | ✅ code + 3 tests ; ⏳ essai sur carte |
-| US-170 | Volume +, Volume − et Muet d'un clavier multimédia règlent le son, avec une jauge à l'écran | ✅ code + 25 tests (descripteurs tableau et variable, volume, bandeau) ; ⏳ essai sur carte avec un vrai clavier |
+| US-171 | Le volume est gardé d'un démarrage à l'autre (`volume=` dans `TELESTRA.CFG`, v0.16.10) | ✅ code + 3 tests ; ✅ carte (2026-09-30) : `volume=5` écrit par le menu, relu après reset |
+| US-170 | Volume +, Volume − et Muet d'un clavier multimédia règlent le son, avec une jauge à l'écran | ✅ code + 25 tests ; ✅ carte (2026-09-30) : clavier de bmarty reconnu (rapport 1, tableau 16 bits), 5 appuis reçus, bmarty : « fonctionne » |
 
 ## v0.16.11 — verrous DVI dédiés ✅ compilé (2026-09-30)
 
 | Id | Anomalie | État |
 |---|---|---|
-| BUG-3 | `dvi_init` avec `next_striped_spin_lock_num()` : verrous partagés avec FatFs et TinyUSB, lignes en retard possibles (signalé par reload, vu par Trinity) | ✅ verrous dédiés ; ⏳ carte : 0 ligne en retard pendant une rafale disque |
+| BUG-3 | `dvi_init` avec `next_striped_spin_lock_num()` : verrous partagés avec FatFs et TinyUSB, lignes en retard possibles (signalé par reload, vu par Trinity) | ✅ verrous dédiés ; ✅ carte (2026-09-30, v0.16.12) : 0 ligne en retard, `DIR` sur la clé compris |
 
 ## v0.16.12 — socle reload épinglé ✅ (2026-09-30)
 
