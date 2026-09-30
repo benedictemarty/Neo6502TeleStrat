@@ -43,7 +43,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define TELESTRAT_STATE_VERSION 1
+#define TELESTRAT_STATE_VERSION 2  // 2 : horloge audio fractionnaire (v0.16.8)
 #define TELESTRAT_STATE_INFO_MAX 1024
 
 // Lecture ou écriture de len octets ; false : erreur
@@ -70,7 +70,7 @@ typedef struct {
     int32_t printer_ack;
     int blink_counter;
     uint8_t pattr;
-    uint32_t system_ticks, psg_next, psg_next_sample;
+    uint32_t system_ticks, psg_next, psg_next_sample, sample_acc;
 } _telestrat_state_misc_t;
 
 static inline uint32_t telestrat_state_signature(void) {
@@ -144,6 +144,7 @@ static inline bool telestrat_state_save(telestrat_t* sys, const char* info, tele
     m.system_ticks = sys->system_ticks;
     m.psg_next = sys->psg_next;
     m.psg_next_sample = sys->psg_next_sample;
+    m.sample_acc = sys->sample_acc;
     _TELESTRAT_IO(&m, sizeof(m));
     return true;
 }
@@ -228,6 +229,7 @@ static inline bool telestrat_state_load_machine(telestrat_t* sys, telestrat_stat
     sys->system_ticks = m.system_ticks;
     sys->psg_next = m.psg_next;
     sys->psg_next_sample = m.psg_next_sample;
+    sys->sample_acc = m.sample_acc;
     sys->tape_due = m.system_ticks;
     sys->deferred = 0;
     sys->bank = 0xFF;  // forcer la sélection

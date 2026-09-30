@@ -178,7 +178,8 @@ typedef struct {
     bool screen_dirty;
 
     uint32_t system_ticks;
-    uint8_t psg_sample_div;
+    uint32_t sample_rate;  // échantillons audio par seconde (desc.audio.sample_rate)
+    uint32_t sample_acc;   // horloge fractionnaire : + sample_rate à chaque cycle
 } telestrat_t;
 
 void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc);
@@ -276,6 +277,7 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     sys->valid = true;
     sys->debug = desc->debug;
     sys->audio_callback = desc->audio.callback;
+    sys->sample_rate = (uint32_t)CHIPS_DEFAULT(desc->audio.sample_rate, 22050);
 
     MOS6502CPU_INIT(&sys->cpu, &(MOS6502CPU_DESC_T){0});
     mos6522via_init(&sys->via);
@@ -479,12 +481,14 @@ TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
     if ((sys->system_ticks & 127) == 0) {
         ay38910psg_tick_envelope_generator(&sys->psg);
     }
-    if (++sys->psg_sample_div == 46) {
-        ay38910psg_tick_sample_generator(&sys->psg);
+    // Exactement sample_rate échantillons par seconde (horloge fractionnaire),
+    // trois voies mélangées en entiers : pas de débordement (reload a0314e4)
+    sys->sample_acc += sys->sample_rate;
+    if (sys->sample_acc >= TELESTRAT_FREQUENCY) {
+        sys->sample_acc -= TELESTRAT_FREQUENCY;
         if (sys->audio_callback.func) {
-            sys->audio_callback.func((uint8_t)(sys->psg.sample * 255.0f), sys->audio_callback.user_data);
+            sys->audio_callback.func(ay38910psg_sample_u8(&sys->psg), sys->audio_callback.user_data);
         }
-        sys->psg_sample_div = 0;
     }
 
     // VIA 1 et 2, par pas de 4 cycles comme oric.h

@@ -123,8 +123,8 @@ tables de masques + multiplication : 1,6 fois. À mesurer sur carte.
 
 - Optimiste : aucune contention SRAM avec le cœur 1 (DVI) et le DMA ; code
   en flash toujours dans le cache XIP ; USB non compté.
-- Pessimiste : flottants logiciels de libgcc au lieu de ceux de la ROM
-  (échantillons de l'AY, ~2 %).
+- Échantillons de l'AY : en entiers depuis v0.16.8 (plus de flottants
+  logiciels) ; `make charge` passe de 60 % à 58 % en moyenne (67 % à 65 % au pire).
 - Une seule trace (disque) ; la télématique ajoute l'ACIA actif.
 
 ## Pistes proposées avant le sprint 4 (pour mémoire)

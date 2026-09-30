@@ -103,6 +103,7 @@ Dépendances reprises de reload-emulator sans copie : `mos6522via.h`,
 | Clavier : PB3 | touche dans la ligne sélectionnée parmi les colonnes actives (`scan & ligne`) | `oric.h` testait l'égalité (`scan == ligne`), fausse dès que deux touches de lignes différentes sont enfoncées : SHIFT + 8 (« * ») donnait « 8 » sur carte ; aussi dans reload |
 | Clavier : CTRL | pas de CTRL+H ni CTRL+M déclarés | ils écrasaient DEL et RETURN (RETURN arrivait comme « M » sur carte) |
 | Affichage (cœur 1) | image -> 3 plans 1 bpp (`telestrat_video.h`) -> 3 encodages TMDS 1 bpp ; 960x544 à 372 MHz (1,30 V) ; priorité bus au cœur 1 et au DMA | l'encodage à palette prend 72 µs par ligne pour 59-63 (mesure du BBC) ; mesuré sur carte : 35 µs par ligne, 0 retard |
+| Son (AY) | trois voies mélangées en entiers (`ay38910psg_sample_u8`, 85 par voie au plus, somme ≤ 255) ; exactement `sample_rate` échantillons par seconde émulée (horloge fractionnaire, 22 050 Hz par défaut), le système optimisé calcule d'avance le cycle du suivant | reload `a0314e4` : `(uint8_t)(sample * 255)` débordait avec plusieurs voies fortes ; un échantillon tous les 46 cycles donnait 21 739 Hz pour une sortie PWM à 22 050 Hz. Une voie seule sonne 3 fois moins fort qu'avant |
 | ACIA | registres et effets de bord d'Oricutron, sans liaison | TELEMON teste l'ACIA au démarrage (avec `$FF` il part dans une routine RAM non installée) |
 | FUNCT | touche Windows gauche | `hid_app.c` de reload ne remonte pas Alt en mode ASCII |
 | Ligne 4 du clavier | `,` et `.` sans SHIFT, `<` et `>` avec (table `qwktab` d'Oricutron) | `oric.h` de reload les inverse (à corriger aussi dans reload) |
@@ -450,7 +451,8 @@ version, signature des tailles de structures), texte de la plate-forme
 2, AY et ACIA (rappels de la plate-forme gardés), clavier, registres du
 WD1793 (piste, secteur, données, lecteur, face, têtes, `$0314` ; tampon de
 piste vidé sur la disquette), cadence (compteur de cycles, échéances de
-l'AY), STROBE et ACK. Pas enregistrés : disquettes et cassette (supports),
+l'AY, horloge audio fractionnaire depuis la version 2 du format, v0.16.8 : les
+instantanés antérieurs sont refusés), STROBE et ACK. Pas enregistrés : disquettes et cassette (supports),
 enregistreur, joystick, ligne. Refusé pendant une commande du WD1793. Sur
 le Neo6502, le `FIL` et le texte sont pris dans l'image du Telestrat
 (menu ouvert), vérifié à la compilation (`_Static_assert`).

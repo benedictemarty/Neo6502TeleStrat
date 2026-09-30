@@ -16,7 +16,9 @@ dans `~/reload-emulator` (autre développement actif sur ces fichiers).
 
 Correctif repris depuis : `w65c02cpu.h` de reload `882d18f` (2026-09-30,
 v0.16.7) : SBC décimal avec opérandes BCD invalides, cycle de BBRx/BBSx
-quand le branchement est pris. Les autres fichiers restent à `462372a`.
+quand le branchement est pris. `ay38910psg.h` : `ay38910psg_sample_u8` de reload `a0314e4` (v0.16.8,
+mélange entier sans débordement ; marqueurs `CHIPS_HOT` non repris). Les
+autres fichiers restent à `462372a`.
 
 Mettre à jour : recopier depuis un commit de reload, relancer `make` (dont
 `make cpu_harte`) et `make charge`, noter le commit ici.

@@ -194,7 +194,9 @@ typedef struct {
 
     uint32_t system_ticks;
     uint32_t psg_next;         // prochain cycle où l'AY a quelque chose à faire
-    uint32_t psg_next_sample;  // prochain échantillon (tous les 46 cycles)
+    uint32_t psg_next_sample;  // cycle du prochain échantillon audio
+    uint32_t sample_rate;      // échantillons audio par seconde (desc.audio.sample_rate)
+    uint32_t sample_acc;       // horloge fractionnaire de la référence, après psg_next_sample
     const uint8_t* rd_cur;     // banque visible : lecture (NULL = bus flottant)
     uint8_t* wr_cur;           // banque visible : écriture (NULL = ignorée)
 } telestrat_t;
@@ -373,6 +375,15 @@ static int _telestrat_serial_rx(void* user_data) {
     return sys->minitel_rx ? sys->minitel_rx(sys->minitel_user_data) : -1;
 }
 
+// Prochain échantillon audio après celui du cycle psg_next_sample, horloge
+// sample_acc : la référence ajoute sample_rate à chaque cycle et émet quand
+// elle atteint TELESTRAT_FREQUENCY ; ici, le nombre de cycles est calculé d'avance.
+static void _telestrat_next_sample(telestrat_t* sys) {
+    const uint32_t n = (TELESTRAT_FREQUENCY - sys->sample_acc + sys->sample_rate - 1) / sys->sample_rate;
+    sys->psg_next_sample += n;
+    sys->sample_acc = sys->sample_acc + n * sys->sample_rate - TELESTRAT_FREQUENCY;
+}
+
 void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     CHIPS_ASSERT(sys && desc);
     if (desc->debug.callback.func) {
@@ -380,10 +391,13 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     }
 
     memset(sys, 0, sizeof(telestrat_t));
-    sys->psg_next_sample = 45;  // 1er échantillon au 46e cycle (comme la référence)
     sys->valid = true;
     sys->debug = desc->debug;
     sys->audio_callback = desc->audio.callback;
+    sys->sample_rate = (uint32_t)CHIPS_DEFAULT(desc->audio.sample_rate, 22050);
+    // Comme si un échantillon avait été émis au cycle -1, horloge à 0
+    sys->psg_next_sample = (uint32_t)-1;
+    _telestrat_next_sample(sys);
 
     MOS6502CPU_INIT(&sys->cpu, &(MOS6502CPU_DESC_T){0});
     mos6522via_init(&sys->via);
@@ -800,7 +814,7 @@ TELESTRAT_SLOW static void _telestrat_io_access(telestrat_t* sys, uint16_t addr)
 }
 
 // Événements de l'AY dans l'ordre du modèle de référence : canaux (tous les
-// 64 cycles), enveloppe (128), échantillon (46)
+// 64 cycles), enveloppe (128), échantillon (sample_rate par seconde)
 TELESTRAT_SLOW static void _telestrat_psg_events(telestrat_t* sys) {
     const uint32_t t = sys->system_ticks;
     if ((t & 63) == 0) {
@@ -810,11 +824,10 @@ TELESTRAT_SLOW static void _telestrat_psg_events(telestrat_t* sys) {
         ay38910psg_tick_envelope_generator(&sys->psg);
     }
     if (t == sys->psg_next_sample) {
-        ay38910psg_tick_sample_generator(&sys->psg);
         if (sys->audio_callback.func) {
-            sys->audio_callback.func((uint8_t)(sys->psg.sample * 255.0f), sys->audio_callback.user_data);
+            sys->audio_callback.func(ay38910psg_sample_u8(&sys->psg), sys->audio_callback.user_data);
         }
-        sys->psg_next_sample = t + 46;
+        _telestrat_next_sample(sys);
     }
     // Prochain événement : multiple de 64 suivant ou prochain échantillon
     uint32_t next = (t | 63) + 1;

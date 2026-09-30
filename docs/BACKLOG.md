@@ -193,6 +193,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | BUG-1 | `w65c02cpu.h` : SBC décimal faux sur opérande BCD invalide ; BBRx/BBSx un cycle trop court quand le branchement est pris (trouvé par les SingleStepTests, session reload-emulator) | ✅ correctif reload `882d18f` repris, `make cpu_harte` ; le Makefile recompile désormais sur changement de `src/chips/` |
 
+## v0.16.8 — anomalie du son de l'AY ✅ au banc (2026-09-30)
+
+| Id | Anomalie | État |
+|---|---|---|
+| BUG-2 | Son : `(uint8_t)(sample * 255)` débordait avec plusieurs voies fortes ; 21 739 échantillons/s pour une sortie à 22 050 Hz (signalé par la session reload-emulator, correctif `a0314e4`) | ✅ banc, 12 tests, rejeu identique ; ⏳ écoute sur carte |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

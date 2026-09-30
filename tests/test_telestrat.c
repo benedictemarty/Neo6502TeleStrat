@@ -1141,6 +1141,57 @@ static bool mem_state_read(void* ctx, void* d, uint32_t n) {
     return true;
 }
 
+// Son de l'AY (v0.16.8, reload a0314e4) : trois voies mélangées sans débordement,
+// exactement sample_rate échantillons par seconde émulée
+static uint32_t audio_count, audio_first;
+static uint8_t audio_last;
+static void audio_cb(const uint8_t sample, void* user_data) {
+    (void)user_data;
+    if (audio_count++ == 0) audio_first = sys.system_ticks;
+    audio_last = sample;
+}
+
+static void psg_reg(uint8_t r, uint8_t v) {
+    sys.psg.addr = r;
+    ay38910psg_write(&sys.psg, v);
+}
+
+static void test_audio(void) {
+    static const uint8_t loop[] = {0x4C, 0x00, 0xC0};  // JMP $C000
+    load_program(loop, sizeof(loop));
+    const int rates[] = {0, 22050, 44100, 11025};
+    for (int i = 0; i < 4; i++) {
+        telestrat_desc_t d = {0};
+        d.banks[7] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom7};
+        d.audio.callback.func = audio_cb;
+        d.audio.sample_rate = rates[i];
+        telestrat_init(&sys, &d);
+        telestrat_reset(&sys);
+        audio_count = 0;
+        run(TELESTRAT_FREQUENCY);
+        const uint32_t want = rates[i] ? (uint32_t)rates[i] : 22050;
+        CHECK(audio_count == want, "%u Hz : %u échantillons en 1 s émulée", want, audio_count);
+        const uint32_t first = (TELESTRAT_FREQUENCY + want - 1) / want - 1;
+        CHECK(audio_first == first, "%u Hz : 1er échantillon au cycle %u (attendu %u)", want, audio_first, first);
+    }
+    // Mélange : sorties forcées à 1 (tonalité et bruit coupés), volumes fixes
+    psg_reg(AY38910PSG_REG_ENABLE, 0x3F);
+    psg_reg(AY38910PSG_REG_AMP_A, 15);
+    psg_reg(AY38910PSG_REG_AMP_B, 0);
+    psg_reg(AY38910PSG_REG_AMP_C, 0);
+    CHECK(ay38910psg_sample_u8(&sys.psg) == 85, "une voie au maximum : %d (attendu 85)", ay38910psg_sample_u8(&sys.psg));
+    psg_reg(AY38910PSG_REG_AMP_B, 15);
+    psg_reg(AY38910PSG_REG_AMP_C, 15);
+    CHECK(ay38910psg_sample_u8(&sys.psg) == 255, "trois voies au maximum : %d (attendu 255, sans repli)",
+          ay38910psg_sample_u8(&sys.psg));
+    run(100);
+    CHECK(audio_last == 255, "échantillon émis avec trois voies au maximum : %d", audio_last);
+    psg_reg(AY38910PSG_REG_AMP_A, 0);
+    psg_reg(AY38910PSG_REG_AMP_B, 0);
+    psg_reg(AY38910PSG_REG_AMP_C, 0);
+    CHECK(ay38910psg_sample_u8(&sys.psg) == 0, "silence : 0");
+}
+
 static void test_state(void) {
     // Programme : boucle qui écrit en RAM, VIA 1 : timer 1 libre (IRQ au RESET masquées)
     const uint8_t prog[] = {0xA2, 0x00, 0xA0, 0x80, 0xA9, 0x10,       // LDX #0, LDY #$80, LDA #$10
@@ -2000,6 +2051,7 @@ int main(void) {
     test_tape_turbo();
     test_cpu_snapshot();
     test_state();
+    test_audio();
     test_oric_tape_rec();
     test_osd_render();
     test_osd_menu();
