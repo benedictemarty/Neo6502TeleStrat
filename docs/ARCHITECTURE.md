@@ -343,7 +343,8 @@ de chaque interface au branchement (`src/devices/hid_media.h`, formes
 tableau et variable, identifiants de rapport), décode ses rapports et
 remet les touches nouvellement enfoncées à `hid_media_key_down()`. Une telle
 interface n'est plus prise pour une manette. Corrigé au passage : un rapport
-d'une interface sans manette enregistrée déréférençait un pointeur nul.
+d'une interface sans manette enregistrée déréférençait un pointeur nul
+(signalé à reload, corrigé là-bas au commit `a833b45`).
 
 Le volume (`hid_volume_t`, 9 niveaux de 0 à 8 : gain 0, 23, 32, 45, 64, 91,
 128, 181, 256 / 256, et une coupure à part) s'applique à chaque échantillon
