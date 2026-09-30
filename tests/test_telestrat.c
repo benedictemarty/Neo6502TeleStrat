@@ -1254,6 +1254,27 @@ static void test_hid_media(void) {
     CHECK(rising && prev == 256, "gain croissant à chaque pas, 256 au maximum");
 }
 
+// VIA : désactiver une source active par IER relâche l'IRQ (v0.16.13, correctif
+// de reload : IRQ = IFR & IER)
+static void test_via_ier(void) {
+    mos6522via_t v;
+    mos6522via_init(&v);
+    mos6522via_write(&v, MOS6522VIA_REG_IER, 0x80 | 0x40);  // T1 autorisé
+    mos6522via_write(&v, MOS6522VIA_REG_T1CL, 10);
+    mos6522via_write(&v, MOS6522VIA_REG_T1CH, 0);           // T1 lancé (un coup)
+    bool irq = false;
+    for (int i = 0; i < 20 && !irq; i++) irq = mos6522via_tick(&v, 4);
+    for (int i = 0; i < 4; i++) irq = mos6522via_tick(&v, 4);  // IRQ au bout du pipeline
+    CHECK(irq && (mos6522via_read(&v, MOS6522VIA_REG_IFR) & 0xC0) == 0xC0, "T1 échu : IRQ, IFR = %02X",
+          mos6522via_read(&v, MOS6522VIA_REG_IFR));
+    mos6522via_write(&v, MOS6522VIA_REG_IER, 0x40);  // T1 interdit, drapeau T1 gardé
+    irq = mos6522via_tick(&v, 4);
+    const uint8_t ifr = mos6522via_read(&v, MOS6522VIA_REG_IFR);
+    CHECK(!irq && (ifr & 0x80) == 0 && (ifr & 0x40), "IER : T1 interdit relâche l'IRQ (IFR = %02X, bit 6 gardé)", ifr);
+    mos6522via_write(&v, MOS6522VIA_REG_IER, 0x80 | 0x40);  // réautorisé : le drapeau encore levé
+    CHECK(mos6522via_read(&v, MOS6522VIA_REG_IER) & 0x40, "IER relu");
+}
+
 static void test_state(void) {
     // Programme : boucle qui écrit en RAM, VIA 1 : timer 1 libre (IRQ au RESET masquées)
     const uint8_t prog[] = {0xA2, 0x00, 0xA0, 0x80, 0xA9, 0x10,       // LDX #0, LDY #$80, LDA #$10
@@ -2130,6 +2151,7 @@ int main(void) {
     test_cpu_snapshot();
     test_state();
     test_audio();
+    test_via_ier();
     test_hid_media();
     test_oric_tape_rec();
     test_osd_render();

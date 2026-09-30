@@ -358,7 +358,20 @@ les noms des lecteurs A à D, la cassette et le compteur de trames ;
 | 5. `carte.py taper "SAVE \"RETOUR\"\nDIR\n"`, `carte.py ecran` | RETOUR dans la liste : disquette de la clé réécrite après rebranchement |
 | 6. menu (F1) | fichiers de la clé listés de nouveau |
 
-Résultat : **non fait** (carte indisponible le 2026-09-30 au matin).
+Résultat (2026-09-30 au soir, v0.16.12, sans disquette en flash ni cassette) :
+**réussi**, étapes 1, 2, 4, 5, 6. Retrait : clé absente, lecteurs vidés, pas de
+redémarrage (trames 13 212 → 19 772), 65C02 à 0,998 MHz ; rebranchement :
+A = STRATSED.DSK remise (trames → 23 441) ; `SAVE "RETOUR"` puis `DIR` :
+90 fichiers, et RETOUR présent dans l'image relue sur la clé par la sonde ;
+menu : 7 fichiers de la clé listés. Observé, cause inconnue :
+- étape 3 : sans clé (lecteur A vide selon la sonde), `DIR` a encore listé
+  les 89 fichiers de STRATSED (catalogue gardé par STRATSED, ou piste en
+  cache servie ?) ; à examiner au banc ;
+- neuf `E` apparus sur la ligne de saisie autour du retrait (appui ou
+  rapports parasites du clavier : non établi) ;
+- OpenOCD a perdu la carte une fois au retrait et une fois au rebranchement
+  (« Failed to write/read memory », « core1 Examination failed ») ; la lecture
+  suivante a réussi.
 
 ### Télématique sur carte (v0.4.2)
 
