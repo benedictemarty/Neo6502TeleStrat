@@ -368,8 +368,11 @@ A = STRATSED.DSK remise (trames → 23 441) ; `SAVE "RETOUR"` puis `DIR` :
 90 fichiers, et RETOUR présent dans l'image relue sur la clé par la sonde ;
 menu : 7 fichiers de la clé listés. Observé, cause inconnue :
 - étape 3 : sans clé (lecteur A vide selon la sonde), `DIR` a encore listé
-  les 89 fichiers de STRATSED (catalogue gardé par STRATSED, ou piste en
-  cache servie ?) ; à examiner au banc ;
+  les 89 fichiers de STRATSED. Expliqué au banc (v0.16.13, lecteur A vidé par
+  le menu puis `DIR`) : STRATSED envoie 4 lectures de secteur (`$88`), le
+  WD1793 répond `$80` (non prêt) à chacune, aucun octet n'est lu ; le
+  catalogue affiché vient de la mémoire de STRATSED, qui ne signale pas
+  l'erreur. Comportement du DOS, pas de l'émulation ;
 - neuf `E` apparus sur la ligne de saisie autour du retrait (appui ou
   rapports parasites du clavier : non établi) ;
 - OpenOCD a perdu la carte une fois au retrait et une fois au rebranchement
