@@ -1,11 +1,14 @@
 #!/bin/sh
 # test_menu.sh — menu (OSD) du banc : un répertoire tient lieu de clé USB (-U).
 #   1. configuration « telemon » (TELEMON seul) : par le menu (-M), STRATSED.DSK
-#      dans A, hyperbas.rom en banque 6, Enregistrer, RESET (à froid) :
-#      TELEMON voit 32 Ko de ROM, STRATSED et HYPER-BASIC démarrent ;
-#   2. TELESTRA.CFG écrit (a=, bank6=) ; configuration « standard » avec un
-#      TELESTRA.CFG a=, bank6= (emplacement de HYPER-BASIC réutilisé), bank5=
-#      (emplacement supplémentaire) relu au démarrage : TELE-ASS deux fois ;
+#      dans A, teleass.rom en banque 5, Enregistrer, RESET (à froid) :
+#      TELEMON voit 32 Ko de ROM, STRATSED et TELE-ASS démarrent. (Pas
+#      HYPER-BASIC seul : sans BONJOUR.COM il appelle la banque 5 vide et
+#      exécute le bus flottant, résultat qui dépend du cycle exact : voir
+#      docs/ARCHITECTURE.md, « Banque vide et démarrage à froid ».)
+#   2. TELESTRA.CFG écrit (a=, bank5=) ; configuration « standard » avec ce
+#      TELESTRA.CFG plus bank6= (emplacement de HYPER-BASIC réutilisé) relu au
+#      démarrage : TELE-ASS deux fois (banques 2 et 5) ;
 #   3. SAVE sur la disquette de la clé : réécrite dans le fichier ;
 #   4. périphériques : imprimante coupée par le menu et enregistrée
 #      (impression=non) : LPRINT n'écrit rien ; impression=oui : il écrit ;
@@ -27,14 +30,14 @@ cp "$ROM" "$TMP/cle/hyperbas.rom"
 cp "$ROM2" "$TMP/cle/teleass.rom"
 head -c 1000 "$ROM" > "$TMP/cle/abime.rom"
 
-# Menu : h = lecteur A, e = sélecteur, S = STRATSED, e ; r d = banque 6, e, H =
-# hyperbas.rom, e ; z u = Enregistrer, e ; u = RESET, e
-"$BIN" -c telemon -U "$TMP/cle" -M "400:heSerdeHezueue" -f 1700 -w 1600 -t '1~~~~~~' -s \
+# Menu : h = lecteur A, e = sélecteur, S = STRATSED, e ; r d d = banque 5, e,
+# T = teleass.rom, e ; z u = Enregistrer, e ; u = RESET, e
+"$BIN" -c telemon -U "$TMP/cle" -M "400:heSerddeTezueue" -f 1700 -w 1600 -t '1~~~~~~' -s \
     > "$TMP/ecran1.txt" 2> "$TMP/menu1.txt"
 # Démarrage suivant, configuration standard : TELESTRA.CFG seul, puis SAVE
 # sur la disquette de la clé
 cp "$TMP/cle/TELESTRA.CFG" "$TMP/cfg1"
-echo "bank5=teleass.rom" >> "$TMP/cle/TELESTRA.CFG"
+echo "bank6=hyperbas.rom" >> "$TMP/cle/TELESTRA.CFG"
 "$BIN" -c standard -U "$TMP/cle" -f 1800 -w 1200 -k 8 -t '1~~~~~~10 PRINT 42\nSAVE "MENUOK"\n~~~~~~~~~~' -s \
     > "$TMP/ecran2.txt" 2>&1
 # Banque 5 : ROM abîmée puis teleass.rom ; banque 4 : hyperbas.rom de trop ;
@@ -63,10 +66,10 @@ check() {
     fi
 }
 check "menu : disquette insérée dans A" "grep -q 'Lecteur A : STRATSED.DSK' '$TMP/menu1.txt'"
-check "menu : hyperbas.rom en banque 6" "grep -q 'Banque 6 : hyperbas.rom' '$TMP/menu1.txt'"
+check "menu : teleass.rom en banque 5" "grep -q 'Banque 5 : teleass.rom' '$TMP/menu1.txt'"
 check "après RESET : TELEMON voit la cartouche (32 Ko ROM)" "grep -q '32 Ko ROM' '$TMP/ecran1.txt'"
-check "après RESET : STRATSED et HYPER BASIC" "grep -q 'STRATSED V2.0c' '$TMP/ecran1.txt' && grep -q 'HYPER BASIC V2.0b' '$TMP/ecran1.txt'"
-check "TELESTRA.CFG écrit" "grep -qx 'a=STRATSED.DSK' '$TMP/cfg1' && grep -qx 'bank6=hyperbas.rom' '$TMP/cfg1'"
+check "après RESET : STRATSED et TELE-ASS" "grep -q 'STRATSED V2.0c' '$TMP/ecran1.txt' && grep -q 'TELEASS V1.0a' '$TMP/ecran1.txt'"
+check "TELESTRA.CFG écrit" "grep -qx 'a=STRATSED.DSK' '$TMP/cfg1' && grep -qx 'bank5=teleass.rom' '$TMP/cfg1'"
 check "TELESTRA.CFG relu au démarrage : TELE-ASS en banques 2 et 5" "[ \$(grep -c 'TELEASS V1.0a' '$TMP/ecran2.txt') -eq 2 ]"
 check "SAVE réécrit dans le fichier de la clé" "grep -q 'MENUOK' '$TMP/cle/STRATSED.DSK'"
 check "menu : imprimante coupée, enregistrée" "grep -q 'Imprimante coupée' '$TMP/prn_msg.txt' && grep -qx 'impression=non' '$TMP/cfg_prn' && grep -qx 'modem=oui' '$TMP/cfg_prn'"

@@ -218,6 +218,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-172 | Le projet compile contre une étiquette vérifiée de reload, pas contre sa tête (`tools/reload_socle.sh`, ADR-01) | ✅ `make` entier et deux variantes sur `socle-2026-09-30` |
 
+## v0.16.13 — VIA : IER relâche l'IRQ ✅ (2026-09-30)
+
+| Id | Anomalie | État |
+|---|---|---|
+| BUG-4 | VIA : interdire par IER une source active ne relâchait pas l'IRQ (signalé par reload) ; `test_menu` dépendait du bus flottant d'une banque vide | ✅ correctif + test ; `test_menu` rendu déterministe ; démarrage à froid comparé à la référence (`-Q`, test_replay C) |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

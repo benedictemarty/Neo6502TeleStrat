@@ -185,6 +185,8 @@ typedef struct {
 void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc);
 void telestrat_discard(telestrat_t* sys);
 void telestrat_reset(telestrat_t* sys);
+// Démarrage à froid : RAM effacée puis RESET (comme telestrat.h)
+void telestrat_cold_reset(telestrat_t* sys);
 void telestrat_nmi(telestrat_t* sys);
 void telestrat_tick(telestrat_t* sys);
 uint32_t telestrat_exec(telestrat_t* sys, uint32_t micro_seconds);
@@ -339,6 +341,12 @@ void telestrat_discard(telestrat_t* sys) {
 void telestrat_nmi(telestrat_t* sys) {
     CHIPS_ASSERT(sys && sys->valid);
     MOS6502CPU_NMI(&sys->cpu);
+}
+
+void telestrat_cold_reset(telestrat_t* sys) {
+    memset(sys->ram, 0, sizeof(sys->ram));
+    memset(sys->bank_ram, 0, sizeof(sys->bank_ram));
+    telestrat_reset(sys);
 }
 
 void telestrat_reset(telestrat_t* sys) {

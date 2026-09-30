@@ -27,7 +27,7 @@ passés sur la copie locale `src/chips/w65c02cpu.h` (programme
 
 Seule la version PC utilise ce cœur. Sur la carte, c'est le vrai W65C02.
 
-## Tests unitaires — `tests/test_telestrat.c` (455 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (458 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -35,6 +35,8 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - commutation par V2DRA depuis la RAM (`$0400`) : écriture/relecture en banque
   RAM, écriture ignorée en ROM, `$FF` en banque vide, retour en banque 7 ;
 - DDRA partiel : les lignes en entrée gardent la banque précédente ;
+- VIA (v0.16.13) : T1 échu = IRQ ; T1 interdit par IER = IRQ relâchée,
+  drapeau T1 gardé ;
 - son (v0.16.8) : exactement 22 050, 44 100 et 11 025 échantillons en une
   seconde émulée, 1er échantillon au bon cycle ; mélange de l'AY : une voie
   au maximum = 85, trois = 255 (sans repli sur 8 bits), silence = 0 ;
@@ -212,8 +214,8 @@ seul) :
 
 | Étape | Vérifié |
 |---|---|
-| menu (`-M 400:heSerdeHezueue`) : STRATSED en A, hyperbas.rom en banque 6, Enregistrer, RESET | messages du menu ; « 32 Ko ROM », STRATSED V2.0c et HYPER BASIC V2.0b après le RESET (à froid) ; `TELESTRA.CFG` = `a=`, `bank6=` |
-| configuration `standard`, `TELESTRA.CFG` du menu plus `bank5=teleass.rom` | TELEASS deux fois (banques 2 et 5) ; `SAVE "MENUOK"` réécrit dans le fichier de la clé |
+| menu (`-M 400:heSerddeTezueue`) : STRATSED en A, teleass.rom en banque 5, Enregistrer, RESET | messages du menu ; « 32 Ko ROM », STRATSED V2.0c et TELEASS V1.0a après le RESET (à froid) ; `TELESTRA.CFG` = `a=`, `bank5=`. (v0.16.13 : plus HYPER-BASIC seul, qui exécute la banque 5 vide : issue au hasard du cycle) |
+| configuration `standard`, `TELESTRA.CFG` du menu plus `bank6=hyperbas.rom` | TELEASS deux fois (banques 2 et 5) ; `SAVE "MENUOK"` réécrit dans le fichier de la clé |
 | menu : imprimante coupée (`uuuuuue`), Enregistrer ; puis `LPRINT "IMPRIME"` (`-P`) | « Imprimante coupée », `impression=non` et `modem=oui` écrits ; rien d'imprimé ; avec `impression=oui`, « IMPRIME » imprimé |
 | `telemon` : `.rom` de 1000 octets puis teleass.rom en banque 5, hyperbas.rom en banque 4, image du menu (`-O`) | « taille invalide » ; banque 5 prise (emplacement supplémentaire) ; « plus de place » ; PPM 960 x 544 |
 
@@ -276,7 +278,7 @@ bruts dans `-P` ; `LPRINT CHR$(18)`, `"D100,0,100,50"`, `"A"` avec
 
 Voir docs/PERFORMANCE.md (non inclus dans `make test` : unicorn et capstone).
 
-## Rejeu contre la référence — `tests/test_replay.sh` (2 traces)
+## Rejeu contre la référence — `tests/test_replay.sh` (2 traces, 1 démarrage à froid)
 
 Le banc de référence (`build/telestrat_headless_ref`, compilé avec
 `-DTELESTRAT_REF`) enregistre, `tests/replay.c` rejoue sur le système optimisé
@@ -287,6 +289,7 @@ et exige 0 différence : octet placé sur le bus et ligne IRQ à chaque cycle,
 |---|---|
 | A (20 M cycles, config. `oricutron`) | démarrage STRATSED, HYPER-BASIC, PING, ZAP, DIR |
 | B (60 M cycles, config. `standard`) | serveur TELEMATIC : sonnerie, connexion, pages, ENVOI, raccrochage |
+| C (v0.16.13, config. `ram64k`) | démarrage à froid à la trame 300 (`-Q`, comme le RESET du menu) : écrans identiques entre référence et système optimisé à la trame 700 ; chemin chaotique (banque 5 vide exécutée) |
 
 ## STRATORIC — `tests/test_stratoric.sh` (5 vérifications)
 

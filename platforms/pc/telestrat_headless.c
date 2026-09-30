@@ -51,6 +51,8 @@
 //              oric_tape_turbo.h) ; avec -U, TELESTRA.CFG cassette_rapide= prime
 //   -Y         moteur de la cassette toujours en marche (câble sans relais)
 //   -X T:FICHIER instantané de la machine à la trame T (telestrat_state.h)
+//   -Q T       démarrage à froid (RAM effacée, RESET) à la trame T, comme le RESET du
+//              menu ; aussi dans le banc de référence
 //   -J FICHIER reprend un instantané au démarrage (même configuration -c ; avec
 //              -U, les cartouches de l'instantané sont remises)
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
@@ -414,6 +416,7 @@ int main(int argc, char** argv) {
     const char* menu_script = NULL;
     const char* menu_ppm = NULL;
     int menu_frame = -1;
+    int cold_frame = -1;  // -Q : démarrage à froid à cette trame (référence comprise)
 #ifndef TELESTRAT_REF
     static menu_pc_t menu_pc;
 #endif
@@ -423,7 +426,7 @@ int main(int argc, char** argv) {
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:ZYX:J:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:ZYX:J:Q:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -445,6 +448,7 @@ int main(int argc, char** argv) {
                 menu_script = strchr(optarg, ':') ? strchr(optarg, ':') + 1 : "";
                 break;
             case 'O': menu_ppm = optarg; break;
+            case 'Q': cold_frame = atoi(optarg); break;
             case 'K': tape_file = optarg; break;
             case 'Z': tape_turbo = true; break;
             case 'X':
@@ -685,6 +689,7 @@ int main(int argc, char** argv) {
             key_down = 0;
         }
         current_frame = frame;
+        if (frame == cold_frame) telestrat_cold_reset(&sys);
 #ifndef TELESTRAT_REF
         if (printer_idle >= 0 && ++printer_idle >= PRINTER_IDLE_FRAMES) printer_job_end();
         if (frame == state_frame && state_save) {

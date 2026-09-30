@@ -380,6 +380,22 @@ clé, 0 ligne DVI en retard.
 
 ## Premiers essais sur carte depuis la v0.4.2 (sprint 16)
 
+**VIA : IER** (v0.16.13, correctif de reload `d95caf9`) : écrire IER pour
+interdire une source dont le drapeau est levé relâche l'IRQ (fiche 6522 :
+IRQ = OU de IFR & IER) ; avant, l'IRQ restait levée jusqu'à l'acquittement.
+STRATSED masque les deux VIA (`$7F` en IER) avant une lecture de secteur,
+autorise l'INTRQ du WD1793 puis fait `CLI` (`$D55A`) : avec l'ancien défaut,
+l'IRQ restée levée le faisait entrer dans son gestionnaire (`$D58A`) avant la
+fin de la commande ; il suit maintenant son chemin de lecture par DRQ
+(`$D55C`). Ce changement de timing a révélé que `test_menu` dépendait du
+hasard : TELEMON + HYPER-BASIC seul, sans `BONJOUR.COM`, fait exécuter la
+banque 5 vide (bus flottant, voir « Banque vide et démarrage à froid »), dont
+l'issue dépend du cycle exact (« 195 Ko RAM, 118 Ko ROM » après un RESET à
+froid). Le test pose maintenant TELE-ASS en banque 5. Enquête : option `-Q`
+(démarrage à froid à une trame, référence comprise) et comparaison des
+traces des deux versions ; le modèle de référence donne le même résultat que
+le système optimisé (test_replay C).
+
 **Verrous des files DVI** (v0.16.11) : `dvi_init` reçoit deux verrous
 dédiés (`spin_lock_claim_unused`) au lieu de `next_striped_spin_lock_num()`,
 dont les verrous 16-23 sont partagés avec FatFs et TinyUSB : le cœur 1

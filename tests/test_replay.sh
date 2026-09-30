@@ -5,6 +5,7 @@
 set -u
 REF=${1:-build/telestrat_headless_ref}
 REPLAY=${2:-build/replay}
+HL=${3:-}  # système optimisé (telestrat_headless) : démarrage à froid comparé (-Q)
 DSK=${STRATSED_DSK:-$HOME/oriclib/games/dsk/STRATSED.DSK}
 if [ ! -f "$DSK" ]; then
     echo "test_replay : disquette absente ($DSK), ignoré"
@@ -44,6 +45,23 @@ if command -v python3 > /dev/null; then
         echo "ÉCHEC [replay b] : pas d'octets série enregistrés"
     fi
     run b standard
+fi
+
+# C : démarrage à froid en cours de route (-Q, RESET du menu), variante RAM 64 Ko :
+# HYPER-BASIC y exécute la banque 5 vide (bus flottant, docs/ARCHITECTURE.md),
+# chemin chaotique qui ne tombe juste que si les deux modèles sont identiques
+if [ -n "$HL" ]; then
+    n=$((n + 1))
+    cp "$DSK" "$TMP/q.dsk"
+    "$REF" -c ram64k -0 "$TMP/q.dsk" -Q 300 -f 700 -s > "$TMP/q_ref.txt" 2>&1
+    cp "$DSK" "$TMP/q.dsk"
+    "$HL" -c ram64k -0 "$TMP/q.dsk" -Q 300 -f 700 -s > "$TMP/q_opt.txt" 2>&1
+    if cmp -s "$TMP/q_ref.txt" "$TMP/q_opt.txt" && [ -s "$TMP/q_ref.txt" ]; then
+        echo "démarrage à froid (-Q) : écrans identiques" > "$TMP/q.out"
+    else
+        fail=$((fail + 1))
+        echo "ÉCHEC [démarrage à froid] : écrans différents entre référence et système optimisé"
+    fi
 fi
 
 for f in "$TMP"/*.out; do sed 's/^/  /' "$f"; done
