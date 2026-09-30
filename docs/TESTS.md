@@ -395,6 +395,19 @@ menu : 7 fichiers de la clé listés. Observé, cause inconnue :
   (« Failed to write/read memory », « core1 Examination failed ») ; la lecture
   suivante a réussi.
 
+### WD1793 et cassette du socle sur carte (v0.16.17, 2026-10-01)
+
+| Essai | Résultat |
+|---|---|
+| démarrage (`demarrage=choix`), STRATSED, HYPER-BASIC | inventaire « 64 Ko RAM, 56 Ko ROM » |
+| `DIR` en flux sur la clé, mesure pendant la lecture | 90 fichiers ; 65C02 0,999 MHz ; cœur 0 64 % en moyenne, 77 % au pire ; 0 ligne DVI en retard |
+| `SAVE "SOCLE"`, `DIR`, image relue sur la clé par la sonde | 91 fichiers, SOCLE présent dans l'image : piste réécrite en fin de commande |
+| variante `TELESTRAT_FLASH_DISK` (STRATSED en flash), clé retirée | A = « (image en flash) », pas de redémarrage ; HYPER-BASIC chargé et `DIR` = 88 fichiers (image d'origine, pas le catalogue de la clé) |
+| firmware normal sans clé | TELEMON démarre, « Inserez une disquette » |
+| son (`PING`, `ZAP`, `SHOOT`, `EXPLODE`) à 22 017 Hz | joués ; écoute non confirmée au moment de la note |
+
+OpenOCD a de nouveau décroché au retrait de la clé (lecture suivante réussie).
+
 ### Télématique sur carte (v0.4.2)
 
 Ligne de recette par SWD à la place du modem (`tools/carte.py ligne ...`) :
