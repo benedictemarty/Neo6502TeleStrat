@@ -362,13 +362,12 @@ static void test_fdc_no_disk(void) {
     CHECK(telestrat_fdc_read(&f, 0, &v) && v == (WD1793_ST_NOT_READY | WD1793_ST_SEEK_RNF),
           "statut type I sans disque = %02X (attendu 90)", v);
     CHECK(!f.wd.intrq, "la lecture du statut efface INTRQ");
+    // Fiche FD179X (broche READY ; socle-2026-10-01) : type II ou III sans
+    // disque = commande non exécutée, INTRQ tout de suite, NOT READY seul
     telestrat_fdc_write(&f, 0, 0x80);  // READ SECTOR sans disquette
+    CHECK(f.wd.intrq && f.wd.state == WD1793_IDLE, "READ SECTOR sans disque : non exécutée, INTRQ tout de suite");
     telestrat_fdc_read(&f, 0, &v);
-    CHECK((v & WD1793_ST_NOT_READY) && (v & WD1793_ST_BUSY), "READ SECTOR sans disque : non prêt pendant la commande (%02X)", v);
-    fdc_wait(&f, 100);
-    telestrat_fdc_read(&f, 0, &v);
-    CHECK(f.wd.state == WD1793_IDLE && v == (WD1793_ST_NOT_READY | WD1793_ST_SEEK_RNF),
-          "READ SECTOR sans disque : fin non prêt + RNF (%02X)", v);
+    CHECK(v == WD1793_ST_NOT_READY, "READ SECTOR sans disque : statut %02X (attendu 80)", v);
     CHECK(!telestrat_fdc_read(&f, 5, &v), "$0315 n'appartient pas au FDC");
 }
 
@@ -467,14 +466,14 @@ static void test_fdc_disk(void) {
     telestrat_fdc_write(&f, 0, 0xD8);
     CHECK(!f.wd.drq && f.wd.intrq && !(f.wd.status & WD1793_ST_BUSY), "FORCE INTERRUPT arrête la lecture");
 
-    // Lecteur B vide : non prêt (pendant la commande, puis à la fin avec RNF)
+    // Lecteur B vide : commande non exécutée, NOT READY seul (fiche FD179X)
     telestrat_fdc_write(&f, 4, 0x20);
     telestrat_fdc_write(&f, 0, 0x80);
     telestrat_fdc_read(&f, 0, &v);
-    CHECK(f.wd.drive == 1 && (v & WD1793_ST_NOT_READY), "lecteur B vide : non prêt (%02X)", v);
+    CHECK(f.wd.drive == 1 && v == WD1793_ST_NOT_READY && f.wd.state == WD1793_IDLE, "lecteur B vide : non prêt (%02X)", v);
     fdc_wait(&f, 100);
     telestrat_fdc_read(&f, 0, &v);
-    CHECK(v == (WD1793_ST_NOT_READY | WD1793_ST_SEEK_RNF), "lecteur B vide : fin non prêt + RNF (%02X)", v);
+    CHECK(v == WD1793_ST_NOT_READY, "lecteur B vide : toujours non prêt seul (%02X)", v);
     free(copy);
     free(img);
 }

@@ -10,7 +10,7 @@
 # n'est pas modifié. Déjà présent : rien n'est refait.
 # Le Makefile s'en sert par défaut (RELOAD_SOCLE, RELOAD_DIR).
 set -e
-TAG="${1:-socle-2026-09-30-5}"
+TAG="${1:-socle-2026-10-01}"
 SRC="${2:-$HOME/reload-emulator}"
 DST="${RELOAD_SOCLE_DIR:-$HOME/.cache/reload-socle}/$TAG"
 

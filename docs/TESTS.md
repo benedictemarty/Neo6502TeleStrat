@@ -384,8 +384,11 @@ menu : 7 fichiers de la clé listés. Observé, cause inconnue :
   catalogue affiché vient de la mémoire de STRATSED, qui ne signale pas
   l'erreur. Depuis v0.16.15 (WD1793 du socle, aligné sur Oricutron) : le
   contrôleur répond `$90` (non prêt + erreur), aucun octet n'est lu, et
-  STRATSED affiche « Abandonner,Recommencer,Ignorer ? » au lieu du catalogue ;
-  ce que fait un vrai Telestrat n'est pas mesuré ;
+  STRATSED affiche « Abandonner,Recommencer,Ignorer ? » au lieu du catalogue.
+  v0.16.16 (`socle-2026-10-01`, fiche FD179X, broche READY) : type II/III sans
+  disque = commande non exécutée, INTRQ, `$80` seul ; STRATSED réaffiche son
+  catalogue en mémoire, comme sur la carte. Câblage réel de READY sur le
+  Telestrat non mesuré ;
 - neuf `E` apparus sur la ligne de saisie autour du retrait (appui ou
   rapports parasites du clavier : non établi) ;
 - OpenOCD a perdu la carte une fois au retrait et une fois au rebranchement

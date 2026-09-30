@@ -74,7 +74,12 @@ volatile uint32_t diag_io_n;
 #include "chips/chips_common.h"
 #include "neo6502_bus.h"  // bus du vrai 65C02 intégré au tick (Olimex Neo6502)
 #include "chips/mos6522via.h"
+// AY en flash (appelé tous les 64 cycles) : en RAM, +1 Ko sans gain de charge mesuré
+#pragma push_macro("CHIPS_HOT")
+#undef CHIPS_HOT
+#define CHIPS_HOT
 #include "chips/ay38910psg.h"
+#pragma pop_macro("CHIPS_HOT")
 #include "chips/kbd.h"
 #include "chips/clk.h"
 #include "devices/wd1793.h"
@@ -411,7 +416,9 @@ static rom_pool_t pool;
 // Banques : notice « Extension RAM 64 Ko » (F. Broche, 1987), chapitre IV
 static telestrat_desc_t telestrat_desc(void) {
     telestrat_desc_t d = {
-        .audio = {.callback = {.func = audio_callback}, .sample_rate = 22050},
+        // Cadence réelle du PWM (diviseur au 1/16 : 22 017 Hz à 372 MHz) : à
+        // 22 050 exacts, le tampon se remplirait et jetterait des échantillons
+        .audio = {.callback = {.func = audio_callback}, .sample_rate = (int)((audio_pwm_rate_q8(22050) + 128) >> 8)},
         .minitel = {.tx = minitel_tx, .rx = minitel_rx},
         .rs232 = {.tx = rs232_tx, .rx = rs232_rx},
         .printer = {.func = printer_out, .busy = printer_busy, .user_data = NULL},

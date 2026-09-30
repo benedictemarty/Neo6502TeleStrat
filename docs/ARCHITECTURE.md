@@ -31,9 +31,12 @@ par `-DOSD_COLS=120 -DOSD_ROWS=34`, v0.16.14), contrôleur de disquettes
 compilée avec `CHIPS_IMPL`, une fois par programme ; v0.16.15, socle
 `socle-2026-09-30-5` : DRQ exactement `WD1793_BYTE_US` après l'accès),
 `audio.c` (volume), `utils.S`,
-`tools/cputest/harte.c`, SDK Pico, PicoDVI, tinyusb. Copies encore gardées :
-`src/chips/mos6522via.h` et `ay38910psg.h` (`src/chips/README.md`),
-`platforms/rp2040/src/hid_app.c`. Firmware : le rendu du menu du socle est compilé hors ligne
+`tools/cputest/harte.c`, SDK Pico, PicoDVI, tinyusb. Depuis v0.16.16 (`socle-2026-10-01`) : `ay38910psg.h` et `hid_app.c` aussi
+(l'AY reste en flash : `CHIPS_HOT` neutralisé autour de son inclusion, +1 Ko
+de RAM sinon, sans gain de charge) ; l'AY produit à la cadence réelle du PWM
+(`audio_pwm_rate_q8(22050)`, 22 017 Hz à 372 MHz : diviseur au 1/16) ; sans
+disque, un type II/III rend `$80` seul (fiche FD179X). Seule copie gardée :
+`src/chips/mos6522via.h` (`src/chips/README.md`). Firmware : le rendu du menu du socle est compilé hors ligne
 (`OSD_NOINLINE`, `OSD_HOT` = section en RAM) ; en ligne, il était recopié dans
 `core1_main` (+1,4 Ko de RAM). Le cœur `w65c02cpu.h` du socle `-5` est commun
 avec la NES : IRQ et NMI scrutées à l'avant-dernier cycle, avec le drapeau I

@@ -10,7 +10,7 @@
 # épinglé sur une étiquette de socle vérifiée (tools/reload_socle.sh, clone
 # local dans ~/.cache/reload-socle). Changer d'étiquette : RELOAD_SOCLE=… ;
 # un autre arbre (ex. la tête de reload) : RELOAD_DIR=~/reload-emulator.
-RELOAD_SOCLE ?= socle-2026-09-30-5
+RELOAD_SOCLE ?= socle-2026-10-01
 ifeq ($(origin RELOAD_DIR),undefined)
 RELOAD_DIR := $(HOME)/.cache/reload-socle/$(RELOAD_SOCLE)
 _SOCLE := $(shell sh tools/reload_socle.sh $(RELOAD_SOCLE) >&2 || echo erreur)
@@ -28,7 +28,7 @@ CPPFLAGS += -DOSD_COLS=120 -DOSD_ROWS=34
 
 BUILD := build
 ROMS_H := src/roms/telestrat_roms.h
-HEADERS := $(RELOAD_DIR)/src/devices/oric_tape.h $(RELOAD_DIR)/src/devices/oric_tape_rec.h $(RELOAD_DIR)/src/devices/oric_tape_turbo.h src/systems/telestrat.h $(RELOAD_DIR)/src/devices/wd1793.h $(RELOAD_DIR)/src/devices/oric_dsk.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h $(RELOAD_DIR)/src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/byte_fifo.h src/osd/rom_builtin.h src/devices/printer_out.h src/devices/printer_fx80.h src/devices/plotter_mcp40.h platforms/pc/printer_files.h src/systems/telestrat_state.h $(wildcard src/chips/*.h) $(RELOAD_DIR)/src/chips/w65c02cpu.h $(RELOAD_DIR)/src/chips/kbd.h $(RELOAD_DIR)/src/chips/clk.h $(RELOAD_DIR)/src/chips/chips_common.h
+HEADERS := $(RELOAD_DIR)/src/devices/oric_tape.h $(RELOAD_DIR)/src/devices/oric_tape_rec.h $(RELOAD_DIR)/src/devices/oric_tape_turbo.h src/systems/telestrat.h $(RELOAD_DIR)/src/devices/wd1793.h $(RELOAD_DIR)/src/devices/oric_dsk.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h $(RELOAD_DIR)/src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/byte_fifo.h src/osd/rom_builtin.h src/devices/printer_out.h src/devices/printer_fx80.h src/devices/plotter_mcp40.h platforms/pc/printer_files.h src/systems/telestrat_state.h $(wildcard src/chips/*.h) $(RELOAD_DIR)/src/chips/ay38910psg.h $(RELOAD_DIR)/src/chips/w65c02cpu.h $(RELOAD_DIR)/src/chips/kbd.h $(RELOAD_DIR)/src/chips/clk.h $(RELOAD_DIR)/src/chips/chips_common.h
 
 all: test
 

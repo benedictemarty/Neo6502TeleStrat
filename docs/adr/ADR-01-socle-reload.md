@@ -45,6 +45,8 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
 - v0.16.15 : `socle-2026-09-30-5` (WD1793 et `oric_dsk.h` du socle, notre
   WD1793 supprimé ; DRQ corrigé dans le socle à notre demande ; `OSD_NOINLINE` ;
   cœur 65C02 commun avec la NES).
+- v0.16.16 : `socle-2026-10-01` (`ay38910psg.h`, `hid_app.c` du socle ; WD1793 :
+  `$80` sans disque en type II/III, fiche FD179X ; cadence réelle du PWM).
 
 ## Conséquences
 
