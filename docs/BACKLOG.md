@@ -197,7 +197,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | Id | Anomalie | État |
 |---|---|---|
-| BUG-2 | Son : `(uint8_t)(sample * 255)` débordait avec plusieurs voies fortes ; 21 739 échantillons/s pour une sortie à 22 050 Hz (signalé par la session reload-emulator, correctif `a0314e4`) | ✅ banc, 12 tests, rejeu identique ; ⏳ écoute sur carte |
+| BUG-2 | Son : `(uint8_t)(sample * 255)` débordait avec plusieurs voies fortes ; 21 739 échantillons/s pour une sortie à 22 050 Hz (signalé par la session reload-emulator, correctif `a0314e4`) | ✅ banc, 12 tests, rejeu identique ; ✅ carte (2026-09-30) : écouté par bmarty, « fonctionne de manière correcte » |
 
 ## v0.16.9 — touches multimédia ✅ au banc (2026-09-30)
 
