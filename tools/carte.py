@@ -8,6 +8,8 @@
   carte.py relire NOM [SORTIE] relit un fichier de la clé (vérification)
   carte.py menu                ouvre ou ferme le menu (comme F1)
   carte.py mesure [secondes]   vitesse réelle du 65C02, µs par trame (cœur 0), µs par ligne (cœur 1)
+  carte.py cle                 état de la clé USB : montée, lecteurs A-D, cassette, trames
+  carte.py cle retiree|montee [s]  attend le retrait ou le rebranchement de la clé (défaut 60 s)
   carte.py ligne appel         ligne de recette SWD à la place du modem ; un correspondant appelle
   carte.py ligne lire [n]      octets émis par le Telestrat vers le correspondant (les n derniers)
   carte.py ligne envoyer TEXTE touches du correspondant (\\E = ENVOI, \\S = SOMMAIRE, \\R = RETOUR)
@@ -235,6 +237,58 @@ def mesure(secondes=10):
     print(f"cœur 1 : {lsum / max(ln, 1):.1f} µs par ligne (max {lmax}) ; lignes DVI en retard : {retard}")
 
 
+# Clé USB (US-91) : variables du firmware lues par la sonde
+CLE_VARS = ("usb_scanned", "msc_addr", "msc_inquiry_complete", "usb_first_mount", "printer_open")
+
+
+def _texte(brut):
+    return brut.split(b"\0", 1)[0].decode("utf-8", "replace")
+
+
+def etat_cle(s, lire):
+    """État de la clé ; lire(adresse, n) -> octets (sonde, ou faux lecteur des tests)."""
+    e = {n: lire(s[n], 1)[0] for n in CLE_VARS}
+    taille = TAILLES.get("drive_name", 192) // 4
+    noms = lire(s["drive_name"], 4 * taille)
+    e["lecteurs"] = [_texte(noms[d * taille:(d + 1) * taille]) for d in range(4)]
+    e["cassette"] = _texte(lire(s["tape_name"], TAILLES.get("tape_name", 48)))
+    e["trames"] = int.from_bytes(lire(s["diag_frames"], 4), "little")
+    e["montee"] = bool(e["usb_scanned"] and e["msc_addr"])
+    return e
+
+
+def decrire_cle(e):
+    lignes = [f"clé : {'montée' if e['montee'] else 'absente'} (usb_scanned {e['usb_scanned']},"
+              f" adresse USB {e['msc_addr']}, montage {e['msc_inquiry_complete']},"
+              f" premier montage à venir {e['usb_first_mount']})"]
+    lignes += [f"lecteur {'ABCD'[d]} : {n or '(vide)'}" for d, n in enumerate(e["lecteurs"])]
+    lignes.append(f"cassette : {e['cassette'] or '(aucune)'} ; fichier imprimante ouvert : {e['printer_open']}")
+    lignes.append(f"trames émulées : {e['trames']}")
+    return "\n".join(lignes)
+
+
+def cle(attente=None, secondes=60):
+    s = symboles()
+    e = etat_cle(s, lire_octets)
+    if attente:
+        voulu = attente == "montee"
+        depart = e["trames"]
+        fin = time.time() + secondes
+        print(f"en attente : clé {'rebranchée' if voulu else 'retirée'} ({secondes} s)")
+        while e["montee"] != voulu:
+            if time.time() > fin:
+                print(decrire_cle(e))
+                raise SystemExit("délai dépassé")
+            time.sleep(1)
+            e = etat_cle(s, lire_octets)
+        # Sans redémarrage, le compteur de trames continue
+        if e["trames"] < depart:
+            print(decrire_cle(e))
+            raise SystemExit("le firmware a redémarré (compteur de trames revenu en arrière)")
+    print(decrire_cle(e))
+    return e
+
+
 def lire_u8(s, nom):
     return lire_octets(s[nom], 1)[0]
 
@@ -293,6 +347,10 @@ if __name__ == "__main__":
         deposer(a[1:])
     elif a and a[0] == "menu":
         print("menu ouvert" if menu() else "menu fermé")
+    elif a and a[0] == "cle":
+        if len(a) > 1 and a[1] not in ("retiree", "montee"):
+            raise SystemExit("carte.py cle [retiree|montee [secondes]]")
+        cle(a[1] if len(a) > 1 else None, int(a[2]) if len(a) > 2 else 60)
     elif a and a[0] == "mesure":
         mesure(int(a[1]) if len(a) > 1 else 10)
     else:

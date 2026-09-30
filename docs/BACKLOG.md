@@ -113,7 +113,7 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US | Récit | État |
 |---|---|---|
 | US-90 | Imprimante vers un fichier de la clé (`imprimante=`, `IMPRIM.TXT`) | ✅ code + tests de la file, ⏳ carte |
-| US-91 | Clé retirée puis rebranchée : lecteurs vidés puis remis, sans redémarrer | ✅ code, ⏳ carte (non testable au banc) |
+| US-91 | Clé retirée puis rebranchée : lecteurs vidés puis remis, sans redémarrer | ✅ code ; v0.16.6 : `carte.py cle` et procédure (docs/TESTS.md), ⏳ essai sur carte (geste de l'opérateur) |
 | US-92 | Oracle Oricutron sans fenêtre (v0.8.1) | ✅ |
 
 ## Sprint 10 — v0.10.0 — « STRATORIC » ✅ au banc (2026-09-29)

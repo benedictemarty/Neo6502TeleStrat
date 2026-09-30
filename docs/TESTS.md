@@ -260,6 +260,11 @@ V4.0 », `PRINT 6*7` ; par le menu (banque 7 → STRATORIC, RESET) ; cassette
 (si présente) : copyright Loriciels dans les lignes de texte du mode HIRES
 (`$BF68`).
 
+## Outils de la carte — `tests/test_carte.py` (10 vérifications)
+
+Sans carte : `tools/carte.py` décode l'état de la clé depuis une fausse mémoire
+(clé montée, retirée, adresse USB nulle, nom long de 47 caractères).
+
 ## Oracle Oricutron — `tools/oracle/oracle.sh` (manuel)
 
 Construit une copie locale d'Oricutron (GPL, non distribuée) avec
@@ -300,6 +305,24 @@ Validé le 2026-09-29 sur Olimex Neo6502 (disquette STRATSED en flash) :
 | Vitesse du 65C02 | 1,000 MHz (10 000 385 cycles en 10 s) |
 | Cœur 0 | 45 % au repos, 62 % pendant DIR (76 % au pire) |
 | Cœur 1 | 35 µs par ligne (max 41), 0 ligne DVI en retard |
+
+### Clé retirée puis rebranchée (US-91, v0.16.6) — procédure
+
+`carte.py cle` lit par la sonde l'état de la clé (`usb_scanned`, adresse USB),
+les noms des lecteurs A à D, la cassette et le compteur de trames ;
+`carte.py cle retiree|montee [s]` attend le geste et refuse un redémarrage
+(compteur de trames revenu en arrière). Un opérateur retire et rebranche la clé.
+
+| Étape | Attendu |
+|---|---|
+| 1. `TELESTRA.CFG` avec `a=STRATSED.DSK` et une `.tap` insérée par le menu ; `carte.py cle` | clé montée, A = STRATSED.DSK, cassette nommée |
+| 2. `carte.py cle retiree`, puis retirer la clé | clé absente, A = « (image en flash) », B à D vides, cassette éjectée ; écran intact, pas de redémarrage |
+| 3. `carte.py taper "DIR\n"` (disquette en flash) | liste de la disquette en flash |
+| 4. `carte.py cle montee`, puis rebrancher la clé | clé montée, A = STRATSED.DSK remise, trames continues ; cartouches inchangées |
+| 5. `carte.py taper "SAVE \"RETOUR\"\nDIR\n"`, `carte.py ecran` | RETOUR dans la liste : disquette de la clé réécrite après rebranchement |
+| 6. menu (F1) | fichiers de la clé listés de nouveau |
+
+Résultat : **non fait** (carte indisponible le 2026-09-30 au matin).
 
 ### Télématique sur carte (v0.4.2)
 

@@ -56,6 +56,7 @@ test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_hea
 	sh tests/test_state.sh $(BUILD)/telestrat_headless
 	sh tests/test_profiles.sh $(BUILD)/telestrat_headless
 	sh tests/test_replay.sh $(BUILD)/telestrat_headless_ref $(BUILD)/replay
+	python3 tests/test_carte.py
 
 uf2: $(ROMS_H)
 	cmake -S platforms/rp2040 -B $(BUILD)/rp2040 -DRELOAD_DIR=$(RELOAD_DIR) $(if $(NEO_SLOT_TELESTRAT),-DNEO_MULTIBOOT_DIR=$(NEO_MULTIBOOT_DIR) -DNEO_SLOT_TELESTRAT=$(NEO_SLOT_TELESTRAT))

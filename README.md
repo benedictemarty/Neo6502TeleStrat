@@ -81,6 +81,7 @@ tools/carte.py taper '1'            # clavier du Telestrat (file de touches)
 tools/carte.py taper 'PRINT 6*7\n'
 tools/carte.py mesure               # MHz réels, µs par trame et par ligne, retards DVI
 tools/carte.py deposer STRATSED.DSK TELESTRA.CFG   # fichiers copiés sur la clé de la carte
+tools/carte.py cle retiree          # état de la clé et des lecteurs ; attend le retrait (ou : montee)
 tools/carte.py relire IMPR0001.PNG page.png        # fichier de la clé relu
 tools/carte.py menu                 # ouvre ou ferme le menu ; menu ouvert, « taper » le pilote
 ```
