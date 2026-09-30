@@ -1614,7 +1614,11 @@ int main() {
 
     dvi0.timing = &DVI_TIMING;
     dvi0.ser_cfg = DVI_DEFAULT_SERIAL_CONFIG;
-    dvi_init(&dvi0, next_striped_spin_lock_num(), next_striped_spin_lock_num());
+    // Verrous dédiés aux files DVI : next_striped_spin_lock_num() partage les
+    // verrous 16-23 avec FatFs et TinyUSB, le cœur 1 pouvait alors attendre le
+    // cœur 0 interruptions masquées (ligne en retard ; vu par Neo6502Trinity,
+    // correctif repris de reload)
+    dvi_init(&dvi0, spin_lock_claim_unused(true), spin_lock_claim_unused(true));
 
     telestrat_video_init();
     memset(planes, 0, sizeof(planes));

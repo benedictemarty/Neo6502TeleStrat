@@ -370,6 +370,14 @@ protocole « boot » ; non essayé sur un vrai clavier.
 
 ## Premiers essais sur carte depuis la v0.4.2 (sprint 16)
 
+**Verrous des files DVI** (v0.16.11) : `dvi_init` reçoit deux verrous
+dédiés (`spin_lock_claim_unused`) au lieu de `next_striped_spin_lock_num()`,
+dont les verrous 16-23 sont partagés avec FatFs et TinyUSB : le cœur 1
+pouvait attendre le cœur 0 interruptions masquées (lignes en retard, traits
+rouges pendant les rafales disque, vus par Neo6502Trinity). Signalé par la
+session reload-emulator (règle 2 de `docs/STRATEGIE-NEO6502.md` de reload) ;
+aucun symptôme mesuré ici.
+
 **Mémoire au démarrage** : `dvi_init` alloue ses tampons TMDS par `malloc`
 (3 x 3 x 480 mots = 17 280 octets) et `malloc` (newlib) demande la mémoire au
 système par pages : mesuré sur carte, il faut ~21,8 Ko de tas (21 204 octets

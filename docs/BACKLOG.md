@@ -206,6 +206,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-171 | Le volume est gardé d'un démarrage à l'autre (`volume=` dans `TELESTRA.CFG`, v0.16.10) | ✅ code + 3 tests ; ⏳ essai sur carte |
 | US-170 | Volume +, Volume − et Muet d'un clavier multimédia règlent le son, avec une jauge à l'écran | ✅ code + 25 tests (descripteurs tableau et variable, volume, bandeau) ; ⏳ essai sur carte avec un vrai clavier |
 
+## v0.16.11 — verrous DVI dédiés ✅ compilé (2026-09-30)
+
+| Id | Anomalie | État |
+|---|---|---|
+| BUG-3 | `dvi_init` avec `next_striped_spin_lock_num()` : verrous partagés avec FatFs et TinyUSB, lignes en retard possibles (signalé par reload, vu par Trinity) | ✅ verrous dédiés ; ⏳ carte : 0 ligne en retard pendant une rafale disque |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
