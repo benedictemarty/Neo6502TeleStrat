@@ -380,23 +380,14 @@ static void printer_select(int type) {
 #endif
 }
 
-// Volume réglé par les touches multimédia du clavier (hid_app.c) ; gain en
-// 256es recopié en RAM pour le chemin de chaque échantillon
-static hid_volume_t volume = {HID_VOLUME_MAX, false};
-static uint16_t audio_gain = 256;
+// Volume : celui de audio.c de reload (touches multimédia du clavier par
+// hid_media_key_down, gain appliqué dans audio_push_sample)
+static uint32_t volume_serial = 0;    // audio_volume_serial() déjà vu
 static int volume_banner_frames = 0;  // bandeau du volume encore affiché (trames)
-
-void hid_media_key_down(uint8_t keys) {
-    if (!hid_volume_keys(&volume, keys)) {
-        if (!(keys & (HID_MEDIA_VOL_UP | HID_MEDIA_VOL_DOWN))) return;
-    }
-    audio_gain = hid_volume_gain(&volume);
-    volume_banner_frames = 100;  // 2 s, même aux butées
-}
 
 static void audio_callback(const uint8_t sample, void *user_data) {
     (void)user_data;
-    audio_push_sample((uint8_t)((sample * audio_gain) >> 8));
+    audio_push_sample(sample);
 }
 
 // Emplacements de banque en RAM (src/osd/rom_pool.h) : un par ROM intégrée
@@ -637,9 +628,13 @@ static void rec_close(void *ctx) {
 
 // Bandeau : à chaque trame, pendant une lecture ou un enregistrement
 static void banner_update(void) {
+    if (audio_volume_serial() != volume_serial) {  // touche de volume, même aux butées : 2 s
+        volume_serial = audio_volume_serial();
+        volume_banner_frames = 100;
+    }
     if (volume_banner_frames > 0) {
         volume_banner_frames--;
-        osd_volume_banner(&banner_row, volume.level, HID_VOLUME_MAX, volume.muted);
+        osd_volume_banner(&banner_row, audio_volume_level(), HID_VOLUME_MAX, audio_volume_muted());
         banner_on = true;
         return;
     }
@@ -715,7 +710,7 @@ static void config_save(void) {
     const char *drives[4], *banks[8];
     for (int d = 0; d < 4; d++) drives[d] = strcmp(drive_name[d], FLASH_NAME) ? drive_name[d] : NULL;
     for (int b = 0; b < 8; b++) banks[b] = pool.name[b];
-    const osd_options_t opt = {printer_enabled, printer_type, modem_enabled, tape_turbo, tape_motor_always};
+    const osd_options_t opt = {printer_enabled, printer_type, modem_enabled, tape_turbo, tape_motor_always, audio_volume_level()};
     const size_t len = osd_config_merge_ex(old, drives, banks, &opt, out, 2048);
     bool ok = len > 0 && f_open(&f, "TELESTRA.CFG", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
     if (ok) {
@@ -1218,6 +1213,9 @@ static void read_config(void) {
             tape_turbo = osd_config_yes(v, tape_turbo);
         } else if ((v = osd_config_value(line, "cassette_moteur"))) {
             tape_motor_always = !strcmp(v, "toujours");
+        } else if ((v = osd_config_value(line, "volume"))) {
+            const int level = osd_config_volume(v, HID_VOLUME_MAX);
+            if (level >= 0) audio_set_volume((uint8_t)level, false);
         } else if ((v = osd_config_value(line, "modem"))) {
             modem_enabled = osd_config_yes(v, true);
         } else if ((v = osd_config_value(line, "imprimante_type"))) {

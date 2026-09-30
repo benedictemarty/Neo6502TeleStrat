@@ -348,13 +348,20 @@ d'une interface sans manette enregistrée déréférençait un pointeur nul
 
 Le volume (`hid_volume_t`, 9 niveaux de 0 à 8 : gain 0, 23, 32, 45, 64, 91,
 128, 181, 256 / 256, et une coupure à part) s'applique à chaque échantillon
-avant la sortie PWM (gain recopié en RAM) ; le bandeau (`osd_volume_banner`)
-s'affiche 2 s par-dessus celui de la cassette. Rien ne change dans
+avant la sortie PWM. Depuis v0.16.10, c'est celui de `audio.c` de reload
+(`2c35d91`, commun à tous ses systèmes : `audio_set_volume`,
+`audio_volume_level`, `audio_volume_serial`, et `hid_media_key_down`), qui
+définissait le même rappel que `telestrat.c` : édition des liens en échec
+tant que les deux existaient. Le bandeau (`osd_volume_banner`) s'affiche 2 s
+par-dessus celui de la cassette, à chaque touche (même aux butées). Le
+niveau est enregistré dans `TELESTRA.CFG` (`volume=`, v0.16.10) ; le PC, sans
+son, garde la ligne telle quelle. Rien ne change dans
 l'émulation (rejeu identique) ni dans la charge (`make charge` : 58 %).
 
 Mémoire : tampon d'énumération USB porté à 512 octets (standard) pour les
 descripteurs de plus de 256 octets, que TinyUSB ignorerait ; 256 en RAM 64 Ko,
-où il reste 480 octets au-delà du tas réservé (608 avant). Deux interfaces
+où il reste 480 octets au-delà du tas réservé (608 avant) ; 376 en v0.16.10
+(`audio_push_sample` de reload placé en RAM). Deux interfaces
 multimédia au plus, quatre champs chacune.
 
 Limites : une touche multimédia envoyée dans le rapport principal du clavier

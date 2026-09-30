@@ -366,7 +366,7 @@ static void menu_pc_save(menu_pc_t* p) {
     for (int d = 0; d < 4; d++) drives[d] = p->disk[d] ? p->disk_name[d] : NULL;
     for (int b = 0; b < 8; b++) banks[b] = p->pool.name[b];
     static char out[4096];
-    const osd_options_t opt = {p->printer_on, p->printer_type, p->modem_on, p->tape_turbo, p->tape_motor_always};
+    const osd_options_t opt = {p->printer_on, p->printer_type, p->modem_on, p->tape_turbo, p->tape_motor_always, -1};
     size_t n = osd_config_merge_ex(old, drives, banks, &opt, out, sizeof(out));
     free(old);
     char path[512];

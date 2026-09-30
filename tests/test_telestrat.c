@@ -1578,7 +1578,7 @@ static void test_osd_config(void) {
     CHECK(osd_config_merge(old, drives, banks, out, 20) == 0, "tampon trop petit : 0");
     // Options du menu : impression, modem
     const char* old2 = "impression=oui\nmodem=oui\ndial=x:1\n";
-    const osd_options_t opt2 = {false, -1, true, false, false};
+    const osd_options_t opt2 = {false, -1, true, false, false, -1};
     n = osd_config_merge_ex(old2, drives, banks, &opt2, out, sizeof(out));
     CHECK(strstr(out, "impression=non\n") && strstr(out, "modem=oui\n") && !strstr(out, "impression=oui") &&
               strstr(out, "dial=x:1"),
@@ -1586,7 +1586,7 @@ static void test_osd_config(void) {
     n = osd_config_merge(old2, drives, banks, out, sizeof(out));
     CHECK(strstr(out, "impression=oui\n") && strstr(out, "modem=oui\n"), "sans options : lignes gardées");
     const char* old3 = "impression=oui\nimprimante_type=texte\n";
-    const osd_options_t opt3 = {true, OSD_PRINTER_MCP40, false, true, true};
+    const osd_options_t opt3 = {true, OSD_PRINTER_MCP40, false, true, true, -1};
     osd_config_merge_ex(old3, drives, banks, &opt3, out, sizeof(out));
     CHECK(strstr(out, "cassette_rapide=oui\n") && strstr(out, "cassette_moteur=toujours\n"), "options de la cassette écrites :\n%s", out);
     CHECK(strstr(out, "impression=oui\nimprimante_type=mcp40\n") && !strstr(out, "=texte"),
@@ -1594,6 +1594,16 @@ static void test_osd_config(void) {
     CHECK(osd_printer_type("fx80", -1) == OSD_PRINTER_FX80 && osd_printer_type("mcp40", -1) == OSD_PRINTER_MCP40 &&
               osd_printer_type("texte", -1) == OSD_PRINTER_TEXT && osd_printer_type("laser", 7) == 7,
           "valeurs de imprimante_type");
+    // volume= (v0.16.10, même clé que ORIC.CFG de reload)
+    CHECK(osd_config_volume("5", 8) == 5 && osd_config_volume("0", 8) == 0 && osd_config_volume("8\r", 8) == 8 &&
+              osd_config_volume("9", 8) == -1 && osd_config_volume("", 8) == -1 && osd_config_volume("5x", 8) == -1 &&
+              osd_config_volume("-1", 8) == -1,
+          "valeurs de volume=");
+    const osd_options_t optv = {true, OSD_PRINTER_TEXT, false, false, false, 3};
+    osd_config_merge_ex("volume=8\ndial=x:1\n", drives, banks, &optv, out, sizeof(out));
+    CHECK(strstr(out, "volume=3\n") && !strstr(out, "volume=8") && strstr(out, "dial=x:1\n"), "volume=3 écrit :\n%s", out);
+    osd_config_merge_ex("volume=6\n", drives, banks, &opt3, out, sizeof(out));
+    CHECK(strstr(out, "volume=6\n") && !strstr(out, "volume=6\nvolume"), "volume -1 (PC) : ligne gardée :\n%s", out);
     {
         bool on = false;
         int type = 2, seen = 0;

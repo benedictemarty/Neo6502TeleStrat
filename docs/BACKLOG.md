@@ -203,6 +203,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | Id | Récit | État |
 |---|---|---|
+| US-171 | Le volume est gardé d'un démarrage à l'autre (`volume=` dans `TELESTRA.CFG`, v0.16.10) | ✅ code + 3 tests ; ⏳ essai sur carte |
 | US-170 | Volume +, Volume − et Muet d'un clavier multimédia règlent le son, avec une jauge à l'écran | ✅ code + 25 tests (descripteurs tableau et variable, volume, bandeau) ; ⏳ essai sur carte avec un vrai clavier |
 
 ## Plus tard

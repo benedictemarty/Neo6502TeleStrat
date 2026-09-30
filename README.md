@@ -293,8 +293,10 @@ sinon sur cet UART, n'y passent plus. **Pas encore essayé sur carte.**
 | Muet (clavier multimédia) | coupe ou rétablit le son (Volume + ou − le rétablit aussi) |
 
 Les touches multimédia sont lues sur l'interface HID qui les décrit (page
-« Consumer ») ; le volume part du maximum à chaque démarrage et n'est pas
-enregistré. **Pas encore essayé sur carte.**
+« Consumer »). Le niveau (pas la coupure) est écrit dans `TELESTRA.CFG`
+(`volume=0` … `volume=8`, même clé que `ORIC.CFG` de reload) quand le menu
+enregistre la configuration, et relu au démarrage ; sans cette ligne, volume
+au maximum. **Pas encore essayé sur carte.**
 
 ## Banc PC sans écran
 

@@ -7,8 +7,9 @@
 // tools/fetch_roms.py pour TELEMATIC, 8 Ko).
 //
 // TELESTRA.CFG (une clé par ligne) : « a=NOM.DSK » … « d=NOM.DSK » (lecteurs),
-// « bank1=NOM.ROM » … « bank7=NOM.ROM » (cartouches de la clé). Le menu
-// réécrit ces lignes et garde les autres (dial=, listen=, rs232=…).
+// « bank1=NOM.ROM » … « bank7=NOM.ROM » (cartouches de la clé), « volume=0 »
+// … « volume=8 » (8 : maximum, 0 : silence ; même clé que ORIC.CFG de reload).
+// Le menu réécrit ces lignes et garde les autres (dial=, listen=, rs232=…).
 //
 // Indépendant de la plate-forme (testé dans tests/test_telestrat.c).
 //
@@ -89,10 +90,22 @@ typedef struct {
     bool modem;              // modem=oui|non
     bool tape_turbo;         // cassette_rapide=oui|non
     bool tape_motor_always;  // cassette_moteur=toujours|relais
+    int volume;              // volume=0…8 (-1 : ligne existante gardée telle quelle)
 } osd_options_t;
 
+// Volume d'une valeur « volume= » (0 à max), -1 si invalide (comme oric_config_volume de reload)
+static inline int osd_config_volume(const char* v, int max) {
+    int n = 0, digits = 0;
+    while (v[digits] >= '0' && v[digits] <= '9' && digits < 3) n = n * 10 + (v[digits++] - '0');
+    const char e = v[digits];
+    if (!digits || (e && e != '\r' && e != '\n' && e != ' ') || n > max) return -1;
+    return n;
+}
+
 // Clés gérées par le menu (options seulement si le menu les écrit)
-static inline bool _osd_config_owned(const char* line, bool options) {
+static inline bool _osd_config_owned(const char* line, const osd_options_t* opt) {
+    const bool options = opt != NULL;
+    if (opt && opt->volume >= 0 && osd_config_value(line, "volume")) return true;
     static const char* const keys[] = {"a", "b", "c", "d", "bank1", "bank2", "bank3", "bank4", "bank5", "bank6", "bank7"};
     static const char* const opts[] = {"impression", "imprimante_type", "modem", "cassette_rapide", "cassette_moteur"};
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
@@ -138,7 +151,7 @@ static inline size_t osd_config_merge_ex(const char* old, const char* const driv
         memcpy(line, p, m);
         line[m] = 0;
         while (m && (line[m - 1] == '\r' || line[m - 1] == ' ')) line[--m] = 0;
-        if (m && !_osd_config_owned(line, opt != NULL)) {
+        if (m && !_osd_config_owned(line, opt)) {
             _OSD_APPEND(line);
             _OSD_APPEND("\n");
         }
@@ -164,6 +177,10 @@ static inline size_t osd_config_merge_ex(const char* old, const char* const driv
         _OSD_APPEND(opt->modem ? "modem=oui\n" : "modem=non\n");
         _OSD_APPEND(opt->tape_turbo ? "cassette_rapide=oui\n" : "cassette_rapide=non\n");
         _OSD_APPEND(opt->tape_motor_always ? "cassette_moteur=toujours\n" : "cassette_moteur=relais\n");
+        if (opt->volume >= 0) {
+            snprintf(line, sizeof(line), "volume=%d\n", opt->volume);
+            _OSD_APPEND(line);
+        }
     }
 #undef _OSD_APPEND
     return len;
