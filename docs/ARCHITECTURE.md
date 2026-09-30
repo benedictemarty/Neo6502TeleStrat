@@ -32,8 +32,8 @@ compilée avec `CHIPS_IMPL`, une fois par programme ; v0.16.15, socle
 `socle-2026-09-30-5` : DRQ exactement `WD1793_BYTE_US` après l'accès),
 `audio.c` (volume), `utils.S`,
 `tools/cputest/harte.c`, SDK Pico, PicoDVI, tinyusb. Depuis v0.16.16 (`socle-2026-10-01`) : `ay38910psg.h` et `hid_app.c` aussi
-(l'AY reste en flash : `CHIPS_HOT` neutralisé autour de son inclusion, +1 Ko
-de RAM sinon, sans gain de charge) ; l'AY produit à la cadence réelle du PWM
+(l'AY reste en flash : `AY38910_HOT` vide, socle `-2` ; +1 Ko de RAM
+sinon, sans gain de charge) ; l'AY produit à la cadence réelle du PWM
 (`audio_pwm_rate_q8(22050)`, 22 017 Hz à 372 MHz : diviseur au 1/16) ; sans
 disque, un type II/III rend `$80` seul (fiche FD179X). Seule copie gardée :
 `src/chips/mos6522via.h` (`src/chips/README.md`). Firmware : le rendu du menu du socle est compilé hors ligne

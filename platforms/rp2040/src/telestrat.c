@@ -75,11 +75,8 @@ volatile uint32_t diag_io_n;
 #include "neo6502_bus.h"  // bus du vrai 65C02 intégré au tick (Olimex Neo6502)
 #include "chips/mos6522via.h"
 // AY en flash (appelé tous les 64 cycles) : en RAM, +1 Ko sans gain de charge mesuré
-#pragma push_macro("CHIPS_HOT")
-#undef CHIPS_HOT
-#define CHIPS_HOT
+#define AY38910_HOT
 #include "chips/ay38910psg.h"
-#pragma pop_macro("CHIPS_HOT")
 #include "chips/kbd.h"
 #include "chips/clk.h"
 #include "devices/wd1793.h"

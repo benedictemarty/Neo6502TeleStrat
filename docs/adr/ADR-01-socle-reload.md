@@ -47,6 +47,8 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
   cœur 65C02 commun avec la NES).
 - v0.16.16 : `socle-2026-10-01` (`ay38910psg.h`, `hid_app.c` du socle ; WD1793 :
   `$80` sans disque en type II/III, fiche FD179X ; cadence réelle du PWM).
+- v0.16.17 : `socle-2026-10-01-2` (`AY38910_HOT` : l'AY en flash sans
+  `push_macro`).
 
 ## Conséquences
 

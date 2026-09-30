@@ -91,11 +91,8 @@ static inline void bench_set_data(uint8_t d) {
 #include "chips/chips_common.h"
 #include "chips/mos6522via.h"
 // AY en flash (appelé tous les 64 cycles) : en RAM, +1 Ko sans gain de charge mesuré
-#pragma push_macro("CHIPS_HOT")
-#undef CHIPS_HOT
-#define CHIPS_HOT
+#define AY38910_HOT
 #include "chips/ay38910psg.h"
-#pragma pop_macro("CHIPS_HOT")
 #include "chips/kbd.h"
 #include "chips/clk.h"
 #include "devices/wd1793.h"
