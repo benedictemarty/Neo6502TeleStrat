@@ -36,6 +36,13 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
 | 7 : `CFG_TUH_ENUMERATION_BUFSIZE` 512 | 256 dans la variante RAM 64 Ko (512 dans la variante standard) | 376 octets de RAM au-delà du tas réservé ; un descripteur HID de plus de 256 octets (touches multimédia) est alors ignoré par TinyUSB | place regagnée ailleurs, ou fusion dans le socle |
 | 6 : bus du W65C02 en PIO par défaut | pilote SIO/GPIO intégré au tick (`platforms/rp2040/src/neo6502_bus.h`) | éprouvé sur carte (v0.4.1 à v0.16.4), charge mesurée par `make charge` | étape 5 du plan (le Telestrat reprend le pilote du socle) |
 
+## Suivi
+
+- v0.16.12 : `socle-2026-09-30`.
+- v0.16.14 : `socle-2026-09-30-4` (cassette, puces identiques et `osd.h`
+  pris dans le socle, copies supprimées ; `make uf2` recrée `build/rp2040`
+  quand le socle change, témoin `.reload_dir`).
+
 ## Conséquences
 
 - Une modification de reload n'arrive au Telestrat que par un changement

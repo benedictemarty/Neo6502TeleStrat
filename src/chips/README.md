@@ -1,26 +1,20 @@
-# Puces reprises de reload-emulator
+# Puces gardées en copie (reload-emulator)
 
-Copie figée de `src/chips/` de [reload-emulator](https://github.com/benedictemarty/reload-emulator)
-au commit `462372a` (2026-09-29), licence zlib/libpng (en-tête de chaque
-fichier, inchangé). Le projet ne dépend ainsi plus des modifications en cours
-dans `~/reload-emulator` (autre développement actif sur ces fichiers).
+Depuis la v0.16.14, les puces viennent du **socle** reload épinglé
+(`RELOAD_DIR`, étiquette `RELOAD_SOCLE`, voir `docs/adr/ADR-01-socle-reload.md`) :
+`chips_common.h`, `kbd.h`, `clk.h`, `w65c02cpu.h` (et `mem.h`, `wdc65C02cpu.h`).
+Il ne reste ici que les deux fichiers qui diffèrent encore du socle.
+L'inclusion `-Isrc` passe avant le socle : ces copies l'emportent.
 
-| Fichier | Rôle |
-|---|---|
-| `chips_common.h` | types communs |
-| `mos6522via.h` | VIA 6522 (chemin rapide exact) |
-| `ay38910psg.h` | AY-3-8912 |
-| `kbd.h` | matrice clavier |
-| `clk.h` | conversions de temps |
-| `w65c02cpu.h` | cœur W65C02S cycle à cycle (banc PC et tests) |
+| Fichier | Écart au socle | Fin prévue |
+|---|---|---|
+| `mos6522via.h` | pas de mode paresseux (`idle` / `pending`) : `_telestrat_via_skip` et `_telestrat_quiet_steps` (`telestrat.h`) avancent les compteurs eux-mêmes | quand le socle offre « avancer de n pas sans événement » |
+| `ay38910psg.h` | pas de marqueurs `CHIPS_HOT` | à la reprise du socle (sans effet attendu, à mesurer par `make charge`) |
 
-Correctif repris depuis : `w65c02cpu.h` de reload `882d18f` (2026-09-30,
-v0.16.7) : SBC décimal avec opérandes BCD invalides, cycle de BBRx/BBSx
-quand le branchement est pris. `mos6522via.h` : correctif IER de reload `d95caf9` (v0.16.13 : désactiver une
-source active relâche l'IRQ, IRQ = IFR & IER), sans le mode paresseux.
-`ay38910psg.h` : `ay38910psg_sample_u8` de reload `a0314e4` (v0.16.8,
-mélange entier sans débordement ; marqueurs `CHIPS_HOT` non repris). Les
-autres fichiers restent à `462372a`.
+Base : copie figée de reload `462372a` (2026-09-29), licence zlib/libpng
+(en-tête de chaque fichier, inchangé), plus les correctifs repris : `882d18f`
+(`w65c02cpu.h`, SBC décimal et BBR/BBS, v0.16.7), `a0314e4`
+(`ay38910psg_sample_u8`, v0.16.8), `d95caf9` (`mos6522via.h`, IER, v0.16.13).
 
-Mettre à jour : recopier depuis un commit de reload, relancer `make` (dont
-`make cpu_harte`) et `make charge`, noter le commit ici.
+Mettre à jour : changer d'étiquette de socle (`RELOAD_SOCLE`), relancer
+`make` (dont `make cpu_harte`), les deux variantes et `make charge`.

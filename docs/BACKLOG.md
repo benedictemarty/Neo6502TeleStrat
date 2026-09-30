@@ -224,6 +224,13 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | BUG-4 | VIA : interdire par IER une source active ne relâchait pas l'IRQ (signalé par reload) ; `test_menu` dépendait du bus flottant d'une banque vide | ✅ correctif + test ; `test_menu` rendu déterministe ; démarrage à froid comparé à la référence (`-Q`, test_replay C) |
 
+## v0.16.14 — fusion avec reload : cassette, puces, rendu du menu ✅ (2026-09-30)
+
+| Id | Récit | État |
+|---|---|---|
+| US-173 | Cassette, puces identiques et rendu du menu pris dans le socle reload (`socle-2026-09-30-4`), copies supprimées | ✅ `make` entier, images du menu identiques au bit près, deux variantes (RAM : −864 / −880 o), `make charge` 58 % |
+| US-174 | WD1793 du socle (`wd1793_tick_n`, `wd1793_next_event_us`, `oric_dsk.h`) à la place du nôtre | à faire |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

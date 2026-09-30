@@ -22,11 +22,18 @@ platforms/pc/               banc sans écran (tests)
 platforms/rp2040/           firmware telestrat.uf2
 ```
 
-Dépendances de reload-emulator : copies figées dans `src/chips/`
-(`src/chips/README.md`) et `platforms/rp2040/src/hid_app.c` ; sans copie,
-depuis le socle épinglé (`RELOAD_DIR`, étiquette `RELOAD_SOCLE`,
-`docs/adr/ADR-01-socle-reload.md`) : `mem.h`, `wdc65C02cpu.h`, `audio.c`
-(volume), `utils.S`, `tools/cputest/harte.c`, SDK Pico, PicoDVI, tinyusb.
+Dépendances de reload-emulator, depuis le socle épinglé (`RELOAD_DIR`,
+étiquette `RELOAD_SOCLE`, `docs/adr/ADR-01-socle-reload.md`) : puces
+(`chips_common.h`, `kbd.h`, `clk.h`, `w65c02cpu.h`, `mem.h`,
+`wdc65C02cpu.h`), cassette (`oric_tape.h`, `oric_tape_rec.h`,
+`oric_tape_turbo.h`, v0.16.14), rendu du menu (`osd/osd.h`, grille 120 x 34
+par `-DOSD_COLS=120 -DOSD_ROWS=34`, v0.16.14), `audio.c` (volume), `utils.S`,
+`tools/cputest/harte.c`, SDK Pico, PicoDVI, tinyusb. Copies encore gardées :
+`src/chips/mos6522via.h` et `ay38910psg.h` (`src/chips/README.md`),
+`platforms/rp2040/src/hid_app.c`, le WD1793 (`src/devices/wd1793.h`, migration
+à venir). Firmware : le rendu du menu du socle est compilé hors ligne
+(`OSD_HOT` = `noinline` en RAM) ; en ligne, il était recopié dans
+`core1_main` (+1,4 Ko de RAM).
 
 ## Référence et système optimisé (sprint 4)
 

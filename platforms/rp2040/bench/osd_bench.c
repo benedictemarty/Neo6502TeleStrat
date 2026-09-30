@@ -32,7 +32,6 @@ __attribute__((noinline, used)) void bench_osd_setup(void) {
         osd_puts(&bench_surf, r, 4, "Banque 7  TELEMON 2.4   STRATSED.DSK  écriture", OSD_PANEL_ACC, -1);
         osd_puts(&bench_surf, r, 63, "Disquette pour le lecteur B — 1001 Ko", OSD_SEL, -1);
     }
-    osd_init_luts();
     telestrat_video_init();
     for (unsigned i = 0; i < sizeof(bench_fb); i++) bench_fb[i] = (uint8_t)(i * 37);
 }

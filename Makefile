@@ -10,7 +10,7 @@
 # épinglé sur une étiquette de socle vérifiée (tools/reload_socle.sh, clone
 # local dans ~/.cache/reload-socle). Changer d'étiquette : RELOAD_SOCLE=… ;
 # un autre arbre (ex. la tête de reload) : RELOAD_DIR=~/reload-emulator.
-RELOAD_SOCLE ?= socle-2026-09-30
+RELOAD_SOCLE ?= socle-2026-09-30-4
 ifeq ($(origin RELOAD_DIR),undefined)
 RELOAD_DIR := $(HOME)/.cache/reload-socle/$(RELOAD_SOCLE)
 _SOCLE := $(shell sh tools/reload_socle.sh $(RELOAD_SOCLE) >&2 || echo erreur)
@@ -23,10 +23,12 @@ CC      ?= cc
 CFLAGS  ?= -O2 -g
 CFLAGS  += -std=c11 -Wall -Wextra -Wno-unused-function -Wno-missing-field-initializers
 CPPFLAGS += -Isrc -I$(RELOAD_DIR)/src
+# Menu à l'écran : osd.h du socle, grille du Telestrat (960 x 544 : 120 x 34 cases)
+CPPFLAGS += -DOSD_COLS=120 -DOSD_ROWS=34
 
 BUILD := build
 ROMS_H := src/roms/telestrat_roms.h
-HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/oric_tape.h src/devices/oric_tape_rec.h src/devices/byte_fifo.h src/osd/rom_builtin.h src/devices/printer_out.h src/devices/printer_fx80.h src/devices/plotter_mcp40.h platforms/pc/printer_files.h src/devices/oric_tape_turbo.h src/systems/telestrat_state.h $(wildcard src/chips/*.h)
+HEADERS := $(RELOAD_DIR)/src/devices/oric_tape.h $(RELOAD_DIR)/src/devices/oric_tape_rec.h $(RELOAD_DIR)/src/devices/oric_tape_turbo.h src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h $(RELOAD_DIR)/src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/byte_fifo.h src/osd/rom_builtin.h src/devices/printer_out.h src/devices/printer_fx80.h src/devices/plotter_mcp40.h platforms/pc/printer_files.h src/systems/telestrat_state.h $(wildcard src/chips/*.h) $(RELOAD_DIR)/src/chips/w65c02cpu.h $(RELOAD_DIR)/src/chips/kbd.h $(RELOAD_DIR)/src/chips/clk.h $(RELOAD_DIR)/src/chips/chips_common.h
 
 all: test
 
@@ -48,11 +50,11 @@ $(BUILD)/replay: tests/replay.c $(HEADERS) | $(BUILD)
 $(BUILD)/test_telestrat: tests/test_telestrat.c $(HEADERS) platforms/rp2040/src/telestrat_video.h | $(BUILD)
 	$(CC) $(CPPFLAGS) -Iplatforms/rp2040/src $(CFLAGS) -o $@ $<
 
-# SingleStepTests de Tom Harte (docs/TESTS.md) sur la copie locale du cœur
-# (src/chips/w65c02cpu.h, -Isrc avant reload) ; ignorés sans données
+# SingleStepTests de Tom Harte (docs/TESTS.md) sur le cœur du socle
+# ($(RELOAD_DIR)/src/chips/w65c02cpu.h) ; ignorés sans données
 # ($(RELOAD_DIR)/tools/cputest/fetch_harte.sh).
 HARTE_DIR ?= $(HOME)/.cache/65x02
-$(BUILD)/harte_c02: $(RELOAD_DIR)/tools/cputest/harte.c src/chips/w65c02cpu.h | $(BUILD)
+$(BUILD)/harte_c02: $(RELOAD_DIR)/tools/cputest/harte.c $(RELOAD_DIR)/src/chips/w65c02cpu.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DUSE_65C02 -o $@ $<
 
 cpu_harte: $(BUILD)/harte_c02
@@ -81,7 +83,12 @@ test: cpu_harte $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/tel
 	python3 tests/test_carte.py
 
 uf2: $(ROMS_H)
+	@# Socle changé (autre RELOAD_DIR) : les caches CMake (sous-projets du SDK
+	@# compris) gardent l'ancien chemin ; dossier recréé (témoin .reload_dir)
+	@if [ -d $(BUILD)/rp2040 ] && [ "$$(cat $(BUILD)/rp2040/.reload_dir 2>/dev/null)" != "$(RELOAD_DIR)" ]; then \
+	    echo "uf2 : socle changé, $(BUILD)/rp2040 recréé"; rm -rf $(BUILD)/rp2040; fi
 	cmake -S platforms/rp2040 -B $(BUILD)/rp2040 -DRELOAD_DIR=$(RELOAD_DIR) $(if $(NEO_SLOT_TELESTRAT),-DNEO_MULTIBOOT_DIR=$(NEO_MULTIBOOT_DIR) -DNEO_SLOT_TELESTRAT=$(NEO_SLOT_TELESTRAT))
+	echo '$(RELOAD_DIR)' > $(BUILD)/rp2040/.reload_dir
 	$(MAKE) -C $(BUILD)/rp2040 -j8 telestrat
 	@ls -l $(BUILD)/rp2040/telestrat.uf2
 

@@ -3,11 +3,11 @@ cmake_minimum_required(VERSION 3.12)
 # Firmware telestrat.uf2 pour Olimex Neo6502. Réutilise le SDK Pico, PicoDVI,
 # tinyusb et les sources de plate-forme de reload-emulator (RELOAD_DIR).
 #
-#   cmake -S platforms/rp2040 -B build/rp2040 [-DRELOAD_DIR=~/.cache/reload-socle/socle-2026-09-30]
+#   cmake -S platforms/rp2040 -B build/rp2040 [-DRELOAD_DIR=~/.cache/reload-socle/socle-2026-09-30-4]
 #         [-DTELESTRAT_RAM64K=ON] [-DNEO_MULTIBOOT_DIR=... -DNEO_SLOT_TELESTRAT=n]
 
 # Par défaut : le socle reload épinglé (tools/reload_socle.sh, comme le Makefile)
-set(RELOAD_DIR "$ENV{HOME}/.cache/reload-socle/socle-2026-09-30" CACHE PATH "reload-emulator (puces, SDK Pico, PicoDVI, tinyusb)")
+set(RELOAD_DIR "$ENV{HOME}/.cache/reload-socle/socle-2026-09-30-4" CACHE PATH "reload-emulator (puces, SDK Pico, PicoDVI, tinyusb)")
 if(NOT EXISTS "${RELOAD_DIR}/platforms/rp2040/lib/pico-sdk/pico_sdk_init.cmake")
     message(FATAL_ERROR "reload-emulator absent de ${RELOAD_DIR} : lancer tools/reload_socle.sh (ou -DRELOAD_DIR=...)")
 endif()
@@ -77,6 +77,9 @@ option(TELESTRAT_VIDEO_480 "800x480 à 295,2 MHz (1,20 V) au lieu de 960x544 à 
 # Version affichée par le menu (fichier VERSION du dépôt)
 file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION TELESTRAT_VER LIMIT_COUNT 1)
 target_compile_definitions(telestrat PRIVATE TELESTRAT_VERSION="v${TELESTRAT_VER}")
+# Menu à l'écran : osd.h du socle, grille du Telestrat (960 x 544 : 120 x 34 cases)
+set(TELESTRAT_OSD_GRID OSD_COLS=120 OSD_ROWS=34)
+target_compile_definitions(telestrat PRIVATE ${TELESTRAT_OSD_GRID})
 
 option(TELESTRAT_RS232_UART "prise RS232 possible sur l'UART0 de l'UEXT (TELESTRA.CFG rs232=uext)" ON)
 
@@ -151,6 +154,7 @@ target_include_directories(telestrat_bench PRIVATE
     ${RELOAD_DIR}/src
 )
 target_compile_options(telestrat_bench PRIVATE -Wall -g)
+target_compile_definitions(telestrat_bench PRIVATE ${TELESTRAT_OSD_GRID})
 target_link_libraries(telestrat_bench pico_stdlib)
 pico_set_float_implementation(telestrat_bench compiler)
 pico_set_double_implementation(telestrat_bench compiler)
@@ -160,7 +164,8 @@ pico_enable_stdio_uart(telestrat_bench 0)
 # Coût d'une ligne affichée par le cœur 1 (tools/osd_cost.py) : menu contre
 # image du Telestrat, exécuté dans le même émulateur Cortex-M0+
 add_executable(telestrat_osd_bench EXCLUDE_FROM_ALL ${CMAKE_CURRENT_SOURCE_DIR}/bench/osd_bench.c)
-target_include_directories(telestrat_osd_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(telestrat_osd_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src ${CMAKE_CURRENT_SOURCE_DIR}/src ${RELOAD_DIR}/src)
+target_compile_definitions(telestrat_osd_bench PRIVATE ${TELESTRAT_OSD_GRID})
 target_compile_options(telestrat_osd_bench PRIVATE -Wall -g)
 target_link_libraries(telestrat_osd_bench pico_stdlib)
 pico_set_mem_ops_implementation(telestrat_osd_bench compiler)

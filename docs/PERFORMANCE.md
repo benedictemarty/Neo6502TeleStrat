@@ -110,7 +110,7 @@ Cortex-M0+ (mêmes hypothèses) : une ligne du menu contre une ligne de l'image.
 | Ligne de tampon | Cycles (moyenne / pire) | à 372 MHz |
 |---|---|---|
 | image du Telestrat (`telestrat_video_line`) | 4 769 / 4 769 | 12,8 µs |
-| menu (`osd_render_line`) | 8 637 / 9 623 | 23,2 / 25,9 µs |
+| menu (`osd_render_line`) | 8 637 / 9 623 (v0.16.13 : 9 150 / 9 877, `osd.h` du socle, v0.16.14) | 23,2 / 25,9 µs (24,6 / 26,6 µs) |
 
 Budget : une ligne de tampon toutes les 59,35 µs (1104 pixels à 37,2 MHz =
 29,68 µs par ligne de sortie, deux lignes par tampon). Sur carte, la ligne de

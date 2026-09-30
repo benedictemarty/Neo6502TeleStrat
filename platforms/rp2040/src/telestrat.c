@@ -90,6 +90,14 @@ volatile uint32_t diag_io_n;
 #include "devices/hid_media.h"
 // Police du menu en RAM : lue par le cœur 1 à chaque ligne affichée
 #define OSD_FONT_SECTION __attribute__((section(".time_critical.osd_font")))
+// Rendu du menu (osd.h du socle) en RAM, un seul exemplaire : en ligne, il
+// était recopié dans core1_main à chaque appel (+1,4 Ko de RAM)
+#define OSD_HOT __attribute__((noinline, section(".time_critical.osd")))
+// (inline + noinline : avertissement attendu, voulu ici)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wattributes"
+#include "osd/osd.h"
+#pragma GCC diagnostic pop
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
 #include "systems/telestrat.h"
