@@ -6,8 +6,18 @@
 #   make charge   charge du RP2040 sans carte (docs/PERFORMANCE.md)
 #   make clean
 #
-# Dépend de reload-emulator (puces 6502/6522/AY, clavier, mémoire ; SDK Pico) :
-RELOAD_DIR ?= $(HOME)/reload-emulator
+# Dépend de reload-emulator (puces 6502/6522/AY, clavier, mémoire ; SDK Pico),
+# épinglé sur une étiquette de socle vérifiée (tools/reload_socle.sh, clone
+# local dans ~/.cache/reload-socle). Changer d'étiquette : RELOAD_SOCLE=… ;
+# un autre arbre (ex. la tête de reload) : RELOAD_DIR=~/reload-emulator.
+RELOAD_SOCLE ?= socle-2026-09-30
+ifeq ($(origin RELOAD_DIR),undefined)
+RELOAD_DIR := $(HOME)/.cache/reload-socle/$(RELOAD_SOCLE)
+_SOCLE := $(shell sh tools/reload_socle.sh $(RELOAD_SOCLE) >&2 || echo erreur)
+ifneq ($(_SOCLE),)
+$(error socle reload $(RELOAD_SOCLE) indisponible (tools/reload_socle.sh))
+endif
+endif
 
 CC      ?= cc
 CFLAGS  ?= -O2 -g

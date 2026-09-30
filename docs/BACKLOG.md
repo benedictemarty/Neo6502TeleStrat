@@ -212,6 +212,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | BUG-3 | `dvi_init` avec `next_striped_spin_lock_num()` : verrous partagés avec FatFs et TinyUSB, lignes en retard possibles (signalé par reload, vu par Trinity) | ✅ verrous dédiés ; ⏳ carte : 0 ligne en retard pendant une rafale disque |
 
+## v0.16.12 — socle reload épinglé ✅ (2026-09-30)
+
+| Id | Récit | État |
+|---|---|---|
+| US-172 | Le projet compile contre une étiquette vérifiée de reload, pas contre sa tête (`tools/reload_socle.sh`, ADR-01) | ✅ `make` entier et deux variantes sur `socle-2026-09-30` |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

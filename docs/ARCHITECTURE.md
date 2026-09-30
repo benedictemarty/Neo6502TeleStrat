@@ -22,9 +22,11 @@ platforms/pc/               banc sans écran (tests)
 platforms/rp2040/           firmware telestrat.uf2
 ```
 
-Dépendances reprises de reload-emulator sans copie : `mos6522via.h`,
-`ay38910psg.h`, `kbd.h`, `clk.h`, `chips_common.h`, cœurs 65C02, `hid_app.c`,
-`audio.c`, `utils.S` (rendu 3x de l'Oric), SDK Pico, PicoDVI, tinyusb.
+Dépendances de reload-emulator : copies figées dans `src/chips/`
+(`src/chips/README.md`) et `platforms/rp2040/src/hid_app.c` ; sans copie,
+depuis le socle épinglé (`RELOAD_DIR`, étiquette `RELOAD_SOCLE`,
+`docs/adr/ADR-01-socle-reload.md`) : `mem.h`, `wdc65C02cpu.h`, `audio.c`
+(volume), `utils.S`, `tools/cputest/harte.c`, SDK Pico, PicoDVI, tinyusb.
 
 ## Référence et système optimisé (sprint 4)
 

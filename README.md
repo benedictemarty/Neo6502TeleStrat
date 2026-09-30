@@ -32,6 +32,10 @@ touches (ENVOI, choix, SOMMAIRE) ; sur le Neo6502 la ligne est un modem Wi-Fi
 
 Prérequis : `~/reload-emulator` avec ses sous-modules (`pico-sdk`, `PicoDVI`,
 `tinyusb`), `gcc`, `python3`, `cmake` et `arm-none-eabi-gcc` pour le firmware.
+Le projet compile contre une **étiquette vérifiée** de reload (le « socle »,
+`RELOAD_SOCLE`, aujourd'hui `socle-2026-09-30`), pas contre sa tête :
+`make` en fait un clone local dans `~/.cache/reload-socle/` au premier appel
+(`tools/reload_socle.sh`, sans réseau, `~/reload-emulator` n'est pas modifié).
 
 ```sh
 tools/fetch_roms.py     # ROM -> src/roms/telestrat_roms.h (non versionné)
@@ -40,7 +44,8 @@ make uf2                # build/rp2040/telestrat.uf2
 cmake -S platforms/rp2040 -B build/rp2040-ram64k -DTELESTRAT_RAM64K=ON && make -C build/rp2040-ram64k telestrat
 ```
 
-`RELOAD_DIR=...` change l'emplacement de reload-emulator. Pour un slot
+`RELOAD_SOCLE=socle-…` change d'étiquette ; `RELOAD_DIR=...` vise un autre
+arbre de reload (par exemple `~/reload-emulator` pour essayer sa tête). Pour un slot
 multi-boot : `make uf2 NEO_MULTIBOOT_DIR=~/Neo6502firmware/multiboot NEO_SLOT_TELESTRAT=3`.
 
 ## ROM

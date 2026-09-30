@@ -1,0 +1,46 @@
+# ADR-01 — Socle reload épinglé, écarts aux règles communes
+
+- **Date** : 2026-09-30 (v0.16.12)
+- **État** : accepté
+- **Contexte commun** : `docs/STRATEGIE-NEO6502.md` de reload-emulator
+  (commit `4480c51`), qui demande un ADR pour tout écart à ses règles (section 3).
+
+## Contexte
+
+Le Telestrat compile contre reload-emulator (`RELOAD_DIR`). Jusqu'à la
+v0.16.11, c'était la tête de `~/reload-emulator`, qui bouge plusieurs fois par
+jour. Le 2026-09-30, un changement de reload (`2c35d91` : `audio.c` définit
+`hid_media_key_down`) a cassé l'édition des liens du firmware Telestrat, sans
+que personne ne le voie avant le build suivant.
+
+## Décision 1 — socle épinglé
+
+Le projet compile contre une **étiquette** posée par la session reload-emulator
+après vérification (`socle-AAAA-MM-JJ` : tests PC de reload, ses firmwares et
+les deux variantes du Telestrat compilés). `tools/reload_socle.sh` en fait un
+clone local dans `~/.cache/reload-socle/<étiquette>` (sans réseau, sous-modules
+repris de `~/reload-emulator`, qui n'est pas modifié) ; le `Makefile`
+(`RELOAD_SOCLE`) et `platforms/rp2040/CMakeLists.txt` le prennent par défaut.
+
+Changer d'étiquette est une décision du projet : nouvelle valeur de
+`RELOAD_SOCLE`, `make` entier, deux variantes compilées, `make charge`, puis une
+version. `RELOAD_DIR=~/reload-emulator` reste possible pour essayer la tête.
+
+Écarté : `git worktree` dans `~/reload-emulator` (proposé par reload) —
+fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
+
+## Décision 2 — écarts aux règles communes
+
+| Règle (stratégie, section 3) | Écart | Raison | Fin prévue |
+|---|---|---|---|
+| 7 : `CFG_TUH_ENUMERATION_BUFSIZE` 512 | 256 dans la variante RAM 64 Ko (512 dans la variante standard) | 376 octets de RAM au-delà du tas réservé ; un descripteur HID de plus de 256 octets (touches multimédia) est alors ignoré par TinyUSB | place regagnée ailleurs, ou fusion dans le socle |
+| 6 : bus du W65C02 en PIO par défaut | pilote SIO/GPIO intégré au tick (`platforms/rp2040/src/neo6502_bus.h`) | éprouvé sur carte (v0.4.1 à v0.16.4), charge mesurée par `make charge` | étape 5 du plan (le Telestrat reprend le pilote du socle) |
+
+## Conséquences
+
+- Une modification de reload n'arrive au Telestrat que par un changement
+  d'étiquette, vérifié ici.
+- Un correctif du socle (ex. verrous DVI, v0.16.11) doit être repris en changeant
+  d'étiquette, ou recopié en attendant ; dans ce cas, le noter dans le CHANGELOG.
+- Les copies figées (`src/chips/`, `hid_app.c`) restent jusqu'à la décision de
+  bmarty (fusion dans reload ou projet séparé consommateur du socle).
