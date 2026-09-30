@@ -5,7 +5,7 @@
 // Dérivé de platforms/rp2040/systems/oric/src/oric.c de reload-emulator.
 //
 // Clé USB (FAT/exFAT) : images .dsk (MFM_DISK) dans les lecteurs A à D, lues
-// et écrites piste par piste (wd1793_insert_streamed), images .rom en banque
+// et écrites piste par piste (wd1793_insert_streamed_file), images .rom en banque
 // (cartouches, en RAM) ; menu à l'écran (F1, src/osd) et TELESTRA.CFG.
 //
 // Télématique : un PicoWiFiModemUSB (modem Hayes en USB CDC) sert de ligne au
@@ -92,12 +92,8 @@ volatile uint32_t diag_io_n;
 #define OSD_FONT_SECTION __attribute__((section(".time_critical.osd_font")))
 // Rendu du menu (osd.h du socle) en RAM, un seul exemplaire : en ligne, il
 // était recopié dans core1_main à chaque appel (+1,4 Ko de RAM)
-#define OSD_HOT __attribute__((noinline, section(".time_critical.osd")))
-// (inline + noinline : avertissement attendu, voulu ici)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wattributes"
-#include "osd/osd.h"
-#pragma GCC diagnostic pop
+#define OSD_NOINLINE
+#define OSD_HOT __attribute__((section(".time_critical.osd")))
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
 #include "systems/telestrat.h"
@@ -480,7 +476,7 @@ static bool usb_read(void *ctx, uint32_t offset, uint8_t *buf, uint32_t len) {
     return n == len;
 }
 
-static bool usb_write(void *ctx, uint32_t offset, uint8_t *buf, uint32_t len) {
+static bool usb_write(void *ctx, uint32_t offset, const uint8_t *buf, uint32_t len) {
     FIL *f = ctx;
     UINT n = 0;
     if (f_lseek(f, offset) != FR_OK || f_write(f, buf, len, &n) != FR_OK || n != len) return false;
@@ -534,7 +530,7 @@ static bool drive_insert(int d, const char *name) {
     const bool rw = f_open(f, name, FA_READ | FA_WRITE) == FR_OK;
     if (!rw && f_open(f, name, FA_READ) != FR_OK) return false;
     drive_open[d] = true;
-    if (!wd1793_insert_streamed(&state.telestrat.fdc.wd, d, f_size(f), usb_read, rw ? usb_write : NULL, f)) {
+    if (!wd1793_insert_streamed_file(&state.telestrat.fdc.wd, d, (uint32_t)f_size(f), usb_read, rw ? usb_write : NULL, f)) {
         f_close(f);
         drive_open[d] = false;
         return false;
@@ -547,7 +543,7 @@ static bool drive_insert(int d, const char *name) {
 // Image intégrée à la flash (lecture seule), dans le lecteur A
 static void insert_flash_disk(void) {
 #ifdef TELESTRAT_FLASH_DISK_H
-    if (wd1793_insert(&state.telestrat.fdc.wd, 0, (uint8_t *)telestrat_flash_disk, sizeof(telestrat_flash_disk), true)) {
+    if (wd1793_insert_mem(&state.telestrat.fdc.wd, 0, (uint8_t *)telestrat_flash_disk, sizeof(telestrat_flash_disk), true)) {
         snprintf(drive_name[0], sizeof(drive_name[0]), "%s", FLASH_NAME);
         printf("Lecteur A : image en flash (%u octets, protégée)\n", (unsigned)sizeof(telestrat_flash_disk));
     }
@@ -686,7 +682,7 @@ static void menu_refresh(void) {
     for (int k = 0; k < user_n && ROM_PROFILES + k < OSD_PROFILES; k++) menu.profile[ROM_PROFILES + k] = user_label[k];
     for (int d = 0; d < 4; d++) {
         snprintf(menu.drive[d], sizeof(menu.drive[d]), "%.47s", drive_name[d]);
-        menu.drive_ro[d] = drive_name[d][0] && sys->fdc.wd.disk[d].write_protect;
+        menu.drive_ro[d] = drive_name[d][0] && sys->fdc.wd.disk[d].write_protected;
     }
     for (int b = 0; b < 8; b++) {
         if (pool.name[b][0]) {

@@ -24,7 +24,7 @@
 // - chips/ay38910psg.h
 // - chips/kbd.h
 // - chips/clk.h
-// - devices/wd1793.h
+// - devices/wd1793.h (socle reload ; inclut devices/oric_dsk.h)
 // - devices/telestrat_fdc.h
 // - devices/mos6551acia.h
 //
@@ -195,7 +195,7 @@ void telestrat_screen_update(telestrat_t* sys);
 void telestrat_select_bank(telestrat_t* sys, uint8_t bank);
 // État d'un joystick (0 = droit, 1 = gauche), bits TELESTRAT_JOY_*
 bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect) {
-    return wd1793_insert(&sys->fdc.wd, drive, image, size, write_protect);
+    return wd1793_insert_mem(&sys->fdc.wd, drive, image, (uint32_t)size, write_protect);
 }
 
 void telestrat_set_ring(telestrat_t* sys, bool level) { sys->ring = level; }
@@ -289,7 +289,7 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
                                                     .out_cb = _telestrat_psg_out,
                                                     .magnitude = CHIPS_DEFAULT(desc->audio.volume, 1.0f),
                                                     .user_data = sys});
-    telestrat_fdc_reset(&sys->fdc);
+    telestrat_fdc_init(&sys->fdc);
     mos6551acia_reset(&sys->acia);
 
     // Banques

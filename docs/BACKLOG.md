@@ -229,7 +229,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | Id | Récit | État |
 |---|---|---|
 | US-173 | Cassette, puces identiques et rendu du menu pris dans le socle reload (`socle-2026-09-30-4`), copies supprimées | ✅ `make` entier, images du menu identiques au bit près, deux variantes (RAM : −864 / −880 o), `make charge` 58 % |
-| US-174 | WD1793 du socle (`wd1793_tick_n`, `wd1793_next_event_us`, `oric_dsk.h`) à la place du nôtre | à faire |
+| US-174 | WD1793 du socle (`wd1793_tick_n`, `wd1793_next_event_us`, `oric_dsk.h`) à la place du nôtre | ✅ v0.16.15 (`socle-2026-09-30-5`) : 466 unitaires, rejeu 3/3, charge 58 / 66 % ; ⏳ carte (clé en flux, image en flash) |
 
 ## Plus tard
 

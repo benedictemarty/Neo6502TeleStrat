@@ -15,7 +15,7 @@
 // - chips/ay38910psg.h
 // - chips/kbd.h
 // - chips/clk.h
-// - devices/wd1793.h
+// - devices/wd1793.h (socle reload ; inclut devices/oric_dsk.h)
 // - devices/telestrat_fdc.h
 // - devices/mos6551acia.h
 //
@@ -216,7 +216,7 @@ void telestrat_screen_update(telestrat_t* sys);
 void telestrat_select_bank(telestrat_t* sys, uint8_t bank);
 // État d'un joystick (0 = droit, 1 = gauche), bits TELESTRAT_JOY_*
 bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect) {
-    return wd1793_insert(&sys->fdc.wd, drive, image, size, write_protect);
+    return wd1793_insert_mem(&sys->fdc.wd, drive, image, (uint32_t)size, write_protect);
 }
 
 // Entrée extérieure changée : pas complet au prochain multiple de 4, même au
@@ -407,7 +407,7 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
                                                     .out_cb = _telestrat_psg_out,
                                                     .magnitude = CHIPS_DEFAULT(desc->audio.volume, 1.0f),
                                                     .user_data = sys});
-    telestrat_fdc_reset(&sys->fdc);
+    telestrat_fdc_init(&sys->fdc);
     mos6551acia_reset(&sys->acia);
 
     // Banques
@@ -624,7 +624,7 @@ static inline void _telestrat_catch_up(telestrat_t* sys) {
     uint32_t d = sys->deferred;
     if (!d) return;
     sys->deferred = 0;
-    telestrat_fdc_tick(&sys->fdc, (int)d);
+    telestrat_fdc_tick(&sys->fdc, d);
     mos6551acia_tick(&sys->acia, (int)d);
     _telestrat_via_skip(&sys->via, d);
     _telestrat_via_skip(&sys->via2, d);
@@ -697,10 +697,8 @@ static inline uint32_t _telestrat_quiet_steps(telestrat_t* sys, uint32_t t) {
     uint32_t k2 = _telestrat_via_quiet(&sys->via2);
     if (k2 < k) k = k2;
     if (!k) return 0;
-    const wd1793_t* w = &sys->fdc.wd;
-    uint32_t q = _telestrat_delay_quiet(w->int_delay);
-    if (q < k) k = q;
-    q = _telestrat_delay_quiet(w->drq_delay);
+    // WD1793 : prochain changement de DRQ, d'INTRQ ou du statut
+    uint32_t q = telestrat_fdc_quiet_steps(&sys->fdc);
     if (q < k) k = q;
     const mos6551acia_t* a = &sys->acia;
     if (a->tsr_busy) {

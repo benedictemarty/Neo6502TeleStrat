@@ -48,15 +48,25 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - `volume=` de `TELESTRA.CFG` (v0.16.10) : valeurs 0 à 8 acceptées, 9, vide,
   `5x`, `-1` refusées ; écriture qui remplace l'ancienne ligne ; volume -1
   (PC sans son) : ligne existante gardée ;
-- FDC sans disque : `$0314`/INTRQ, INTENA, non prêt, adresses hors FDC ;
+- FDC (WD1793 du socle reload, `devices/wd1793.h` et `devices/oric_dsk.h`)
+  sans disque : `$0314`/INTRQ, INTENA, type I = `$90` (NOT READY + SEEK
+  ERROR, sans TRACK 0, comme Oricutron), READ SECTOR non prêt pendant la
+  commande puis `$90` à la fin, adresses hors FDC ;
 - FDC sur une disquette MFM synthétique (CRC calculés) : en-tête refusé,
   SEEK avec vérification, STEP OUT, lecture d'un secteur (contenu exact, fin de
   DRQ, statut), multi-secteurs jusqu'à la fin de piste, secteur introuvable,
   READ ADDRESS, réécriture identique = image inchangée (CRC exacts), écriture et
-  relecture, protection, FORCE INTERRUPT, lecteur vide ;
+  relecture, protection, FORCE INTERRUPT, lecteur vide (non prêt pendant la
+  commande, `$90` à la fin) ;
 - WRITE TRACK (formatage `$F5`/`$F7`) puis lecture ; CRC de l'ID formaté ;
 - mode flux : lecture par rappel, pas de relecture sur la même piste, piste
-  réécrite une fois après WRITE SECTOR, relue en mode mémoire, protection ;
+  réécrite une fois après WRITE SECTOR, relue en mode mémoire, protection
+  (signalée à la fin de la commande, après 20 µs) ;
+- pas au repos du FDC : un contrôleur avancé par pas de 4 cycles et un autre
+  dont les pas annoncés sans événement (`telestrat_fdc_quiet_steps`, d'après
+  `wd1793_next_event_us`) sont sautés puis rattrapés restent identiques (DRQ,
+  INTRQ, statut, octets) pendant une lecture de 16 secteurs et une écriture de
+  14 ; aucun changement observable pendant un pas sauté ;
 - ACIA : valeurs au RESET, RESET logiciel (parité gardée, IRQ interdites) ;
   1200 bauds 7E1 = 8333 cycles par caractère, IRQ d'émission à l'écriture de
   la commande, effacée par l'état, double tampon, émission sur 7 bits au bon
@@ -372,7 +382,10 @@ menu : 7 fichiers de la clé listés. Observé, cause inconnue :
   le menu puis `DIR`) : STRATSED envoie 4 lectures de secteur (`$88`), le
   WD1793 répond `$80` (non prêt) à chacune, aucun octet n'est lu ; le
   catalogue affiché vient de la mémoire de STRATSED, qui ne signale pas
-  l'erreur. Comportement du DOS, pas de l'émulation ;
+  l'erreur. Depuis v0.16.15 (WD1793 du socle, aligné sur Oricutron) : le
+  contrôleur répond `$90` (non prêt + erreur), aucun octet n'est lu, et
+  STRATSED affiche « Abandonner,Recommencer,Ignorer ? » au lieu du catalogue ;
+  ce que fait un vrai Telestrat n'est pas mesuré ;
 - neuf `E` apparus sur la ligne de saisie autour du retrait (appui ou
   rapports parasites du clavier : non établi) ;
 - OpenOCD a perdu la carte une fois au retrait et une fois au rebranchement

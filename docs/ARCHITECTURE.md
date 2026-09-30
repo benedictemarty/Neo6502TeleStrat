@@ -11,8 +11,7 @@ les tests de Klaus Dormann) : c'est le banc de test.
 
 ```
 src/systems/telestrat.h     système (format header-only de reload)
-src/devices/wd1793.h        WD1793 sur images MFM_DISK (mémoire ou flux)
-src/devices/telestrat_fdc.h Microdisc intégré (contrôle $0314/$0318 autour du WD1793)
+src/devices/telestrat_fdc.h Microdisc intégré (contrôle $0314/$0318 autour du WD1793 du socle)
 src/devices/mos6551acia.h   ACIA 6551 (débit, trame, double tampon, interruptions)
 src/devices/minitel_port.h  Minitel sur la prise de l'ACIA + sonnerie de la ligne
 src/devices/hayes_line.h    ligne sur modem Hayes (PicoWiFiModemUSB, USB CDC)
@@ -27,13 +26,20 @@ Dépendances de reload-emulator, depuis le socle épinglé (`RELOAD_DIR`,
 (`chips_common.h`, `kbd.h`, `clk.h`, `w65c02cpu.h`, `mem.h`,
 `wdc65C02cpu.h`), cassette (`oric_tape.h`, `oric_tape_rec.h`,
 `oric_tape_turbo.h`, v0.16.14), rendu du menu (`osd/osd.h`, grille 120 x 34
-par `-DOSD_COLS=120 -DOSD_ROWS=34`, v0.16.14), `audio.c` (volume), `utils.S`,
+par `-DOSD_COLS=120 -DOSD_ROWS=34`, v0.16.14), contrôleur de disquettes
+(`devices/wd1793.h`, images MFM_DISK par `devices/oric_dsk.h` ; implémentation
+compilée avec `CHIPS_IMPL`, une fois par programme ; v0.16.15, socle
+`socle-2026-09-30-5` : DRQ exactement `WD1793_BYTE_US` après l'accès),
+`audio.c` (volume), `utils.S`,
 `tools/cputest/harte.c`, SDK Pico, PicoDVI, tinyusb. Copies encore gardées :
 `src/chips/mos6522via.h` et `ay38910psg.h` (`src/chips/README.md`),
-`platforms/rp2040/src/hid_app.c`, le WD1793 (`src/devices/wd1793.h`, migration
-à venir). Firmware : le rendu du menu du socle est compilé hors ligne
-(`OSD_HOT` = `noinline` en RAM) ; en ligne, il était recopié dans
-`core1_main` (+1,4 Ko de RAM).
+`platforms/rp2040/src/hid_app.c`. Firmware : le rendu du menu du socle est compilé hors ligne
+(`OSD_NOINLINE`, `OSD_HOT` = section en RAM) ; en ligne, il était recopié dans
+`core1_main` (+1,4 Ko de RAM). Le cœur `w65c02cpu.h` du socle `-5` est commun
+avec la NES : IRQ et NMI scrutées à l'avant-dernier cycle, avec le drapeau I
+d'avant `CLI` / `SEI` / `PLP`, et plus de détournement du vecteur NMI pendant
+`BRK` / IRQ (comportements mesurés sur carte par la NES) ; la version PC
+seulement (la carte a le vrai 65C02).
 
 ## Référence et système optimisé (sprint 4)
 
@@ -41,8 +47,9 @@ par `-DOSD_COLS=120 -DOSD_ROWS=34`, v0.16.14), `audio.c` (volume), `utils.S`,
   tous les périphériques avancent tous les 4 cycles. Il n'est plus optimisé ;
   c'est la spécification exécutable.
 - `src/systems/telestrat.h` : même comportement, cycle pour cycle, mais un pas
-  de 4 cycles « au repos » (VIA stables sans échéance, FDC et ACIA sans compte
-  à rebours échu, bus de l'AY inactif, pas d'ACK imprimante, aucune entrée
+  de 4 cycles « au repos » (VIA stables sans échéance, WD1793 sans événement
+  annoncé — `wd1793_next_event_us`, n µs sans changement de DRQ, d'INTRQ ni
+  du statut, soit n / 4 pas —, ACIA sans compte à rebours échu, bus de l'AY inactif, pas d'ACK imprimante, aucune entrée
   extérieure changée) est sauté ; sa durée est cumulée puis appliquée d'un
   coup avant le prochain accès en `$03xx` ou le prochain pas complet. RAM et
   banques sont servies par un chemin court ; l'AY avance par échéances.
@@ -104,8 +111,8 @@ par `-DOSD_COLS=120 -DOSD_ROWS=34`, v0.16.14), `audio.c` (volume), `utils.S`,
 |---|---|---|
 | Accès aux banques | pointeurs directs, sans `mem.h` | ROM sans pointeur d'écriture ; plus rapide ; économise la RAM du RP2040 |
 | RAM du RP2040 | variante `standard` (1 banque RAM, 4 ROM) : 204 Ko ; `ram64k` (5 RAM, 2 ROM) : 236 Ko (sur 256) | les ROM restent en RAM (`__not_in_flash`) comme dans reload, pour tenir le temps de bus |
-| FDC | WD1793 écrit d'après la fiche technique (Oricutron, GPL, n'est qu'un oracle de comportement) ; délais d'Oricutron (32 cycles/octet) ; fin de multi-secteurs sans erreur comme Oricutron ; le registre de piste doit correspondre à l'ID (fiche) | STRATSED démarre, lit et écrit comme sous Oricutron |
-| Images disque | PC : image entière en mémoire ; Neo6502 : clé USB, piste courante (6400 o) en tampon, réécrite à la fin de chaque commande d'écriture | 1 Mo ne tient pas dans les 264 Ko du RP2040 ; le 65C02 attend pendant l'accès USB (le RP2040 fournit son horloge) |
+| FDC | WD1793 du socle reload (`devices/wd1793.h`, écrit d'après la fiche technique, cas non précisés alignés sur Oricutron) ; délais du socle, par défaut (60 µs avant le premier octet, 32 µs par octet, compté à partir de l'accès du processeur, 180 µs entre deux secteurs, 20 µs pour un type I) ; avancé par pas de 4 cycles (`wd1793_tick_n`) dans la référence comme dans le système optimisé ; fin de multi-secteurs sans erreur ; FORCE INTERRUPT lève toujours INTRQ ; NOT READY levé pendant les commandes de types II et III ; sans disque, type I = NOT READY + SEEK ERROR (sans TRACK 0) ; RESET sans effet sur les disques ni la position des têtes | STRATSED démarre, lit et écrit comme sous Oricutron ; un seul WD1793 pour les projets du socle |
+| Images disque | `devices/oric_dsk.h` du socle. PC : image entière en mémoire ; Neo6502 : clé USB, piste courante (6400 o) dans le cache de piste du WD1793, réécrite à la fin de chaque commande d'écriture (`WD1793_FLUSH_AT_END`, défaut du socle) | 1 Mo ne tient pas dans les 264 Ko du RP2040 ; le 65C02 attend pendant l'accès USB (le RP2040 fournit son horloge) |
 | Imprimante | option : octet sur front descendant de STROBE, ACK de 40 cycles sur CA1 (retenu si l'imprimante est occupée) ; niveau de CA1 redonné à chaque pas | le VIA de reload ne détecte un front qu'entre deux appels de `set_ca1` ; TELEMON n'affiche « Imprimante » que si l'ACK répond (toujours branchée sur le Neo6502 depuis v0.9.0) |
 | Code chaud | `telestrat_tick`, VIA et cœur 65C02 en RAM (`.time_critical`) | comme le BBC de reload : depuis la flash, le cache XIP de 16 Ko déborde |
 | Bus du 65C02 (`neo6502_bus.h`) | séquence GPIO de reload, intégrée ; **impulsion OE3 renvoyée juste avant le front descendant** après une lecture | sur carte, la donnée d'une lecture suivie d'une pause (fin de tranche ou de trame, plusieurs ms horloge haute) fuyait : TELEMON lisait `$FF4E` de la banque 3 (`$00`) autrement à la relecture, banque déclarée invalide (« 48 Ko ROM »), titre corrompu ; défaut latent aussi dans reload |
@@ -220,7 +227,7 @@ jusqu'à CTRL+C.
 **Clé USB** : stockage de masse monté par FatFs (`msc_app.c` de reload, LUN
 0 ; FAT12/16/32, exFAT, noms longs). Le Telestrat ne la voit pas : il voit
 les images `.dsk` dans les lecteurs du Microdisc (un `FIL` par lecteur,
-`wd1793_insert_streamed` avec ce `FIL` pour contexte, piste tamponnée
+`wd1793_insert_streamed_file` avec ce `FIL` pour contexte, piste tamponnée
 partagée) et les `.rom` dans les banques. Une image n'est jamais dans deux
 lecteurs (fichier ouvert en écriture). Au montage : `TELESTRA.CFG` (`a=` …
 `d=`, `bank1=` … `bank7=`, `src/osd/osd_config.h`), sinon la première image
@@ -529,8 +536,10 @@ version, signature des tailles de structures), texte de la plate-forme
 WD1793 (piste, secteur, données, lecteur, face, têtes, `$0314` ; tampon de
 piste vidé sur la disquette), cadence (compteur de cycles, échéances de
 l'AY, horloge audio fractionnaire depuis la version 2 du format, v0.16.8 : les
-instantanés antérieurs sont refusés), STROBE et ACK. Pas enregistrés : disquettes et cassette (supports),
-enregistreur, joystick, ligne. Refusé pendant une commande du WD1793. Sur
+instantanés antérieurs sont refusés ; version 3 : registres du WD1793 du
+socle, têtes `head[]`), STROBE et ACK. Pas enregistrés : disquettes et cassette (supports),
+enregistreur, joystick, ligne. Refusé pendant une commande du WD1793
+(`state != WD1793_IDLE`). Sur
 le Neo6502, le `FIL` et le texte sont pris dans l'image du Telestrat
 (menu ouvert), vérifié à la compilation (`_Static_assert`).
 

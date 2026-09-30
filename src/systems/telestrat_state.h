@@ -43,7 +43,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define TELESTRAT_STATE_VERSION 2  // 2 : horloge audio fractionnaire (v0.16.8)
+#define TELESTRAT_STATE_VERSION 3  // 2 : horloge audio fractionnaire (v0.16.8) ; 3 : WD1793 du socle
 #define TELESTRAT_STATE_INFO_MAX 1024
 
 // Lecture ou écriture de len octets ; false : erreur
@@ -60,7 +60,7 @@ typedef struct {
 typedef struct {
     uint8_t status, track, sector, data, drive, side, ctrl;
     bool step_in, intrq;
-    uint8_t head[WD1793_NUM_DRIVES];
+    uint8_t head[WD1793_MAX_DRIVES];
 } _telestrat_state_fdc_t;
 
 // Divers de telestrat_t
@@ -95,7 +95,7 @@ static inline uint32_t telestrat_state_signature(void) {
 static inline bool telestrat_state_save(telestrat_t* sys, const char* info, telestrat_state_io_t io, void* ctx,
                                         const char** err) {
     const wd1793_t* w = &sys->fdc.wd;
-    if (w->op != WD1793_OP_NONE || (w->status & WD1793_ST_BUSY) || w->int_delay > 0) {
+    if (telestrat_fdc_busy(&sys->fdc)) {
         *err = "accès disque en cours : réessayer";
         return false;
     }
@@ -127,12 +127,12 @@ static inline bool telestrat_state_save(telestrat_t* sys, const char* info, tele
     f.track = w->track;
     f.sector = w->sector;
     f.data = w->data;
-    f.drive = w->drive;
-    f.side = w->side;
+    f.drive = (uint8_t)w->drive;
+    f.side = (uint8_t)w->side;
     f.ctrl = sys->fdc.ctrl;
     f.step_in = w->step_in;
     f.intrq = w->intrq;
-    for (int d = 0; d < WD1793_NUM_DRIVES; d++) f.head[d] = w->disk[d].head;
+    for (int d = 0; d < WD1793_MAX_DRIVES; d++) f.head[d] = w->head[d];
     _TELESTRAT_IO(&f, sizeof(f));
     _telestrat_state_misc_t m;
     memset(&m, 0, sizeof(m));
@@ -208,16 +208,15 @@ static inline bool telestrat_state_load_machine(telestrat_t* sys, telestrat_stat
     _TELESTRAT_IO(&f, sizeof(f));
     wd1793_t* w = &sys->fdc.wd;
     wd1793_flush(w);  // piste modifiée des disquettes insérées : écrite
-    wd1793_reset(w);
+    wd1793_reset(w);  // commande abandonnée ; disques insérés gardés
     w->status = f.status;
     w->track = f.track;
     w->sector = f.sector;
     w->data = f.data;
-    w->drive = f.drive;
-    w->side = f.side;
+    wd1793_select(w, f.drive, f.side);
     w->step_in = f.step_in;
     w->intrq = f.intrq;
-    for (int d = 0; d < WD1793_NUM_DRIVES; d++) w->disk[d].head = f.head[d];
+    for (int d = 0; d < WD1793_MAX_DRIVES; d++) w->head[d] = f.head[d];
     sys->fdc.ctrl = f.ctrl;
     _telestrat_state_misc_t m;
     _TELESTRAT_IO(&m, sizeof(m));

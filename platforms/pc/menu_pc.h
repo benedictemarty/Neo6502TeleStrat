@@ -160,8 +160,8 @@ static bool menu_pc_insert(menu_pc_t* p, telestrat_t* sys, int d, const char* na
 }
 
 static void menu_pc_eject(menu_pc_t* p, telestrat_t* sys, int d) {
+    _menu_pc_flush(p, sys, d);  // avant l'éjection, qui efface le drapeau « modifié »
     wd1793_eject(&sys->fdc.wd, d);
-    _menu_pc_flush(p, sys, d);
     free(p->disk[d]);
     p->disk[d] = NULL;
     p->disk_name[d][0] = 0;
@@ -245,7 +245,7 @@ static void menu_pc_refresh(menu_pc_t* p, telestrat_t* sys) {
     for (int k = 0; k < p->user_n && ROM_PROFILES + k < OSD_PROFILES; k++) m->profile[ROM_PROFILES + k] = p->user_label[k];
     for (int d = 0; d < 4; d++) {
         snprintf(m->drive[d], sizeof(m->drive[d]), "%s", p->disk[d] ? p->disk_name[d] : "");
-        m->drive_ro[d] = p->disk[d] && sys->fdc.wd.disk[d].write_protect;
+        m->drive_ro[d] = p->disk[d] && sys->fdc.wd.disk[d].write_protected;
     }
     for (int b = 0; b < 8; b++) {
         if (p->pool.name[b][0]) {

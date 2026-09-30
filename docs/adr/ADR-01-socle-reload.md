@@ -42,6 +42,9 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
 - v0.16.14 : `socle-2026-09-30-4` (cassette, puces identiques et `osd.h`
   pris dans le socle, copies supprimées ; `make uf2` recrée `build/rp2040`
   quand le socle change, témoin `.reload_dir`).
+- v0.16.15 : `socle-2026-09-30-5` (WD1793 et `oric_dsk.h` du socle, notre
+  WD1793 supprimé ; DRQ corrigé dans le socle à notre demande ; `OSD_NOINLINE` ;
+  cœur 65C02 commun avec la NES).
 
 ## Conséquences
 
