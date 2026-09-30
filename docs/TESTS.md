@@ -24,7 +24,7 @@ passés sur la copie locale `src/chips/w65c02cpu.h` (programme
 
 Seule la version PC utilise ce cœur. Sur la carte, c'est le vrai W65C02.
 
-## Tests unitaires — `tests/test_telestrat.c` (427 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (452 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -35,6 +35,11 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - son (v0.16.8) : exactement 22 050, 44 100 et 11 025 échantillons en une
   seconde émulée, 1er échantillon au bon cycle ; mélange de l'AY : une voie
   au maximum = 85, trois = 255 (sans repli sur 8 bits), silence = 0 ;
+- touches multimédia (v0.16.9) : descripteur Consumer de TinyUSB (tableau
+  16 bits, identifiant 3, après un rapport System Control), sans identifiant,
+  forme variable (un bit par usage) ; Volume +, Volume −, Muet reconnus,
+  autres touches et autres identifiants ignorés ; volume : butées, coupure
+  levée par Volume + ou −, gain croissant ; bandeau du volume (jauge, son coupé) ;
 - FDC sans disque : `$0314`/INTRQ, INTENA, non prêt, adresses hors FDC ;
 - FDC sur une disquette MFM synthétique (CRC calculés) : en-tête refusé,
   SEEK avec vérification, STEP OUT, lecture d'un secteur (contenu exact, fin de

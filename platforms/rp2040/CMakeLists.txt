@@ -49,13 +49,11 @@ target_include_directories(fatfs INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../thi
 
 add_executable(telestrat
     ${CMAKE_CURRENT_SOURCE_DIR}/src/telestrat.c
-    ${RELOAD_RP2040}/src/hid_app.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/hid_app.c  # copie de reload + touches multimédia
     ${RELOAD_RP2040}/src/audio.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/usb_msc.c  # à la place de msc_app.c de reload (montage hors de tuh_task)
 )
 
-# hid_app.c (reload) appelle printf sans stdio.h (l'ancien tusb.h l'incluait)
-set_source_files_properties(${RELOAD_RP2040}/src/hid_app.c PROPERTIES COMPILE_OPTIONS "-include;stdio.h")
 
 # Ordre : nos en-têtes (dont tusb_config.h avec le CDC hôte), puis la plate-forme
 # RP2040 de reload (chips/wdc65C02cpu.h),

@@ -638,3 +638,24 @@ static inline void osd_tape_banner(osd_row_t* r, const char* label, const char* 
     snprintf(buf, sizeof(buf), "%3d %%", percent);
     osd_row_puts(r, bar + cells + 2, buf, acc);
 }
+
+// Bandeau du volume (touches multimédia du clavier) : jauge de max cases, ou « Son coupé »
+static inline void osd_volume_banner(osd_row_t* r, int level, int max, bool muted) {
+    const uint8_t base = OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER);
+    const uint8_t acc = OSD_ATTR(OSD_YELLOW, OSD_BLUE | OSD_DITHER);
+    osd_row_clear(r, base);
+    osd_row_puts(r, 21, "Volume", acc);
+    if (muted) {
+        r->ch[30] = OSD_CROSS;
+        r->attr[30] = OSD_ATTR(OSD_RED, OSD_BLUE | OSD_DITHER);
+        osd_row_puts(r, 32, "Son coupé", base);
+        return;
+    }
+    for (int i = 0; i < max; i++) {
+        r->ch[30 + 2 * i] = i < level ? OSD_FULL : OSD_SHADE;
+        r->attr[30 + 2 * i] = OSD_ATTR(OSD_CYAN, OSD_BLUE | OSD_DITHER);
+    }
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d/%d", level, max);
+    osd_row_puts(r, 30 + 2 * max + 1, buf, acc);
+}

@@ -332,6 +332,34 @@ affiché : absent, prêt, sonnerie, en ligne, prise RS232. Au banc : `-P`
 
 RAM : 13,6 Ko libres (standard), **88 octets** (RAM 64 Ko).
 
+## Touches multimédia du clavier (v0.16.9)
+
+Volume +, Volume − et Muet (page HID « Consumer », usages `0xE9`, `0xEA`,
+`0xE2`) ne passent pas par le rapport « boot » du clavier : le clavier les
+envoie sur une autre interface HID, décrite par son propre descripteur de
+rapport. `hid_app.c` de reload ne les lit pas ; le projet en a une copie
+(`platforms/rp2040/src/hid_app.c`, reload `33f1623`) qui lit le descripteur
+de chaque interface au branchement (`src/devices/hid_media.h`, formes
+tableau et variable, identifiants de rapport), décode ses rapports et
+remet les touches nouvellement enfoncées à `hid_media_key_down()`. Une telle
+interface n'est plus prise pour une manette. Corrigé au passage : un rapport
+d'une interface sans manette enregistrée déréférençait un pointeur nul.
+
+Le volume (`hid_volume_t`, 9 niveaux de 0 à 8 : gain 0, 23, 32, 45, 64, 91,
+128, 181, 256 / 256, et une coupure à part) s'applique à chaque échantillon
+avant la sortie PWM (gain recopié en RAM) ; le bandeau (`osd_volume_banner`)
+s'affiche 2 s par-dessus celui de la cassette. Rien ne change dans
+l'émulation (rejeu identique) ni dans la charge (`make charge` : 58 %).
+
+Mémoire : tampon d'énumération USB porté à 512 octets (standard) pour les
+descripteurs de plus de 256 octets, que TinyUSB ignorerait ; 256 en RAM 64 Ko,
+où il reste 480 octets au-delà du tas réservé (608 avant). Deux interfaces
+multimédia au plus, quatre champs chacune.
+
+Limites : une touche multimédia envoyée dans le rapport principal du clavier
+(clavier en protocole « report ») n'est pas vue, le clavier étant mis en
+protocole « boot » ; non essayé sur un vrai clavier.
+
 ## Premiers essais sur carte depuis la v0.4.2 (sprint 16)
 
 **Mémoire au démarrage** : `dvi_init` alloue ses tampons TMDS par `malloc`

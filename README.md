@@ -289,6 +289,12 @@ sinon sur cet UART, n'y passent plus. **Pas encore essayé sur carte.**
 | Windows gauche | FUNCT |
 | Pause | retour au firmware Neo6502 (multi-boot) |
 | Manette USB | joystick droit (la 2ᵉ manette : joystick gauche) |
+| Volume + / Volume − (clavier multimédia) | volume du son, 8 pas (environ 3 dB chacun), jauge affichée 2 s |
+| Muet (clavier multimédia) | coupe ou rétablit le son (Volume + ou − le rétablit aussi) |
+
+Les touches multimédia sont lues sur l'interface HID qui les décrit (page
+« Consumer ») ; le volume part du maximum à chaque démarrage et n'est pas
+enregistré. **Pas encore essayé sur carte.**
 
 ## Banc PC sans écran
 

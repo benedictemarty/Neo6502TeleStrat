@@ -47,7 +47,13 @@
 //--------------------------------------------------------------------
 
 // Size of buffer to hold descriptors and other data used for enumeration
+// Descripteurs HID des touches multimédia : ils peuvent dépasser 256 octets
+// (TinyUSB ignore alors l'interface) ; variante RAM 64 Ko : pas de place
+#ifdef TELESTRAT_RAM64K
 #define CFG_TUH_ENUMERATION_BUFSIZE 256
+#else
+#define CFG_TUH_ENUMERATION_BUFSIZE 512
+#endif
 
 #define CFG_TUH_HUB                 1
 #define CFG_TUH_CDC                 1 // Neo6502TeleStrat : modem PicoWiFiModemUSB (Minitel, TELEMATIC)

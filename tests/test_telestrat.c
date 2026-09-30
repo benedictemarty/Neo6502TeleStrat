@@ -35,6 +35,7 @@
 #include "osd/rom_pool.h"
 #include "roms/telestrat_roms.h"
 #include "osd/rom_builtin.h"
+#include "devices/hid_media.h"
 #include "telestrat_video.h"
 
 static int failures = 0, checks = 0;
@@ -1192,6 +1193,67 @@ static void test_audio(void) {
     CHECK(ay38910psg_sample_u8(&sys.psg) == 0, "silence : 0");
 }
 
+// Touches multimédia du clavier USB (v0.16.9) : descripteurs HID et volume
+static void test_hid_media(void) {
+    hid_media_t m;
+    // Forme tableau : TUD_HID_REPORT_DESC_CONSUMER de TinyUSB (identifiant 3),
+    // après TUD_HID_REPORT_DESC_SYSTEM_CONTROL (identifiant 2)
+    static const uint8_t arr[] = {
+        0x05, 0x01, 0x09, 0x80, 0xA1, 0x01, 0x85, 0x02, 0x15, 0x01, 0x25, 0x03, 0x95, 0x01, 0x75, 0x02,
+        0x09, 0x81, 0x09, 0x82, 0x09, 0x83, 0x81, 0x00, 0x95, 0x01, 0x75, 0x06, 0x81, 0x03, 0xC0,
+        0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x03, 0x15, 0x00, 0x26, 0xFF, 0x03, 0x19, 0x00,
+        0x2A, 0xFF, 0x03, 0x95, 0x01, 0x75, 0x10, 0x81, 0x00, 0xC0};
+    CHECK(hid_media_parse(&m, arr, sizeof(arr)) && m.num_fields == 1 && m.ids, "tableau : un champ Consumer");
+    CHECK(hid_media_keys(&m, (const uint8_t[]){0x03, 0xE9, 0x00}, 3) == HID_MEDIA_VOL_UP, "tableau : Volume +");
+    CHECK(hid_media_keys(&m, (const uint8_t[]){0x03, 0xEA, 0x00}, 3) == HID_MEDIA_VOL_DOWN, "tableau : Volume -");
+    CHECK(hid_media_keys(&m, (const uint8_t[]){0x03, 0xE2, 0x00}, 3) == HID_MEDIA_MUTE, "tableau : Muet");
+    CHECK(hid_media_keys(&m, (const uint8_t[]){0x03, 0x00, 0x00}, 3) == 0, "tableau : relâché");
+    CHECK(hid_media_keys(&m, (const uint8_t[]){0x03, 0xCD, 0x00}, 3) == 0, "tableau : Lecture/Pause ignorée");
+    CHECK(hid_media_keys(&m, (const uint8_t[]){0x02, 0xE9}, 2) == 0, "tableau : autre identifiant ignoré");
+    // Sans identifiant de rapport
+    CHECK(hid_media_parse(&m, arr + 31 + 0, 6) == false, "descripteur tronqué : aucune touche");
+    static const uint8_t noid[] = {0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x15, 0x00, 0x26, 0xFF, 0x03, 0x19, 0x00,
+                                   0x2A, 0xFF, 0x03, 0x95, 0x02, 0x75, 0x10, 0x81, 0x00, 0xC0};
+    CHECK(hid_media_parse(&m, noid, sizeof(noid)) && !m.ids, "sans identifiant");
+    CHECK(hid_media_keys(&m, (const uint8_t[]){0xCD, 0x00, 0xE2, 0x00}, 4) == HID_MEDIA_MUTE, "sans identifiant : 2e élément");
+    // Forme variable : un bit par usage (B5 B6 B7 CD E2 E9 EA, 0x0223), identifiant 4
+    static const uint8_t var[] = {0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x04, 0x15, 0x00, 0x25, 0x01,
+                                  0x75, 0x01, 0x95, 0x08, 0x09, 0xB5, 0x09, 0xB6, 0x09, 0xB7, 0x09, 0xCD,
+                                  0x09, 0xE2, 0x09, 0xE9, 0x09, 0xEA, 0x0A, 0x23, 0x02, 0x81, 0x02, 0xC0};
+    CHECK(hid_media_parse(&m, var, sizeof(var)) && m.num_fields == 1 && !m.field[0].array, "variable : un champ");
+    CHECK(hid_media_keys(&m, (const uint8_t[]){0x04, 0x20}, 2) == HID_MEDIA_VOL_UP, "variable : Volume +");
+    CHECK(hid_media_keys(&m, (const uint8_t[]){0x04, 0x50}, 2) == (HID_MEDIA_MUTE | HID_MEDIA_VOL_DOWN),
+          "variable : Muet et Volume -");
+    CHECK(hid_media_keys(&m, (const uint8_t[]){0x04, 0x8F}, 2) == 0, "variable : autres touches ignorées");
+    // Clavier sans touche multimédia (rapport boot)
+    static const uint8_t kbd[] = {0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7,
+                                  0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0xC0};
+    CHECK(!hid_media_parse(&m, kbd, sizeof(kbd)), "clavier ordinaire : aucune touche multimédia");
+
+    // Volume
+    hid_volume_t v;
+    hid_volume_init(&v);
+    CHECK(v.level == HID_VOLUME_MAX && hid_volume_apply(&v, 200) == 200, "volume au maximum : échantillon inchangé");
+    CHECK(!hid_volume_keys(&v, HID_MEDIA_VOL_UP), "Volume + au maximum : sans effet");
+    CHECK(hid_volume_keys(&v, HID_MEDIA_VOL_DOWN) && v.level == HID_VOLUME_MAX - 1 &&
+          hid_volume_apply(&v, 200) == 141, "Volume - : un pas (200 -> %d)", hid_volume_apply(&v, 200));
+    CHECK(hid_volume_keys(&v, HID_MEDIA_MUTE) && v.muted && hid_volume_apply(&v, 255) == 0, "Muet : silence");
+    CHECK(hid_volume_keys(&v, HID_MEDIA_VOL_UP) && !v.muted && v.level == HID_VOLUME_MAX, "Volume + lève la coupure");
+    hid_volume_keys(&v, HID_MEDIA_MUTE);
+    CHECK(hid_volume_keys(&v, HID_MEDIA_MUTE) && !v.muted && v.level == HID_VOLUME_MAX, "Muet deux fois : rétabli");
+    for (int i = 0; i < 20; i++) hid_volume_keys(&v, HID_MEDIA_VOL_DOWN);
+    CHECK(v.level == 0 && hid_volume_apply(&v, 255) == 0 && !hid_volume_keys(&v, HID_MEDIA_VOL_DOWN),
+          "Volume - jusqu'à 0 : silence, puis sans effet");
+    uint16_t prev = 0;
+    bool rising = true;
+    for (int i = 1; i <= HID_VOLUME_MAX; i++) {
+        hid_volume_keys(&v, HID_MEDIA_VOL_UP);
+        rising &= hid_volume_gain(&v) > prev;
+        prev = hid_volume_gain(&v);
+    }
+    CHECK(rising && prev == 256, "gain croissant à chaque pas, 256 au maximum");
+}
+
 static void test_state(void) {
     // Programme : boucle qui écrit en RAM, VIA 1 : timer 1 libre (IRQ au RESET masquées)
     const uint8_t prog[] = {0xA2, 0x00, 0xA0, 0x80, 0xA9, 0x10,       // LDX #0, LDY #$80, LDA #$10
@@ -1488,6 +1550,12 @@ static void test_osd_tape_menu(void) {
     uint32_t r[30], g[30], b[30];
     osd_render_cells(row.ch, row.attr, row.big, 0, 0, r, g, b);
     CHECK(b[0] == 0x55555555u && r[0] == 0, "bandeau : fond bleu tramé");
+    osd_volume_banner(&row, 5, 8, false);
+    CHECK(!memcmp(&row.ch[21], "Volume", 6) && row.ch[30] == OSD_FULL && row.ch[38] == OSD_FULL &&
+              row.ch[40] == OSD_SHADE && row.ch[44] == OSD_SHADE && !memcmp(&row.ch[47], "5/8", 3),
+          "bandeau du volume : jauge 5/8");
+    osd_volume_banner(&row, 5, 8, true);
+    CHECK(row.ch[30] == OSD_CROSS && row.ch[32] == 'S' && row.ch[40] != OSD_SHADE, "bandeau du volume : son coupé");
 }
 
 static void test_osd_config(void) {
@@ -2052,6 +2120,7 @@ int main(void) {
     test_cpu_snapshot();
     test_state();
     test_audio();
+    test_hid_media();
     test_oric_tape_rec();
     test_osd_render();
     test_osd_menu();

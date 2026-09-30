@@ -87,6 +87,7 @@ volatile uint32_t diag_io_n;
 #include "devices/byte_fifo.h"
 #include "devices/printer_fx80.h"
 #include "devices/plotter_mcp40.h"
+#include "devices/hid_media.h"
 // Police du menu en RAM : lue par le cœur 1 à chaque ligne affichée
 #define OSD_FONT_SECTION __attribute__((section(".time_critical.osd_font")))
 #include "osd/osd_menu.h"
@@ -379,9 +380,23 @@ static void printer_select(int type) {
 #endif
 }
 
+// Volume réglé par les touches multimédia du clavier (hid_app.c) ; gain en
+// 256es recopié en RAM pour le chemin de chaque échantillon
+static hid_volume_t volume = {HID_VOLUME_MAX, false};
+static uint16_t audio_gain = 256;
+static int volume_banner_frames = 0;  // bandeau du volume encore affiché (trames)
+
+void hid_media_key_down(uint8_t keys) {
+    if (!hid_volume_keys(&volume, keys)) {
+        if (!(keys & (HID_MEDIA_VOL_UP | HID_MEDIA_VOL_DOWN))) return;
+    }
+    audio_gain = hid_volume_gain(&volume);
+    volume_banner_frames = 100;  // 2 s, même aux butées
+}
+
 static void audio_callback(const uint8_t sample, void *user_data) {
     (void)user_data;
-    audio_push_sample(sample);
+    audio_push_sample((uint8_t)((sample * audio_gain) >> 8));
 }
 
 // Emplacements de banque en RAM (src/osd/rom_pool.h) : un par ROM intégrée
@@ -622,6 +637,12 @@ static void rec_close(void *ctx) {
 
 // Bandeau : à chaque trame, pendant une lecture ou un enregistrement
 static void banner_update(void) {
+    if (volume_banner_frames > 0) {
+        volume_banner_frames--;
+        osd_volume_banner(&banner_row, volume.level, HID_VOLUME_MAX, volume.muted);
+        banner_on = true;
+        return;
+    }
     const oric_tape_t *t = &state.telestrat.tape;
     const oric_tape_rec_t *r = &state.telestrat.tape_rec;
     if (oric_tape_rec_active(r)) {

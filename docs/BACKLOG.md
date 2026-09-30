@@ -199,6 +199,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | BUG-2 | Son : `(uint8_t)(sample * 255)` débordait avec plusieurs voies fortes ; 21 739 échantillons/s pour une sortie à 22 050 Hz (signalé par la session reload-emulator, correctif `a0314e4`) | ✅ banc, 12 tests, rejeu identique ; ⏳ écoute sur carte |
 
+## v0.16.9 — touches multimédia ✅ au banc (2026-09-30)
+
+| Id | Récit | État |
+|---|---|---|
+| US-170 | Volume +, Volume − et Muet d'un clavier multimédia règlent le son, avec une jauge à l'écran | ✅ code + 25 tests (descripteurs tableau et variable, volume, bandeau) ; ⏳ essai sur carte avec un vrai clavier |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
