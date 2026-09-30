@@ -404,7 +404,7 @@ menu : 7 fichiers de la clé listés. Observé, cause inconnue :
 | `SAVE "SOCLE"`, `DIR`, image relue sur la clé par la sonde | 91 fichiers, SOCLE présent dans l'image : piste réécrite en fin de commande |
 | variante `TELESTRAT_FLASH_DISK` (STRATSED en flash), clé retirée | A = « (image en flash) », pas de redémarrage ; HYPER-BASIC chargé et `DIR` = 88 fichiers (image d'origine, pas le catalogue de la clé) |
 | firmware normal sans clé | TELEMON démarre, « Inserez une disquette » |
-| son (`PING`, `ZAP`, `SHOOT`, `EXPLODE`) à 22 017 Hz | joués ; écoute non confirmée au moment de la note |
+| son (`PING`, `ZAP`, `SHOOT`, `EXPLODE`) à 22 017 Hz | joués ; bmarty : « très bien le son » |
 
 OpenOCD a de nouveau décroché au retrait de la clé (lecture suivante réussie).
 

@@ -235,7 +235,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | Id | Récit | État |
 |---|---|---|
-| US-175 | `ay38910psg.h` et `hid_app.c` du socle ; AY à la cadence réelle du PWM ; `$80` sans disque (fiche) | ✅ `make` entier, deux variantes, charge 58 / 66 % ; carte (2026-10-01) : PING, ZAP, SHOOT, EXPLODE joués ; écoute non confirmée |
+| US-175 | `ay38910psg.h` et `hid_app.c` du socle ; AY à la cadence réelle du PWM ; `$80` sans disque (fiche) | ✅ `make` entier, deux variantes, charge 58 / 66 % ; ✅ carte (2026-10-01) : PING, ZAP, SHOOT, EXPLODE ; bmarty : « très bien le son » |
 
 ## Plus tard
 
