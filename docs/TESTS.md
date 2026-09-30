@@ -14,8 +14,11 @@ passés sur la copie locale `src/chips/w65c02cpu.h` (programme
 
 - Échoue s'il reste un échec fonctionnel : registres et RAM finals, nombre
   de cycles, octets écrits. Journal complet : `build/harte_c02.log`.
-- `$5C` est exclu (`-x 5c`) : 4 cycles dans les tests, 8 dans le cœur ;
-  la bonne valeur sur le W65C02S n'est pas établie.
+- `$5C` est exclu (`-x 5c`) : 4 cycles dans les tests, 8 dans le cœur.
+  Mesuré sur le W65C02S de la carte (session reload-emulator, 2026-09-30,
+  routine chronométrée par une VIA : 1, 10 et 20 fois `5C 00 00` = 24, 96 et
+  176 cycles, soit 8 par instruction) : le cœur est juste, les tests ne
+  valent pas pour ce processeur.
 - Les écarts de lecture factice (482 360) sont signalés sans compter comme
   échecs. Sur le Telestrat, ils ne comptent que s'ils tombent sur un registre
   d'entrée-sortie ; ce cas n'a pas été vérifié.
