@@ -2,6 +2,28 @@
 
 `make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
 
+## Cœur 65C02 du PC — `make cpu_harte` (2 540 000 tests)
+
+SingleStepTests de Tom Harte (https://github.com/SingleStepTests/65x02, jeu
+`wdc65c02/v1`) : 10 000 tests par opcode, avec l'accès au bus de chaque cycle,
+passés sur la copie locale `src/chips/w65c02cpu.h` (programme
+`~/reload-emulator/tools/cputest/harte.c`, détails dans
+`~/reload-emulator/docs/CPU-TESTS.md`). Données (≈ 2 Go) dans
+`~/.cache/65x02` (`HARTE_DIR`), téléchargées par
+`~/reload-emulator/tools/cputest/fetch_harte.sh` ; absentes : test ignoré.
+
+- Échoue s'il reste un échec fonctionnel : registres et RAM finals, nombre
+  de cycles, octets écrits. Journal complet : `build/harte_c02.log`.
+- `$5C` est exclu (`-x 5c`) : 4 cycles dans les tests, 8 dans le cœur ;
+  la bonne valeur sur le W65C02S n'est pas établie.
+- Les écarts de lecture factice (482 360) sont signalés sans compter comme
+  échecs. Sur le Telestrat, ils ne comptent que s'ils tombent sur un registre
+  d'entrée-sortie ; ce cas n'a pas été vérifié.
+- Contre-épreuve (v0.16.7) : l'ancien cœur échoue sur 25 opcodes (SBC et
+  BBR/BBS).
+
+Seule la version PC utilise ce cœur. Sur la carte, c'est le vrai W65C02.
+
 ## Tests unitaires — `tests/test_telestrat.c` (415 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :

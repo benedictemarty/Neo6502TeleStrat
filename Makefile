@@ -16,7 +16,7 @@ CPPFLAGS += -Isrc -I$(RELOAD_DIR)/src
 
 BUILD := build
 ROMS_H := src/roms/telestrat_roms.h
-HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/oric_tape.h src/devices/oric_tape_rec.h src/devices/byte_fifo.h src/osd/rom_builtin.h src/devices/printer_out.h src/devices/printer_fx80.h src/devices/plotter_mcp40.h platforms/pc/printer_files.h src/devices/oric_tape_turbo.h src/systems/telestrat_state.h
+HEADERS := src/systems/telestrat.h src/devices/wd1793.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/oric_tape.h src/devices/oric_tape_rec.h src/devices/byte_fifo.h src/osd/rom_builtin.h src/devices/printer_out.h src/devices/printer_fx80.h src/devices/plotter_mcp40.h platforms/pc/printer_files.h src/devices/oric_tape_turbo.h src/systems/telestrat_state.h $(wildcard src/chips/*.h)
 
 all: test
 
@@ -38,12 +38,24 @@ $(BUILD)/replay: tests/replay.c $(HEADERS) | $(BUILD)
 $(BUILD)/test_telestrat: tests/test_telestrat.c $(HEADERS) platforms/rp2040/src/telestrat_video.h | $(BUILD)
 	$(CC) $(CPPFLAGS) -Iplatforms/rp2040/src $(CFLAGS) -o $@ $<
 
+# SingleStepTests de Tom Harte (docs/TESTS.md) sur la copie locale du cœur
+# (src/chips/w65c02cpu.h, -Isrc avant reload) ; ignorés sans données
+# ($(RELOAD_DIR)/tools/cputest/fetch_harte.sh).
+HARTE_DIR ?= $(HOME)/.cache/65x02
+$(BUILD)/harte_c02: $(RELOAD_DIR)/tools/cputest/harte.c src/chips/w65c02cpu.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DUSE_65C02 -o $@ $<
+
+cpu_harte: $(BUILD)/harte_c02
+	@if [ -d $(HARTE_DIR)/wdc65c02/v1 ]; then $(BUILD)/harte_c02 -x 5c $(HARTE_DIR)/wdc65c02/v1 > $(BUILD)/harte_c02.log; \
+	  r=$$?; tail -1 $(BUILD)/harte_c02.log; exit $$r; \
+	else echo "cpu_harte : données absentes ($(HARTE_DIR)), ignoré"; fi
+
 $(BUILD):
 	mkdir -p $@
 
 headless: $(BUILD)/telestrat_headless
 
-test: $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_headless_ref $(BUILD)/replay $(BUILD)/printer_render
+test: cpu_harte $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_headless_ref $(BUILD)/replay $(BUILD)/printer_render
 	$(BUILD)/test_telestrat
 	sh tests/test_boot.sh $(BUILD)/telestrat_headless
 	sh tests/test_telematic.sh $(BUILD)/telestrat_headless
@@ -66,7 +78,7 @@ uf2: $(ROMS_H)
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all headless test uf2 clean
+.PHONY: all headless test cpu_harte uf2 clean
 
 # Charge du RP2040 sans carte (docs/PERFORMANCE.md) : trace du banc PC rejouée
 # par la cible ARM telestrat_bench dans un émulateur Cortex-M0+ (python3 +

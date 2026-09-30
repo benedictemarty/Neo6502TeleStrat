@@ -14,5 +14,9 @@ dans `~/reload-emulator` (autre développement actif sur ces fichiers).
 | `clk.h` | conversions de temps |
 | `w65c02cpu.h` | cœur W65C02S cycle à cycle (banc PC et tests) |
 
-Mettre à jour : recopier depuis un commit de reload, relancer `make` et
-`make charge`, noter le commit ici.
+Correctif repris depuis : `w65c02cpu.h` de reload `882d18f` (2026-09-30,
+v0.16.7) : SBC décimal avec opérandes BCD invalides, cycle de BBRx/BBSx
+quand le branchement est pris. Les autres fichiers restent à `462372a`.
+
+Mettre à jour : recopier depuis un commit de reload, relancer `make` (dont
+`make cpu_harte`) et `make charge`, noter le commit ici.

@@ -187,6 +187,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-169 | Modem sur carte | ⏳ (la Pico du PicoWiFiModemUSB sert de sonde SWD pour l'instant) |
 | US-168 | Variante RAM 64 Ko sur carte (3 tampons DVI : FatFs du projet en FF_FS_TINY, CDC 128 octets) | ✅ carte : image propre, clé montée ; STRATSED sans BONJOUR.COM s'arrête comme au banc |
 
+## v0.16.7 — anomalie du cœur 65C02 du PC ✅ (2026-09-30)
+
+| Id | Anomalie | État |
+|---|---|---|
+| BUG-1 | `w65c02cpu.h` : SBC décimal faux sur opérande BCD invalide ; BBRx/BBSx un cycle trop court quand le branchement est pris (trouvé par les SingleStepTests, session reload-emulator) | ✅ correctif reload `882d18f` repris, `make cpu_harte` ; le Makefile recompile désormais sur changement de `src/chips/` |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
