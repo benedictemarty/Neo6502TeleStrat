@@ -279,8 +279,14 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | Id | Anomalie | État |
 |---|---|---|
 | BUG-7 | Banc (`-t`) : SHIFT pressé avec la touche manquait parfois (« A95) » pour « A(5) ») : la ROM lit les rangées l'une après l'autre | ✅ SHIFT seul (code `0x1E1`, colonne 4 rangée 4) une trame avant ; test dans `test_boot.sh` |
-| BUG-8 | Banc, `-k 8` : la lettre tapée juste après une ligne longue à exécuter peut se perdre | à examiner (cause non établie) |
+| BUG-8 | Banc, `-k 8` : la lettre tapée juste après une ligne longue à exécuter peut se perdre | à examiner : la durée d'appui n'y est pour rien (essayé : touche tenue 3/4 de période, mêmes pertes) ; l'Oric de reload a le même symptôme |
 | — | Carte : le clavier USB donne le caractère avec SHIFT d'un coup (code ASCII) ; même risque possible avec un vrai clavier, non observé | à vérifier sur carte |
+
+## v0.16.25 — STORE / RECALL ✅ au banc (2026-10-01)
+
+| Id | Anomalie | État |
+|---|---|---|
+| BUG-9 | `STORE` (tableau) n'enregistrait que l'en-tête : l'en-tête d'un tableau part avant que la ROM ne fixe début et fin (BASIC 1.1 `$E99D` puis `$EA9E`) ; trouvé ici, corrigé dans le socle (`socle-2026-10-01-16`, enregistrement jusqu'à l'arrêt du moteur) | ✅ `test_tape.sh` : STORE 47 octets, RECALL « 42  7 » ; bandeau : octets écrits quand la longueur est inconnue |
 
 ## Plus tard
 
@@ -291,7 +297,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 - Essai croisé sur carte : TELEMATIC (Neo6502TeleStrat) appelé par NeoTel sur un second Neo6502.
 - Menu sur carte : rendu (temps du cœur 1), clavier, clé, cartouches,
   cassette et bandeau.
-- Cassette : `STORE`/`RECALL` (tableaux) non essayés ; chargement accéléré
+- Cassette : chargement accéléré
   du BASIC 1.0 (banque 5 de STRATORIC) ; démonstration « prise K7 » de
   « Telestrat à cœur ouvert » (p. 101) à essayer avec le moteur toujours en
   marche.

@@ -62,6 +62,8 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
   POSIX) ; plus d'appel FatFs direct (`neo_file_remove`). RAM : 230 928 o
   (standard), 238 892 o (RAM 64 Ko : 724 o de marge au-delà du tas).
   Charge : 59 / 67 %.
+- v0.16.25 : `socle-2026-10-01-16` (enregistreur cassette : `STORE` d'un
+  tableau enregistré jusqu'à l'arrêt du moteur, défaut trouvé ici).
 
 ## Conséquences
 

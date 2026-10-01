@@ -1788,6 +1788,8 @@ static void test_osd_tape_menu(void) {
     uint32_t r[30], g[30], b[30];
     osd_render_cells(row.ch, row.attr, row.big, 0, 0, r, g, b);
     CHECK(b[0] == 0x55555555u && r[0] == 0, "bandeau : fond bleu tramé");
+    osd_tape_banner_ex(&row, "Écriture", "TAB.TAP", -1, 30);
+    CHECK(!memcmp(&row.ch[66], "30 octets", 9) && row.ch[97] != '%', "bandeau : STORE, longueur inconnue, octets écrits");
     osd_volume_banner(&row, 5, 8, false);
     CHECK(!memcmp(&row.ch[21], "Volume", 6) && row.ch[30] == OSD_FULL && row.ch[38] == OSD_FULL &&
               row.ch[40] == OSD_SHADE && row.ch[44] == OSD_SHADE && !memcmp(&row.ch[47], "5/8", 3),

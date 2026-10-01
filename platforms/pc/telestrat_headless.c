@@ -299,7 +299,8 @@ static void write_dvi(const char* path, const char* tape_name) {
     const bool on = oric_tape_running(&sys.tape) || oric_tape_rec_active(rec);
     if (oric_tape_rec_active(rec)) {
         const uint32_t total = rec->written + rec->remaining;
-        osd_tape_banner(&banner, "Écriture", rec->file, total ? (int)(rec->written * 100 / total) : 0);
+        const int percent = !oric_tape_rec_length_known(rec) ? -1 : total ? (int)(rec->written * 100 / total) : 0;
+        osd_tape_banner_ex(&banner, "Écriture", rec->file, percent, rec->written);
     } else if (on) {
         const char* base = strrchr(tape_name, '/');
         osd_tape_banner(&banner, "Lecture", base ? base + 1 : tape_name, oric_tape_percent(&sys.tape));

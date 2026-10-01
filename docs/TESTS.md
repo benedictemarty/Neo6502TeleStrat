@@ -27,7 +27,7 @@ passés sur la copie locale `src/chips/w65c02cpu.h` (programme
 
 Seule la version PC utilise ce cœur. Sur la carte, c'est le vrai W65C02.
 
-## Tests unitaires — `tests/test_telestrat.c` (486 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (487 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -242,9 +242,11 @@ seul) :
 | menu : imprimante coupée (`uuuuuue`), Enregistrer ; puis `LPRINT "IMPRIME"` (`-P`) | « Imprimante coupée », `impression=non` et `modem=oui` écrits ; rien d'imprimé ; avec `impression=oui`, « IMPRIME » imprimé |
 | `telemon` : `.rom` de 1000 octets puis teleass.rom en banque 5, hyperbas.rom en banque 4, image du menu (`-O`) | « taille invalide » ; banque 5 prise (emplacement supplémentaire) ; « plus de place » ; PPM 960 x 544 |
 
-## Cassette — `tests/test_tape.sh` (18 vérifications)
+## Cassette — `tests/test_tape.sh` (20 vérifications)
 
-Configuration `atmos` (BASIC 1.1 en banque 7). `10 PRINT "CASSETTE OK"` et
+Configuration `atmos` (BASIC 1.1 en banque 7). Tableaux (v0.16.25) : `DIM
+A(5)`, `A(3)=42`, `A(5)=7`, `STORE A,"TAB"` écrit 47 octets (en-tête + 30), puis
+`RECALL A,"TAB"` et `PRINT A(3);A(5)` donnent « 42  7 ». `10 PRINT "CASSETTE OK"` et
 `20 PRINT 6*7` tapés, RAM relevée (`-r`), cassette faite par
 `tools/mktap.py` (51 octets) ; `CLOAD""` (`-K`) : « Loading .. ESSAI »
 pendant la lecture, `LIST` et `RUN` (« CASSETTE OK », 42) ; sans cassette,

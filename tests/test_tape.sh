@@ -53,6 +53,14 @@ mkdir "$TMP/opt"
 
 fail=0
 n=0
+# STORE / RECALL (tableau, v0.16.25) : l'en-tête d'un tableau part avant que
+# la ROM ne fixe début et fin (BASIC 1.1 $E99D puis $EA9E) ; l'enregistreur va
+# jusqu'à l'arrêt du moteur (socle-2026-10-01-16)
+mkdir "$TMP/tab"
+"$BIN" -c atmos -C "$TMP/tab" -f 1700 -w 150 -k 10 -t 'DIM A(5)\nA(3)=42\nA(5)=7\nSTORE A,"TAB"\n' > /dev/null 2>&1
+"$BIN" -c atmos -K "$TMP/tab/TAB.TAP" -f 2300 -w 150 -k 10 \
+    -t 'DIM A(5)\nRECALL A,"TAB"\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~PRINT A(3);A(5)\n' -s > "$TMP/recall.txt" 2>&1
+
 check() {
     n=$((n + 1))
     if ! sh -c "$2"; then
@@ -60,6 +68,8 @@ check() {
         echo "ÉCHEC [cassette] : $1"
     fi
 }
+check "STORE : tableau de 6 nombres enregistré (en-tête + 30 octets)" "[ \$(wc -c < '$TMP/tab/TAB.TAP') -eq 47 ]"
+check "RECALL : tableau relu (42 et 7)" "grep -q ' 42  7' '$TMP/recall.txt'"
 check "mode Atmos : BASIC 1.1" "grep -q 'ORIC EXTENDED BASIC V1.1' '$TMP/ecran.txt'"
 check "cassette .tap de 32 octets" "[ \$(wc -c < '$TMP/essai.tap') -eq 51 ]"
 check "sans cassette : Searching" "grep -q 'Searching' '$TMP/vide.txt'"

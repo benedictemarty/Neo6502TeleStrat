@@ -639,7 +639,8 @@ static void banner_update(void) {
     const oric_tape_rec_t *r = &state.telestrat.tape_rec;
     if (oric_tape_rec_active(r)) {
         const uint32_t total = r->written + r->remaining;
-        osd_tape_banner(&banner_row, "Écriture", r->file, total ? (int)(r->written * 100 / total) : 0);
+        const int percent = !oric_tape_rec_length_known(r) ? -1 : total ? (int)(r->written * 100 / total) : 0;
+        osd_tape_banner_ex(&banner_row, "Écriture", r->file, percent, r->written);
     } else if (oric_tape_running(t)) {
         osd_tape_banner(&banner_row, "Lecture", tape_name, oric_tape_percent(t));
     } else {

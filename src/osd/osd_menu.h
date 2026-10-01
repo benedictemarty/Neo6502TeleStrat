@@ -630,7 +630,8 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
 
 // Bandeau de la cassette, incrusté sous l'image du Telestrat pendant que le
 // moteur tourne : icône, « Lecture » ou « Écriture », nom, barre, pour cent
-static inline void osd_tape_banner(osd_row_t* r, const char* label, const char* name, int percent) {
+// percent < 0 : longueur inconnue (STORE d'un tableau), octets écrits affichés
+static inline void osd_tape_banner_ex(osd_row_t* r, const char* label, const char* name, int percent, uint32_t bytes) {
     const uint8_t base = OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER);
     osd_row_clear(r, base);
     const uint8_t acc = OSD_ATTR(OSD_YELLOW, OSD_BLUE | OSD_DITHER);
@@ -644,12 +645,21 @@ static inline void osd_tape_banner(osd_row_t* r, const char* label, const char* 
     snprintf(buf, sizeof(buf), "%.34s", name);
     osd_row_puts(r, 30, buf, base);
     const int bar = 66, cells = 30;
+    if (percent < 0) {
+        snprintf(buf, sizeof(buf), "%lu octets", (unsigned long)bytes);
+        osd_row_puts(r, bar, buf, acc);
+        return;
+    }
     for (int i = 0; i < cells; i++) {
         r->ch[bar + i] = i * 100 / cells < percent ? OSD_FULL : OSD_SHADE;
         r->attr[bar + i] = OSD_ATTR(OSD_CYAN, OSD_BLUE | OSD_DITHER);
     }
     snprintf(buf, sizeof(buf), "%3d %%", percent);
     osd_row_puts(r, bar + cells + 2, buf, acc);
+}
+
+static inline void osd_tape_banner(osd_row_t* r, const char* label, const char* name, int percent) {
+    osd_tape_banner_ex(r, label, name, percent, 0);
 }
 
 // Bandeau du volume (touches multimédia du clavier) : jauge de max cases, ou « Son coupé »
