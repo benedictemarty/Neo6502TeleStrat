@@ -417,8 +417,10 @@ le système optimisé (test_replay C).
 liste ce que le cœur 1 atteint en flash ; il trouvait `memset` (bordures
 noires de `telestrat_frame_line`), remplacé par des écritures de mots
 volatiles (0 octet de RAM en plus, au lieu d'environ 1,2 Ko avec
-`PICO_MEM_IN_RAM`). Reste, dans PicoDVI (socle) : un littéral en flash et un
-appel indirect dans `dvi_dma_irq_handler`, signalés à reload.
+`PICO_MEM_IN_RAM`). Les deux points restants de l'outil, dans PicoDVI, sont sans effet :
+le littéral en flash est le message de `panic()` (« TMDS free queue full in
+IRQ! »), lu seulement si le firmware s'arrête ; l'appel indirect est
+`dvi0.scanline_callback`, que le Telestrat ne définit pas.
 
 **Verrous des files DVI** (v0.16.11) : `dvi_init` reçoit deux verrous
 dédiés (`spin_lock_claim_unused`) au lieu de `next_striped_spin_lock_num()`,
