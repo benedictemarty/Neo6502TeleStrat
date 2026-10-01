@@ -43,7 +43,10 @@ avec la NES : IRQ et NMI scrutées à l'avant-dernier cycle, avec le drapeau I
 d'avant `CLI` / `SEI` / `PLP`, et plus de détournement du vecteur NMI pendant
 `BRK` / IRQ (comportements mesurés sur carte par la NES) ; la version PC
 seulement (la carte a le vrai 65C02). Depuis v0.16.21 (`socle-2026-10-01-6`) :
-montage de la clé par `msc_app.c` du socle (section « Clé USB »).
+montage de la clé par `msc_app.c` du socle (section « Clé USB ») et
+fichiers par `neo_storage` du socle (`src/devices/neo_storage.h`, pilotes
+`neo_storage_fatfs.c` sur la carte et `platforms/pc/neo_storage_posix.h` au
+banc PC ; section « Menu à l'écran et clé USB »).
 
 ## Référence et système optimisé (sprint 4)
 
@@ -230,9 +233,36 @@ jusqu'à CTRL+C.
 
 **Clé USB** : stockage de masse monté par FatFs (`msc_app.c` de reload, LUN
 0 ; FAT12/16/32, exFAT, noms longs). Le Telestrat ne la voit pas : il voit
-les images `.dsk` dans les lecteurs du Microdisc (un `FIL` par lecteur,
-`wd1793_insert_streamed_file` avec ce `FIL` pour contexte, piste tamponnée
-partagée) et les `.rom` dans les banques. Une image n'est jamais dans deux
+les images `.dsk` dans les lecteurs du Microdisc (un `neo_file_t` par
+lecteur, `wd1793_insert_streamed_file` avec `neo_file_read_cb` /
+`neo_file_write_cb` et ce fichier pour contexte, piste tamponnée partagée)
+et les `.rom` dans les banques.
+
+**Volumes de fichiers** (v0.16.21, `neo_storage.h` du socle) : le firmware
+n'appelle plus FatFs directement. Volume 0 (`NEO_VOL_USB`) = la clé, pilote
+`neo_storage_fatfs.c` du socle (réserve de `NEO_FATFS_FILES` FIL de 88
+octets ; chaque écriture est synchronisée). Passent par lui : disquettes en
+flux, cassette lue (`neo_file_read_cb`) et enregistrée, imprimante texte
+(ajout en fin de fichier), pages FX-80 et tracés MCP-40, instantanés,
+`TELESTRA.CFG` (lu ligne à ligne comme `f_gets`, réécrit par
+`neo_file_save`), liste du menu (`neo_storage_list`), cartouches `.rom`,
+dépôt et relecture par la sonde (`diag_upload_poll` ; `diag_up_status` donne
+une cause, 1 à 4, au lieu d'un code FatFs). Seul appel FatFs restant :
+`f_unlink` d'un instantané manqué (neo_storage n'efface pas). Les sorties
+écrites par petits morceaux (cassette enregistrée octet par octet, PNG et
+SVG) passent par `src/devices/neo_writer.h`, un tampon fourni par
+l'appelant (64 octets pour la cassette, 512 pour les rendus) : une écriture
+synchronisée par tampon plein, au retour en arrière et à la fermeture.
+Fichiers ouverts en même temps, comptés pour `NEO_FATFS_FILES` : 4 lecteurs,
+cassette lue, cassette enregistrée, imprimante texte, plus un pour les
+actions du menu, `TELESTRA.CFG` ou la sonde (les profils et la reprise d'un
+instantané ferment leur fichier avant de charger des cartouches), plus la
+page ou le tracé en cours hors RAM 64 Ko : 9 (standard), 8 (RAM 64 Ko).
+Clé retirée : fichiers fermés (le volume est déjà démonté : aucune
+écriture), lecteurs vidés, image en flash dans A. Banc PC : volume 0 = le
+répertoire de `-U`, volume 1 = les chemins de la ligne de commande (`-0` …
+`-3`, `-K` lue en flux, `-C`, `-P`, `-G`, `-W`, `-X`, `-J`), pilote POSIX ;
+traces, images PPM et RAM restent en stdio. Une image n'est jamais dans deux
 lecteurs (fichier ouvert en écriture). Au montage : `TELESTRA.CFG` (`a=` …
 `d=`, `bank1=` … `bank7=`, `src/osd/osd_config.h`), sinon la première image
 dans A (`src/devices/drive_set.h`) ; cartouches chargées, puis RESET à froid.
@@ -446,7 +476,8 @@ Regagné pour cela : journal des accès en `$03xx` (8 Ko) compilé seulement ave
 pour la clé (lecteur « 0: », 588 octets au lieu de 3,5 Ko), FatFs du projet
 (`third_party/fatfs`, R0.15 de ChaN) réglé par son `ffconf.h` : `FF_FS_TINY`
 (les fichiers partagent le tampon du volume : 512 octets de moins par
-fichier ouvert, 7 fichiers) et noms longs de 64 caractères ; tampons du
+fichier ouvert ; 8 ou 9 FIL de 88 octets dans la réserve de
+`neo_storage_fatfs.c` depuis v0.16.21) et noms longs de 64 caractères ; tampons du
 modem USB (CDC) de 128 octets ; en RAM 64 Ko, 16 fichiers dans le menu et
 `diag_tx` de 256 octets. Tas disponible : 31,6 Ko (standard) et 23,1 Ko (RAM
 64 Ko), 22,5 Ko réservés dans les deux. La RAM 64 Ko avait d'abord été
@@ -559,7 +590,7 @@ instantanés antérieurs sont refusés ; version 3 : registres du WD1793 du
 socle, têtes `head[]`), STROBE et ACK. Pas enregistrés : disquettes et cassette (supports),
 enregistreur, joystick, ligne. Refusé pendant une commande du WD1793
 (`state != WD1793_IDLE`). Sur
-le Neo6502, le `FIL` et le texte sont pris dans l'image du Telestrat
+le Neo6502, le fichier (`neo_file_t`) et le texte sont pris dans l'image du Telestrat
 (menu ouvert), vérifié à la compilation (`_Static_assert`).
 
 RAM libre : 8,3 Ko (standard), 860 octets (RAM 64 Ko).
@@ -643,7 +674,8 @@ la file de la variante RAM 64 Ko passe de 256 à 64 octets. Fin de travail
 (page, fichier SVG terminés) : saut de page, ouverture du menu, 10 s sans
 octet. Changement de modèle : travail en cours terminé ; clé retirée :
 travail abandonné. Le rendu (FX-80 et MCP-40 en `union`, 5,3 Ko, plus un
-`FIL` de 0,5 Ko) n'existe pas dans la variante RAM 64 Ko (Texte seul).
+fichier et son tampon de 512 octets depuis v0.16.21) n'existe pas dans la
+variante RAM 64 Ko (Texte seul).
 
 RAM libre : 7,9 Ko (standard), 92 octets (RAM 64 Ko), plus le tas de 2 Ko.
 

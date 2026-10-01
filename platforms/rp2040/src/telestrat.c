@@ -6,7 +6,8 @@
 //
 // Clé USB (FAT/exFAT) : images .dsk (MFM_DISK) dans les lecteurs A à D, lues
 // et écrites piste par piste (wd1793_insert_streamed_file), images .rom en banque
-// (cartouches, en RAM) ; menu à l'écran (F1, src/osd) et TELESTRA.CFG.
+// (cartouches, en RAM) ; menu à l'écran (F1, src/osd) et TELESTRA.CFG. Les
+// fichiers passent par neo_storage du socle (volume 0 = la clé, pilote FatFs).
 //
 // Télématique : un PicoWiFiModemUSB (modem Hayes en USB CDC) sert de ligne au
 // Minitel émulé sur la prise de l'ACIA (devices/minitel_port.h) : appels
@@ -130,7 +131,12 @@ volatile uint32_t diag_io_n;
 #include "telestrat_flash_disk.h"
 #endif
 #include "neo_multiboot.h"
-#include "ff.h"
+#include "ff.h"  // f_unlink seulement (neo_storage n'efface pas de fichier)
+// Fichiers de la clé : volumes neo_storage du socle (volume 0 = la clé USB)
+#define NEO_STORAGE_IMPL
+#include "devices/neo_storage.h"
+#include "devices/neo_writer.h"
+extern const neo_storage_ops_t neo_storage_fatfs_ops;  // neo_storage_fatfs.c du socle
 
 typedef struct {
     telestrat_t telestrat;
@@ -280,7 +286,7 @@ static int rs232_rx(void *user_data) {
 // (IMPRIM.TXT par défaut ; vide : pas d'impression) à la racine de la clé.
 static byte_fifo_t printer_fifo;
 static char cfg_printer[48] = "IMPRIM.TXT";
-static FIL printer_fil;
+static neo_file_t printer_file;
 static bool printer_open = false;
 
 static void printer_out(uint8_t data, void *user_data) {
@@ -315,23 +321,25 @@ static union {
     fx80_t fx;
     mcp40_t mcp;
 } prn;
-static FIL render_fil;
+static neo_writer_t render_w;
+static uint8_t render_buf[512];  // une écriture de la clé (synchronisée) par 512 octets
 static bool render_open = false;
 static char render_name[16];    // dernier fichier ouvert
 static uint16_t render_next = 1;
 static int printer_idle = -1;   // trames sans octet (-1 : pas de travail en cours)
 
+static bool usb_exists(const char *name);
+
 static bool render_file_open(void *ctx, const char *ext) {
     (void)ctx;
     for (; render_next <= 9999; render_next++) {
         char png[16], svg[16];
-        FILINFO fi;
         snprintf(png, sizeof(png), "IMPR%04u.PNG", render_next);
         snprintf(svg, sizeof(svg), "IMPR%04u.SVG", render_next);
-        if (f_stat(png, &fi) == FR_OK || f_stat(svg, &fi) == FR_OK) continue;
+        if (usb_exists(png) || usb_exists(svg)) continue;
         snprintf(render_name, sizeof(render_name), "IMPR%04u.%s", render_next, ext);
         render_next++;
-        render_open = f_open(&render_fil, render_name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
+        render_open = neo_writer_open(&render_w, NEO_VOL_USB, render_name, render_buf, sizeof(render_buf));
         if (!render_open) render_name[0] = 0;
         return render_open;
     }
@@ -340,18 +348,17 @@ static bool render_file_open(void *ctx, const char *ext) {
 
 static void render_file_write(void *ctx, const void *data, uint32_t len) {
     (void)ctx;
-    UINT w;
-    if (render_open) f_write(&render_fil, data, len, &w);
+    if (render_open) neo_writer_write(&render_w, data, len);
 }
 
 static void render_file_seek(void *ctx, uint32_t pos) {
     (void)ctx;
-    if (render_open) f_lseek(&render_fil, pos);
+    if (render_open) neo_writer_seek(&render_w, pos);
 }
 
 static void render_file_close(void *ctx) {
     (void)ctx;
-    if (render_open) f_close(&render_fil);
+    if (render_open) neo_writer_close(&render_w);
     render_open = false;
 }
 
@@ -446,14 +453,12 @@ static osd_menu_t menu;
 static volatile bool osd_open = false;
 // Cassette (.tap de la clé) et son bandeau, incrusté sous l'image pendant que
 // le moteur tourne (dessiné par le cœur 0, affiché par le cœur 1)
-static FIL tape_fil;
-static bool tape_open = false;
+static neo_file_t tape_file;
 static char tape_name[OSD_NAME_LEN];
 static osd_row_t banner_row;
 static volatile bool banner_on = false;
 static bool usb_scanned = false;
-static FIL drive_fil[4];
-static bool drive_open[4];
+static neo_file_t drive_file[4];
 static char drive_name[4][OSD_NAME_LEN];  // "" : vide ; image en flash : nom réservé
 static const char FLASH_NAME[] = "(image en flash)";
 static char cfg_drive[4][OSD_NAME_LEN];   // TELESTRA.CFG : a= … d=
@@ -473,38 +478,33 @@ static bool has_ext(const char *name, const char *ext) {
     return true;
 }
 
-static bool usb_read(void *ctx, uint32_t offset, uint8_t *buf, uint32_t len) {
-    FIL *f = ctx;
-    UINT n = 0;
-    if (f_lseek(f, offset) != FR_OK || f_read(f, buf, len, &n) != FR_OK) return false;
-    return n == len;
+// Fichier présent sur la clé (ouvert puis refermé)
+static bool usb_exists(const char *name) {
+    neo_file_t f;
+    if (!neo_file_open(&f, NEO_VOL_USB, name, NEO_READ)) return false;
+    neo_file_close(&f);
+    return true;
 }
 
-static bool usb_write(void *ctx, uint32_t offset, const uint8_t *buf, uint32_t len) {
-    FIL *f = ctx;
-    UINT n = 0;
-    if (f_lseek(f, offset) != FR_OK || f_write(f, buf, len, &n) != FR_OK || n != len) return false;
-    return f_sync(f) == FR_OK;
+// Une entrée de la racine ; false (fin du parcours) quand la liste est pleine
+static bool usb_scan_entry(const neo_dirent_t *e, void *user) {
+    (void)user;
+    if (e->dir) return true;
+    const bool dsk = has_ext(e->name, ".dsk"), rom = has_ext(e->name, ".rom"), tap = has_ext(e->name, ".tap"),
+               sta = has_ext(e->name, ".sta");
+    if ((!dsk && !rom && !tap && !sta) || strlen(e->name) >= OSD_NAME_LEN) return true;
+    osd_file_t *f = &menu.files[menu.nfiles++];
+    snprintf(f->name, sizeof(f->name), "%s", e->name);
+    f->size = e->size;
+    f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : sta ? OSD_FILE_STA : OSD_FILE_ROM;
+    return menu.nfiles < OSD_MENU_FILES;
 }
 
-// Fichiers .dsk et .rom de la racine (noms longs jusqu'à OSD_NAME_LEN - 1)
+// Fichiers .dsk, .rom, .tap et .sta de la racine (noms longs jusqu'à OSD_NAME_LEN - 1)
 static void usb_scan(void) {
-    DIR dir;
-    FILINFO fno;
     menu.nfiles = 0;
-    menu.usb_present = msc_inquiry_complete && f_opendir(&dir, "/") == FR_OK;
+    menu.usb_present = msc_inquiry_complete && neo_storage_list(NEO_VOL_USB, "/", usb_scan_entry, NULL);
     if (!menu.usb_present) return;
-    while (menu.nfiles < OSD_MENU_FILES && f_readdir(&dir, &fno) == FR_OK && fno.fname[0]) {
-        if (fno.fattrib & AM_DIR) continue;
-        const bool dsk = has_ext(fno.fname, ".dsk"), rom = has_ext(fno.fname, ".rom"), tap = has_ext(fno.fname, ".tap"),
-                   sta = has_ext(fno.fname, ".sta");
-        if ((!dsk && !rom && !tap && !sta) || strlen(fno.fname) >= OSD_NAME_LEN) continue;
-        osd_file_t *f = &menu.files[menu.nfiles++];
-        snprintf(f->name, sizeof(f->name), "%s", fno.fname);
-        f->size = (uint32_t)fno.fsize;
-        f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : sta ? OSD_FILE_STA : OSD_FILE_ROM;
-    }
-    f_closedir(&dir);
     // Tri par nom (insertion : 64 fichiers au plus)
     for (int i = 1; i < menu.nfiles; i++) {
         osd_file_t t = menu.files[i];
@@ -520,8 +520,7 @@ static void usb_scan(void) {
 
 static void drive_eject(int d) {
     wd1793_eject(&state.telestrat.fdc.wd, d);  // réécrit la piste en attente
-    if (drive_open[d]) f_close(&drive_fil[d]);
-    drive_open[d] = false;
+    neo_file_close(&drive_file[d]);
     drive_name[d][0] = 0;
 }
 
@@ -530,13 +529,12 @@ static bool drive_insert(int d, const char *name) {
     for (int o = 0; o < 4; o++)
         if (o != d && !strcmp(drive_name[o], name)) return false;
     drive_eject(d);
-    FIL *f = &drive_fil[d];
-    const bool rw = f_open(f, name, FA_READ | FA_WRITE) == FR_OK;
-    if (!rw && f_open(f, name, FA_READ) != FR_OK) return false;
-    drive_open[d] = true;
-    if (!wd1793_insert_streamed_file(&state.telestrat.fdc.wd, d, (uint32_t)f_size(f), usb_read, rw ? usb_write : NULL, f)) {
-        f_close(f);
-        drive_open[d] = false;
+    neo_file_t *f = &drive_file[d];
+    const bool rw = neo_file_open(f, NEO_VOL_USB, name, NEO_READ | NEO_WRITE);
+    if (!rw && !neo_file_open(f, NEO_VOL_USB, name, NEO_READ)) return false;
+    if (!wd1793_insert_streamed_file(&state.telestrat.fdc.wd, d, f->size, neo_file_read_cb, rw ? neo_file_write_cb : NULL,
+                                     f)) {
+        neo_file_close(f);
         return false;
     }
     snprintf(drive_name[d], sizeof(drive_name[d]), "%s", name);
@@ -558,16 +556,15 @@ static void bank_restore(int bank) { rom_pool_restore(&pool, &state.telestrat, b
 
 // Cartouche de la clé en banque ; *err : raison d'un refus
 static bool bank_load(int bank, const char *name, const char **err) {
-    FIL f;
-    if (f_open(&f, name, FA_READ) != FR_OK) {
+    neo_file_t f;
+    if (!neo_file_open(&f, NEO_VOL_USB, name, NEO_READ)) {
         *err = "fichier illisible";
         return false;
     }
-    const size_t size = f_size(&f);
+    const size_t size = f.size;
     uint8_t *dst = rom_pool_claim(&pool, &state.telestrat, bank, size, err);
-    UINT n = 0;
     bool ok = dst != NULL;
-    if (ok && (f_read(&f, dst, (UINT)size, &n) != FR_OK || n != size)) {
+    if (ok && !neo_file_read(&f, 0, dst, (uint32_t)size)) {
         *err = "lecture impossible";
         rom_pool_abort(&pool, &state.telestrat, bank);
         ok = false;
@@ -576,7 +573,7 @@ static bool bank_load(int bank, const char *name, const char **err) {
         rom_pool_commit(&pool, &state.telestrat, bank, size, name);
         printf("Banque %d : %s\n", bank, name);
     }
-    f_close(&f);
+    neo_file_close(&f);
     return ok;
 }
 
@@ -591,47 +588,40 @@ static const char *bank_label(int b) {
     return state.telestrat.bank_type_orig[b] == TELESTRAT_BANK_RAM ? (b == 0 ? "RAM interne" : "RAM 16 Ko") : "";
 }
 
-static bool tape_read(void *ctx, uint32_t offset, uint8_t *buf, uint32_t len) {
-    (void)ctx;
-    UINT n = 0;
-    if (!tape_open || f_lseek(&tape_fil, offset) != FR_OK || f_read(&tape_fil, buf, len, &n) != FR_OK) return false;
-    return n == len;
-}
-
 static void tape_eject(void) {
     telestrat_tape_insert(&state.telestrat, 0, NULL, NULL);
-    if (tape_open) f_close(&tape_fil);
-    tape_open = false;
+    neo_file_close(&tape_file);
     tape_name[0] = 0;
 }
 
-// Cassette de la clé (la même : rembobinée)
+// Cassette de la clé (la même : rembobinée), lue en flux
 static bool tape_insert(const char *name) {
     tape_eject();
-    if (f_open(&tape_fil, name, FA_READ) != FR_OK) return false;
-    tape_open = true;
+    if (!neo_file_open(&tape_file, NEO_VOL_USB, name, NEO_READ)) return false;
     snprintf(tape_name, sizeof(tape_name), "%s", name);
-    telestrat_tape_insert(&state.telestrat, (uint32_t)f_size(&tape_fil), tape_read, NULL);
+    telestrat_tape_insert(&state.telestrat, tape_file.size, neo_file_read_cb, &tape_file);
     printf("Cassette : %s\n", name);
     return true;
 }
 
-// CSAVE : NOM.TAP à la racine de la clé (oric_tape_rec.h)
-static FIL rec_fil;
+// CSAVE : NOM.TAP à la racine de la clé (oric_tape_rec.h), écrit octet par
+// octet pendant l'émulation : tamponné (une écriture de la clé par 64 octets)
+static neo_writer_t rec_w;
+static uint8_t rec_buf[64];
 static bool rec_open(void *ctx, const char *name) {
     (void)ctx;
-    const bool ok = f_open(&rec_fil, name, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
+    neo_writer_close(&rec_w);
+    const bool ok = neo_writer_open(&rec_w, NEO_VOL_USB, name, rec_buf, sizeof(rec_buf));
     printf("Cassette : enregistrement de %s%s\n", name, ok ? "" : " impossible");
     return ok;
 }
 static void rec_write(void *ctx, const uint8_t *data, uint32_t len) {
     (void)ctx;
-    UINT n = 0;
-    f_write(&rec_fil, data, len, &n);
+    neo_writer_write(&rec_w, data, len);
 }
 static void rec_close(void *ctx) {
     (void)ctx;
-    f_close(&rec_fil);
+    neo_writer_close(&rec_w);
 }
 
 // Bandeau : à chaque trame, pendant une lecture ou un enregistrement
@@ -707,24 +697,15 @@ _Static_assert(sizeof(osd_surface_t) + 4096 <= sizeof(state.telestrat.fb), "imag
 static void config_save(void) {
     char *old = (char *)state.telestrat.fb + sizeof(osd_surface_t);
     char *out = old + 2048;
-    FIL f;
-    UINT n = 0;
-    old[0] = 0;
-    if (f_open(&f, "TELESTRA.CFG", FA_READ) == FR_OK) {
-        f_read(&f, old, 2048 - 1, &n);
-        old[n] = 0;
-        f_close(&f);
-    }
+    uint32_t n = 0;
+    neo_file_load(NEO_VOL_USB, "TELESTRA.CFG", (uint8_t *)old, 2048 - 1, &n, false);
+    old[n] = 0;
     const char *drives[4], *banks[8];
     for (int d = 0; d < 4; d++) drives[d] = strcmp(drive_name[d], FLASH_NAME) ? drive_name[d] : NULL;
     for (int b = 0; b < 8; b++) banks[b] = pool.name[b];
     const osd_options_t opt = {printer_enabled, printer_type, modem_enabled, tape_turbo, tape_motor_always, audio_volume_level()};
     const size_t len = osd_config_merge_ex(old, drives, banks, &opt, out, 2048);
-    bool ok = len > 0 && f_open(&f, "TELESTRA.CFG", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK;
-    if (ok) {
-        ok = f_write(&f, out, (UINT)len, &n) == FR_OK && n == len;
-        f_close(&f);
-    }
+    const bool ok = len > 0 && neo_file_save(NEO_VOL_USB, "TELESTRA.CFG", (const uint8_t *)out, (uint32_t)len);
     osd_menu_message(&menu, !ok, ok ? "Configuration enregistrée dans TELESTRA.CFG" : "TELESTRA.CFG : écriture impossible");
 }
 
@@ -752,11 +733,12 @@ static int tape_options_apply(void) {
 }
 
 /*-- Instantanés (src/systems/telestrat_state.h) -------------------------------*/
-// Fichiers ETATnnnn.STA à la racine de la clé. Menu ouvert : le FIL et le
-// texte des cartouches sont pris dans l'image du Telestrat, après la surface
-// du menu (comme config_save), sans RAM de plus.
+// Fichiers ETATnnnn.STA à la racine de la clé. Menu ouvert : le fichier, sa
+// position et le texte des cartouches sont pris dans l'image du Telestrat,
+// après la surface du menu (comme config_save), sans RAM de plus.
 typedef struct {
-    FIL fil;
+    neo_file_t file;
+    uint32_t pos;  // lecture : position suivante
     char info[TELESTRAT_STATE_INFO_MAX + 1];
 } state_work_t;
 
@@ -769,13 +751,14 @@ static state_work_t *state_work(void) {
 }
 
 static bool state_write(void *ctx, void *data, uint32_t len) {
-    UINT n = 0;
-    return f_write((FIL *)ctx, data, len, &n) == FR_OK && n == len;
+    return neo_file_append(&((state_work_t *)ctx)->file, data, len);
 }
 
 static bool state_read(void *ctx, void *data, uint32_t len) {
-    UINT n = 0;
-    return f_read((FIL *)ctx, data, len, &n) == FR_OK && n == len;
+    state_work_t *w = ctx;
+    if (!neo_file_read(&w->file, w->pos, data, len)) return false;
+    w->pos += len;
+    return true;
 }
 
 // Cartouches (bank1= … bank7=, vide : origine) et supports (pour information)
@@ -784,34 +767,38 @@ static void state_info(char *out, size_t cap) {
     for (int b = 1; b < 8 && n < cap; b++) n += (size_t)snprintf(out + n, cap - n, "bank%d=%s\n", b, pool.name[b]);
     for (int d = 0; d < 4 && n < cap; d++)
         if (drive_name[d][0]) n += (size_t)snprintf(out + n, cap - n, "%c=%s\n", 'a' + d, drive_name[d]);
-    if (n < cap && tape_open) snprintf(out + n, cap - n, "cassette=%s\n", tape_name);
+    if (n < cap && neo_file_is_open(&tape_file)) snprintf(out + n, cap - n, "cassette=%s\n", tape_name);
 }
 
 static bool state_save(char *name, size_t cap, const char **err) {
     state_work_t *w = state_work();
-    FILINFO fi;
-    for (int k = 1; k <= 9999; k++) {
+    bool free_name = false;
+    for (int k = 1; k <= 9999 && !free_name; k++) {
         snprintf(name, cap, "ETAT%04d.STA", k);
-        if (f_stat(name, &fi) != FR_OK) break;
+        free_name = !usb_exists(name);
     }
-    if (f_open(&w->fil, name, FA_CREATE_NEW | FA_WRITE) != FR_OK) {
+    if (!free_name || !neo_file_open(&w->file, NEO_VOL_USB, name, NEO_WRITE | NEO_CREATE)) {
         *err = "écriture impossible";
         return false;
     }
     state_info(w->info, sizeof(w->info));
-    const bool ok = telestrat_state_save(&state.telestrat, w->info, state_write, &w->fil, err);
-    f_close(&w->fil);
-    if (!ok) f_unlink(name);
+    const bool ok = telestrat_state_save(&state.telestrat, w->info, state_write, w, err);
+    neo_file_close(&w->file);
+    if (!ok) f_unlink(name);  // volume 0 : la clé, lecteur FatFs courant
     return ok;
 }
 
 static bool state_load(const char *name, const char **err) {
     state_work_t *w = state_work();
-    if (f_open(&w->fil, name, FA_READ) != FR_OK) {
+    if (!neo_file_open(&w->file, NEO_VOL_USB, name, NEO_READ)) {
         *err = "illisible";
         return false;
     }
-    bool ok = telestrat_state_load_info(state_read, &w->fil, w->info, sizeof(w->info), err);
+    w->pos = 0;
+    bool ok = telestrat_state_load_info(state_read, w, w->info, sizeof(w->info), err);
+    // Fermé pendant le chargement des cartouches (un fichier ouvert à la fois
+    // pour les actions du menu), rouvert ensuite à la même position
+    neo_file_close(&w->file);
     for (char *line = ok ? strtok(w->info, "\n") : NULL; ok && line; line = strtok(NULL, "\n")) {
         for (int b = 1; b < 8; b++) {
             char key[8];
@@ -826,11 +813,15 @@ static bool state_load(const char *name, const char **err) {
             }
         }
     }
-    if (ok && !telestrat_state_load_machine(&state.telestrat, state_read, &w->fil, err)) {
+    if (ok && !neo_file_open(&w->file, NEO_VOL_USB, name, NEO_READ)) {
+        *err = "illisible";
+        ok = false;
+    }
+    if (ok && !telestrat_state_load_machine(&state.telestrat, state_read, w, err)) {
         telestrat_cold_reset(&state.telestrat);  // machine incohérente
         ok = false;
     }
-    f_close(&w->fil);
+    neo_file_close(&w->file);
     return ok;
 }
 
@@ -840,6 +831,20 @@ static void menu_close(void) {
     state.telestrat.screen_dirty = true;  // l'image a servi de surface au menu
 }
 
+// Ligne suivante d'un fichier texte, lu à partir de *pos : comme f_gets de
+// FatFs, fin de ligne gardée, n - 1 caractères au plus ; NULL à la fin
+static char *cfg_gets(neo_file_t *f, uint32_t *pos, char *line, uint32_t n) {
+    uint32_t len = f->size - *pos;
+    if (len > n - 1) len = n - 1;
+    if (!len || !neo_file_read(f, *pos, (uint8_t *)line, len)) return NULL;
+    uint32_t k = 0;
+    while (k < len && line[k++] != '\n') {
+    }
+    line[k] = 0;
+    *pos += k;
+    return line;
+}
+
 // Profil de la clé : la k-ième ligne « profil= » de TELESTRA.CFG
 static bool bank_load_cb(void *ctx, int bank, const char *name, const char **err) {
     (void)ctx;
@@ -847,22 +852,23 @@ static bool bank_load_cb(void *ctx, int bank, const char *name, const char **err
 }
 
 static bool user_profile_apply(int k, const char **err) {
-    FIL f;
+    neo_file_t f;
     *err = "profil absent de TELESTRA.CFG";
-    if (f_open(&f, "TELESTRA.CFG", FA_READ) != FR_OK) return false;
+    if (!neo_file_open(&f, NEO_VOL_USB, "TELESTRA.CFG", NEO_READ)) return false;
     char line[160];
+    const char *v = NULL;
+    uint32_t pos = 0;
     int n = 0;
-    bool ok = false;
-    while (f_gets(line, sizeof(line), &f)) {
+    while (cfg_gets(&f, &pos, line, sizeof(line))) {
         char *e = line + strlen(line);
         while (e > line && (e[-1] == '\r' || e[-1] == '\n' || e[-1] == ' ')) *--e = 0;
-        const char *v = osd_config_value(line, "profil");
-        if (!v || n++ != k) continue;
-        ok = rom_user_profile_apply(&pool, &state.telestrat, v, bank_load_cb, NULL, err);
-        break;
+        v = osd_config_value(line, "profil");
+        if (v && n++ == k) break;
+        v = NULL;
     }
-    f_close(&f);
-    return ok;
+    // Fichier fermé avant de charger les cartouches (un seul ouvert à la fois)
+    neo_file_close(&f);
+    return v && rom_user_profile_apply(&pool, &state.telestrat, v, bank_load_cb, NULL, err);
 }
 
 static void menu_action(osd_action_t a) {
@@ -1028,19 +1034,22 @@ static void printer_flush(void) {
         return;
     }
     if (!printer_open) {
-        printer_open = f_open(&printer_fil, cfg_printer, FA_OPEN_APPEND | FA_WRITE) == FR_OK;
+        // Ajout à la fin du fichier, créé s'il n'existe pas
+        printer_open = neo_file_open(&printer_file, NEO_VOL_USB, cfg_printer, NEO_READ | NEO_WRITE) ||
+                       neo_file_open(&printer_file, NEO_VOL_USB, cfg_printer, NEO_WRITE | NEO_CREATE);
         if (!printer_open) {
             byte_fifo_drop(&printer_fifo, byte_fifo_count(&printer_fifo));
             return;
         }
+        printer_file.pos = printer_file.size;
     }
+    // Une écriture (synchronisée) par morceau contigu de la file : deux au
+    // plus par trame
     const uint8_t *p;
     while ((p = byte_fifo_peek(&printer_fifo, &n)), n) {
-        UINT w = 0;
-        f_write(&printer_fil, p, n, &w);
+        neo_file_append(&printer_file, p, n);
         byte_fifo_drop(&printer_fifo, n);
     }
-    f_sync(&printer_fil);
 }
 
 #ifdef PRINTER_RENDER
@@ -1097,23 +1106,26 @@ static bool usb_key_present(void) {
     return false;
 }
 
-// Clé retirée : fichiers abandonnés (ils ne sont plus accessibles), lecteurs
-// vidés (l'image en flash revient dans A), cassette éjectée ; les cartouches
-// déjà chargées restent (en RAM)
+// Clé retirée : fichiers abandonnés (ils ne sont plus accessibles ; fermés
+// sans écriture, le volume est déjà démonté), lecteurs vidés (l'image en
+// flash revient dans A), cassette éjectée ; les cartouches déjà chargées
+// restent (en RAM)
 static void usb_unplugged(void) {
     for (int d = 0; d < 4; d++) {
-        if (!drive_open[d]) continue;
+        if (!neo_file_is_open(&drive_file[d])) continue;
         wd1793_eject(&state.telestrat.fdc.wd, d);
-        drive_open[d] = false;
+        neo_file_close(&drive_file[d]);
         drive_name[d][0] = 0;
     }
     telestrat_tape_insert(&state.telestrat, 0, NULL, NULL);
-    tape_open = false;
+    neo_file_close(&tape_file);
     tape_name[0] = 0;
     oric_tape_rec_motor_off(&state.telestrat.tape_rec);  // enregistrement interrompu
+    neo_writer_close(&rec_w);
+    neo_file_close(&printer_file);
     printer_open = false;
 #ifdef PRINTER_RENDER
-    render_open = false;  // travail en cours perdu (clé retirée)
+    render_file_close(NULL);  // travail en cours perdu (clé retirée)
     render_init();
 #endif
     menu.nfiles = 0;
@@ -1188,20 +1200,21 @@ static void usb_poll(void) {
 // « a= » … « d= », « bank1= » … « bank7= » (une clé par ligne)
 
 static void read_config(void) {
-    FIL f;
+    neo_file_t f;
+    uint32_t pos = 0;
     memset(cfg_drive, 0, sizeof(cfg_drive));
     memset(cfg_bank, 0, sizeof(cfg_bank));
     cfg_boot[0] = 0;
     user_n = 0;
     snprintf(cfg_printer, sizeof(cfg_printer), "IMPRIM.TXT");
-    if (f_open(&f, "TELESTRA.CFG", FA_READ) != FR_OK) return;
+    if (!neo_file_open(&f, NEO_VOL_USB, "TELESTRA.CFG", NEO_READ)) return;
     char line[160];
-    while (f_gets(line, sizeof(line), &f)) {
+    while (cfg_gets(&f, &pos, line, sizeof(line))) {
         // Ligne plus longue que le tampon : la suite est sautée (pas lue
         // comme une autre ligne)
-        if (!strchr(line, '\n') && !f_eof(&f)) {
+        if (!strchr(line, '\n') && pos < f.size) {
             char skip[32];
-            while (f_gets(skip, sizeof(skip), &f) && !strchr(skip, '\n')) {
+            while (cfg_gets(&f, &pos, skip, sizeof(skip)) && !strchr(skip, '\n')) {
             }
         }
         char *e = line + strlen(line);
@@ -1246,7 +1259,7 @@ static void read_config(void) {
             if ((v = osd_config_value(line, key))) snprintf(cfg_bank[b], sizeof(cfg_bank[b]), "%s", v);
         }
     }
-    f_close(&f);
+    neo_file_close(&f);
     printf("TELESTRA.CFG : dial=%s listen=%d rs232=%s\n", cfg_dial, cfg_listen, cfg_rs232_uext ? "uext" : "usb");
     if (modem_idx >= 0) modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
 }
@@ -1307,6 +1320,9 @@ static void line_send(void *ctx, uint8_t data) {
 }
 
 void app_init(void) {
+    // Volume 0 : la clé, lecteur FatFs courant (« 0: », monté par msc_poll) ;
+    // servi une fois la clé montée (usb_scanned, msc_inquiry_complete)
+    neo_storage_set(NEO_VOL_USB, "Clé USB", &neo_storage_fatfs_ops, "");
     modem_mux_init(&mux, &modem);
     hayes = hayes_line_line(&modem);
     minitel_line_t line = {line_dial, line_answer, line_hangup, line_incoming, line_carrier, line_recv, line_send, NULL};
@@ -1370,7 +1386,7 @@ volatile uint8_t diag_menu;
 /*-- Dépôt de fichiers sur la clé par la sonde (tools/carte.py deposer) --------*/
 // La sonde écrit un morceau dans l'image du Telestrat (diag_up_len octets),
 // puis la commande ; le firmware l'exécute à la trame suivante et remet
-// diag_up_cmd à 0 (diag_up_status : 0 bon, sinon code FatFs). Émulation en
+// diag_up_cmd à 0 (diag_up_status : DIAG_UP_OK, sinon la cause). Émulation en
 // pause du début à la fin du dépôt (l'image sert de tampon : l'écran montre
 // les données pendant le transfert, puis image ou menu sont redessinés).
 #define DIAG_UP_CHUNK 16384
@@ -1380,39 +1396,45 @@ volatile uint32_t diag_up_off;      // relecture : décalage dans le fichier
 volatile int32_t diag_up_status;
 volatile char diag_up_name[40];
 static bool diag_up_active;
-// FIL pris dans l'image aussi, après le tampon (pas de RAM de plus)
-#define diag_up_fil (*(FIL *)((uintptr_t)(state.telestrat.fb + DIAG_UP_CHUNK + 7) & ~(uintptr_t)7))
+// Causes d'échec (diag_up_status, lu par tools/carte.py)
+#define DIAG_UP_OK        0
+#define DIAG_UP_NOT_READY 1  // pas de clé
+#define DIAG_UP_OPEN      2  // création ou ouverture impossible
+#define DIAG_UP_IO        3  // écriture (clé pleine…) ou lecture impossible
+#define DIAG_UP_CMD       4  // commande inconnue, ou sans fichier ouvert
+// Fichier pris dans l'image aussi, après le tampon (pas de RAM de plus)
+#define diag_up_file (*(neo_file_t *)((uintptr_t)(state.telestrat.fb + DIAG_UP_CHUNK + 7) & ~(uintptr_t)7))
 
-_Static_assert(DIAG_UP_CHUNK + 8 + sizeof(FIL) <= TELESTRAT_FRAMEBUFFER_SIZE, "tampon de dépôt hors de l'image");
+_Static_assert(DIAG_UP_CHUNK + 8 + sizeof(neo_file_t) <= TELESTRAT_FRAMEBUFFER_SIZE, "tampon de dépôt hors de l'image");
 
 static void diag_upload_poll(void) {
     const uint32_t cmd = diag_up_cmd;
     if (!cmd) return;
-    FRESULT r = FR_OK;
+    int32_t r = DIAG_UP_OK;
     if (cmd == 1) {
         char name[40];
         for (int i = 0; i < 39; i++) name[i] = diag_up_name[i];
         name[39] = 0;
-        if (diag_up_active) f_close(&diag_up_fil);
-        r = usb_scanned ? f_open(&diag_up_fil, name, FA_CREATE_ALWAYS | FA_WRITE) : FR_NOT_READY;
-        diag_up_active = r == FR_OK;
+        if (diag_up_active) neo_file_close(&diag_up_file);
+        diag_up_active = usb_scanned && neo_file_open(&diag_up_file, NEO_VOL_USB, name, NEO_WRITE | NEO_CREATE);
+        r = diag_up_active ? DIAG_UP_OK : usb_scanned ? DIAG_UP_OPEN : DIAG_UP_NOT_READY;
     } else if (cmd == 2 && diag_up_active) {
-        UINT w = 0;
         const uint32_t n = diag_up_len < DIAG_UP_CHUNK ? diag_up_len : DIAG_UP_CHUNK;
-        r = f_write(&diag_up_fil, state.telestrat.fb, n, &w);
-        if (r == FR_OK && w != n) r = FR_DENIED;  // clé pleine
+        if (!neo_file_append(&diag_up_file, state.telestrat.fb, n)) r = DIAG_UP_IO;  // clé pleine
     } else if (cmd == 4) {
         // Relecture : le début du fichier dans l'image, diag_up_len = octets lus
         char name[40];
         for (int i = 0; i < 39; i++) name[i] = diag_up_name[i];
         name[39] = 0;
-        UINT n = 0;
-        r = f_open(&diag_up_fil, name, FA_READ);
-        if (r == FR_OK) {
+        uint32_t n = 0;
+        r = DIAG_UP_OPEN;
+        if (neo_file_open(&diag_up_file, NEO_VOL_USB, name, NEO_READ)) {
             diag_up_active = true;  // émulation en pause pendant la relecture
-            r = f_lseek(&diag_up_fil, diag_up_off);
-            if (r == FR_OK) r = f_read(&diag_up_fil, state.telestrat.fb, DIAG_UP_CHUNK, &n);
-            f_close(&diag_up_fil);
+            const uint32_t left = diag_up_off < diag_up_file.size ? diag_up_file.size - diag_up_off : 0;
+            n = left < DIAG_UP_CHUNK ? left : DIAG_UP_CHUNK;
+            r = !n || neo_file_read(&diag_up_file, diag_up_off, state.telestrat.fb, n) ? DIAG_UP_OK : DIAG_UP_IO;
+            if (r != DIAG_UP_OK) n = 0;
+            neo_file_close(&diag_up_file);
         }
         diag_up_len = n;
     } else if (cmd == 5) {
@@ -1420,7 +1442,7 @@ static void diag_upload_poll(void) {
         state.telestrat.screen_dirty = true;
         if (osd_open) menu_draw();  // l'image servait de tampon : menu redessiné
     } else if (cmd == 3 && diag_up_active) {
-        r = f_close(&diag_up_fil);
+        r = neo_file_close(&diag_up_file) ? DIAG_UP_OK : DIAG_UP_IO;
         diag_up_active = false;
         usb_scan();  // le menu voit le nouveau fichier
         state.telestrat.screen_dirty = true;
@@ -1429,7 +1451,7 @@ static void diag_upload_poll(void) {
             menu_draw();
         }
     } else {
-        r = FR_INVALID_PARAMETER;
+        r = DIAG_UP_CMD;
     }
     diag_up_status = r;
     diag_up_cmd = 0;

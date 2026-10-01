@@ -25,6 +25,7 @@
 //     3. This notice may not be removed or altered from any source
 //     distribution.
 
+#define _POSIX_C_SOURCE 200809L  // fileno (pilote neo_storage POSIX)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +33,9 @@
 #include "osd/osd_font.h"
 #include "devices/printer_fx80.h"
 #include "devices/plotter_mcp40.h"
+#define NEO_STORAGE_IMPL
+#include "devices/neo_storage.h"
+#include "neo_storage_posix.h"
 #include "printer_files.h"
 
 static fx80_t fx;
@@ -47,8 +51,9 @@ int main(int argc, char** argv) {
         perror(argv[2]);
         return 1;
     }
-    printer_files_t pf;
-    const printer_out_t out = printer_files_out(&pf, argv[3]);
+    static printer_files_t pf;
+    neo_storage_set(0, "Fichiers", &neo_storage_posix_ops, "");  // chemins tels quels
+    const printer_out_t out = printer_files_out(&pf, 0, argv[3]);
     const bool plotter = !strcmp(argv[1], "mcp40");
     if (plotter) mcp40_init(&mcp, &out);
     else fx80_init(&fx, &out, osd_font);

@@ -141,6 +141,11 @@ def ecran(png=None):
         print(png)
 
 
+# diag_up_status du firmware (v0.16.21 et suivants : causes ; avant : codes FatFs)
+ETATS_DEPOT = {1: "pas de clé", 2: "création ou ouverture impossible", 3: "écriture ou lecture impossible",
+               4: "commande refusée"}
+
+
 def deposer(fichiers):
     """Dépose des fichiers à la racine de la clé : morceaux de 16 Ko chargés
     dans l'image du Telestrat (load_image), écrits par le firmware ; une seule
@@ -192,7 +197,7 @@ def relire(nom, sortie=None):
         etat, n = lire_mots(s["diag_up_status"], 1)[0], lire_mots(s["diag_up_len"], 1)[0]
         if etat:
             openocd("mww 0x%08x 5" % s["diag_up_cmd"])
-            raise SystemExit(f"{nom} : lecture impossible (FatFs {etat})")
+            raise SystemExit(f"{nom} : lecture impossible ({ETATS_DEPOT.get(etat, etat)})")
         data += lire_octets(fb, n) if n else b""
         if n < 16384:
             break

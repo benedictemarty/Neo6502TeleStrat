@@ -27,7 +27,7 @@ passés sur la copie locale `src/chips/w65c02cpu.h` (programme
 
 Seule la version PC utilise ce cœur. Sur la carte, c'est le vrai W65C02.
 
-## Tests unitaires — `tests/test_telestrat.c` (467 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (481 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -64,6 +64,12 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - mode flux : lecture par rappel, pas de relecture sur la même piste, piste
   réécrite une fois après WRITE SECTOR, relue en mode mémoire, protection
   (signalée à la fin de la commande, après 20 µs) ;
+- fichiers par `neo_storage` (pilote en mémoire du socle, v0.16.21) :
+  disquette en flux par `neo_file_read_cb` / `neo_file_write_cb` (lecture,
+  piste écrite en fin de commande puis relue), image en lecture seule
+  refusée en écriture et protégée, fichier absent ; écriture tamponnée
+  (`neo_writer.h`) : tampon plein, écriture plus grande que le tampon,
+  retour en arrière, échec signalé à la fermeture ;
 - pas au repos du FDC : un contrôleur avancé par pas de 4 cycles et un autre
   dont les pas annoncés sans événement (`telestrat_fdc_quiet_steps`, d'après
   `wd1793_next_event_us`) sont sautés puis rattrapés restent identiques (DRQ,

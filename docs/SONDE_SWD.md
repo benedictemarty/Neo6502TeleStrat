@@ -87,7 +87,8 @@ Principe (Telestrat, `tools/carte.py deposer`, 1 Mo en 8 s) : le firmware
 offre un tampon en RAM et quelques variables (commande, longueur, nom,
 état) ; la sonde charge un morceau (`load_image`), écrit la longueur puis la
 commande, attend que le firmware remette la commande à 0 ; le firmware
-écrit le morceau par FatFs **depuis sa boucle principale**, émulation en
+écrit le morceau sur la clé (neo_storage du socle, pilote FatFs) **depuis sa
+boucle principale**, émulation en
 pause pendant le transfert (le tampon est libre), puis redessine l'écran.
 Détails : `platforms/rp2040/src/telestrat.c`, `diag_upload_poll()`.
 

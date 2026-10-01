@@ -56,6 +56,7 @@ add_executable(telestrat
     ${RELOAD_RP2040}/src/hid_app.c  # socle : clavier, manettes, touches multimédia
     ${RELOAD_RP2040}/src/audio.c
     ${RELOAD_RP2040}/src/msc_app.c  # socle : montage de la clé hors de tuh_task (msc_poll)
+    ${RELOAD_RP2040}/src/neo_storage_fatfs.c  # socle : volume 0 de neo_storage (la clé) sur FatFs
 )
 
 
@@ -87,6 +88,13 @@ target_compile_definitions(telestrat PRIVATE
     DVI_DEFAULT_SERIAL_CONFIG=olimex_neo6502_cfg
     # Une seule clé montée, un seul FATFS (588 octets) en lecteur « 0: »
     MSC_VOLUMES=1
+    # Fichiers ouverts en même temps (FIL de neo_storage_fatfs.c, 88 octets
+    # chacun) : 4 lecteurs, cassette lue, cassette enregistrée, imprimante
+    # texte, plus un pour les actions du menu, TELESTRA.CFG ou la sonde
+    # (ouverts l'un après l'autre) ; plus la page ou le tracé en cours (FX-80,
+    # MCP-40) hors de la variante RAM 64 Ko
+    $<$<BOOL:${TELESTRAT_RAM64K}>:NEO_FATFS_FILES=8>
+    $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:NEO_FATFS_FILES=9>
     $<$<BOOL:${TELESTRAT_VIDEO_480}>:TELESTRAT_VIDEO_480>
     $<$<BOOL:${TELESTRAT_RAM64K}>:TELESTRAT_RAM64K>
     $<$<BOOL:${TELESTRAT_RAM64K}>:OSD_MENU_FILES=16>

@@ -61,6 +61,11 @@
 //              .ev (clavier), .aud (échantillons audio), .ser (octets série et leur
 //              cycle), .ring (sonnerie par tranche de 1 ms)
 //
+// Fichiers de la machine (disquettes, cassettes, imprimante, instantanés, clé
+// du menu) : par neo_storage du socle, comme sur la carte (pilote POSIX) ;
+// volume 0 = le répertoire de -U (la clé), volume 1 = les chemins de la ligne
+// de commande tels quels. Traces, images et RAM du banc : stdio.
+//
 // ## Licence zlib/libpng
 //
 // Copyright (c) 2026 bmarty
@@ -110,6 +115,11 @@
 #else
 #include "systems/telestrat.h"
 #endif
+#define NEO_STORAGE_IMPL
+#include "devices/neo_storage.h"
+#include "neo_storage_posix.h"
+#include "devices/neo_writer.h"
+#define NEO_VOL_HOST 1  // chemins de la ligne de commande
 #include "line_tcp.h"
 #ifndef TELESTRAT_REF  // la référence figée n'a pas de menu
 #include "menu_pc.h"
@@ -162,9 +172,14 @@ static fx80_t printer_fx;
 static mcp40_t printer_mcp;
 static int printer_idle = -1;  // trames depuis le dernier octet (-1 : pas de travail)
 
-// Instantanés (-X, -J)
-static bool state_file_write(void* ctx, void* d, uint32_t n) { return fwrite(d, 1, n, (FILE*)ctx) == n; }
-static bool state_file_read(void* ctx, void* d, uint32_t n) { return fread(d, 1, n, (FILE*)ctx) == n; }
+// Instantanés (-X, -J) : écrits à la suite, lus depuis le début
+static bool state_file_write(void* ctx, void* d, uint32_t n) { return neo_file_append((neo_file_t*)ctx, d, n); }
+static bool state_file_read(void* ctx, void* d, uint32_t n) {
+    neo_file_t* f = (neo_file_t*)ctx;
+    if (!neo_file_read(f, f->pos, d, n)) return false;
+    f->pos += n;  // position de lecture (fichier ouvert en lecture seule)
+    return true;
+}
 
 static void printer_job_end(void) {
     if (printer_idle < 0) return;
@@ -188,7 +203,7 @@ static void printer_select(int type) {
 
 static void printer_out(uint8_t data, void* user_data) {
     if (!printer_enabled) return;
-    if (user_data) fputc(data, (FILE*)user_data);
+    if (user_data) neo_writer_write((neo_writer_t*)user_data, &data, 1);
 #ifndef TELESTRAT_REF
     if (!printer_render_on || printer_type == OSD_PRINTER_TEXT) return;
     printer_idle = 0;
@@ -312,53 +327,43 @@ static void write_dvi(const char* path, const char* tape_name) {
 }
 #endif
 
-// CSAVE : fichiers .tap du répertoire d'enregistrement
+// CSAVE : fichiers .tap du répertoire d'enregistrement (écrits octet par
+// octet : tamponnés, comme sur la carte)
 static const char* rec_path_dir;
-static FILE* rec_file;
+static neo_writer_t rec_w;
+static uint8_t rec_buf[4096];
 static bool rec_open(void* ctx, const char* name) {
     (void)ctx;
     char path[512];
     snprintf(path, sizeof(path), "%s/%s", rec_path_dir, name);
-    rec_file = fopen(path, "wb");
+    neo_writer_close(&rec_w);
+    const bool ok = neo_writer_open(&rec_w, NEO_VOL_HOST, path, rec_buf, sizeof(rec_buf));
     fprintf(stderr, "cassette : enregistrement de %s\n", path);
-    return rec_file != NULL;
+    return ok;
 }
 static void rec_write(void* ctx, const uint8_t* data, uint32_t len) {
     (void)ctx;
-    if (rec_file) fwrite(data, 1, len, rec_file);
+    neo_writer_write(&rec_w, data, len);
 }
 static void rec_close(void* ctx) {
     (void)ctx;
-    if (rec_file) fclose(rec_file);
-    rec_file = NULL;
+    neo_writer_close(&rec_w);
 }
 
-// Cassette en mémoire
-static uint8_t* tape_image;
-static size_t tape_size;
-static bool tape_read(void* ctx, uint32_t offset, uint8_t* buf, uint32_t len) {
-    (void)ctx;
-    if ((size_t)offset + len > tape_size) return false;
-    memcpy(buf, tape_image + offset, len);
-    return true;
-}
-
+// Fichier entier en mémoire (disquettes de -0 à -3)
 static uint8_t* load_file(const char* path, size_t* size) {
-    FILE* f = fopen(path, "rb");
-    if (!f) {
+    neo_file_t f;
+    if (!neo_file_open(&f, NEO_VOL_HOST, path, NEO_READ)) {
         perror(path);
         exit(1);
     }
-    fseek(f, 0, SEEK_END);
-    long n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t* buf = malloc((size_t)n);
-    if (!buf || fread(buf, 1, (size_t)n, f) != (size_t)n) {
+    uint8_t* buf = malloc(f.size ? f.size : 1);
+    if (!buf || !neo_file_read(&f, 0, buf, f.size)) {
         fprintf(stderr, "%s : lecture impossible\n", path);
         exit(1);
     }
-    fclose(f);
-    *size = (size_t)n;
+    *size = f.size;
+    neo_file_close(&f);
     return buf;
 }
 
@@ -481,13 +486,17 @@ int main(int argc, char** argv) {
         fprintf(stderr, "configuration inconnue : %s\n", config);
         return 2;
     }
-    FILE* printer = NULL;
+    // Volume des chemins de la ligne de commande
+    neo_storage_set(NEO_VOL_HOST, "Fichiers", &neo_storage_posix_ops, "");
+    static neo_writer_t printer_w;
+    static uint8_t printer_buf[4096];
+    neo_writer_t* printer = NULL;
     if (printer_file) {
-        printer = fopen(printer_file, "wb");
-        if (!printer) {
+        if (!neo_writer_open(&printer_w, NEO_VOL_HOST, printer_file, printer_buf, sizeof(printer_buf))) {
             perror(printer_file);
             return 1;
         }
+        printer = &printer_w;
         desc.printer.func = printer_out;
         desc.printer.user_data = printer;
     }
@@ -501,7 +510,7 @@ int main(int argc, char** argv) {
             fprintf(stderr, "-G fx80:RÉP ou mcp40:RÉP\n");
             return 2;
         }
-        const printer_out_t out = printer_files_out(&printer_files, dir + 1);
+        const printer_out_t out = printer_files_out(&printer_files, NEO_VOL_HOST, dir + 1);
         fx80_init(&printer_fx, &out, osd_font);
         mcp40_init(&printer_mcp, &out);
         printer_type = t;
@@ -617,10 +626,14 @@ int main(int argc, char** argv) {
         telestrat_tape_recorder(&sys, &out);
 #endif
     }
+    static neo_file_t tape;  // lue en flux, comme sur la carte
     if (tape_file) {
-        tape_image = load_file(tape_file, &tape_size);
+        if (!neo_file_open(&tape, NEO_VOL_HOST, tape_file, NEO_READ)) {
+            perror(tape_file);
+            return 1;
+        }
 #ifndef TELESTRAT_REF
-        telestrat_tape_insert(&sys, (uint32_t)tape_size, tape_read, NULL);
+        telestrat_tape_insert(&sys, tape.size, neo_file_read_cb, &tape);
 #else
         fprintf(stderr, "cassette absente de la référence\n");
         return 2;
@@ -637,11 +650,12 @@ int main(int argc, char** argv) {
             const char* base = strrchr(state_load, '/');
             ok = menu_pc_state_load(&menu_pc, &sys, base ? base + 1 : state_load, &err);
         } else {
-            FILE* sf = fopen(state_load, "rb");
+            neo_file_t sf;
             static char info[TELESTRAT_STATE_INFO_MAX + 1];
-            ok = sf && telestrat_state_load_info(state_file_read, sf, info, sizeof(info), &err) &&
-                 telestrat_state_load_machine(&sys, state_file_read, sf, &err);
-            if (sf) fclose(sf);
+            const bool open = neo_file_open(&sf, NEO_VOL_HOST, state_load, NEO_READ);
+            ok = open && telestrat_state_load_info(state_file_read, &sf, info, sizeof(info), &err) &&
+                 telestrat_state_load_machine(&sys, state_file_read, &sf, &err);
+            if (open) neo_file_close(&sf);
             else err = "illisible";
         }
         if (!ok) {
@@ -696,11 +710,12 @@ int main(int argc, char** argv) {
             static char info[TELESTRAT_STATE_INFO_MAX];
             info[0] = 0;
             if (usb_dir) menu_pc_state_info(&menu_pc, &sys, info, sizeof(info));
-            FILE* sf = fopen(state_save, "wb");
+            neo_file_t sf;
             const char* err = "écriture impossible";
-            if (!sf || !telestrat_state_save(&sys, info, state_file_write, sf, &err))
+            const bool open = neo_file_open(&sf, NEO_VOL_HOST, state_save, NEO_WRITE | NEO_CREATE);
+            if (!open || !telestrat_state_save(&sys, info, state_file_write, &sf, &err))
                 fprintf(stderr, "%s : %s\n", state_save, err);
-            if (sf) fclose(sf);
+            neo_file_close(&sf);
         }
         if (frame == menu_frame) {
             menu_pc_script(&menu_pc, &sys, menu_script);
@@ -770,15 +785,13 @@ int main(int argc, char** argv) {
 #else
     (void)dvi_file;
 #endif
-    if (write_disk && images[0]) {
-        FILE* f = fopen(write_disk, "wb");
-        if (!f || fwrite(images[0], 1, image_sizes[0], f) != image_sizes[0]) {
-            perror(write_disk);
-            return 1;
-        }
-        fclose(f);
+    if (write_disk && images[0] && !neo_file_save(NEO_VOL_HOST, write_disk, images[0], (uint32_t)image_sizes[0])) {
+        perror(write_disk);
+        return 1;
     }
-    if (printer) fclose(printer);
+    if (printer) neo_writer_close(printer);
+    neo_writer_close(&rec_w);  // enregistrement en cours (CSAVE interrompu par la fin du banc)
+    neo_file_close(&tape);
     if (bench_aud) fclose(bench_aud);
     if (bench_ser) fclose(bench_ser);
     if (bench_ring) fclose(bench_ring);

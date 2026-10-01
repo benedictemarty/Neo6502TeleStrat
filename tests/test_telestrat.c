@@ -37,6 +37,9 @@
 #include "osd/rom_builtin.h"
 #include "devices/hid_media.h"
 #include "telestrat_video.h"
+#define NEO_STORAGE_IMPL
+#include "devices/neo_storage.h"
+#include "devices/neo_writer.h"
 
 static int failures = 0, checks = 0;
 #define CHECK(cond, ...)                         \
@@ -602,6 +605,87 @@ static void test_fdc_streamed(void) {
     fdc_wait(&f, 100);
     telestrat_fdc_read(&f, 0, &v);
     CHECK(v & WD1793_ST_WPROT, "flux sans écriture : protégé (%02X)", v);
+    free(img);
+}
+
+// Fichiers par neo_storage (pilote en mémoire du socle), comme le firmware :
+// disquette en flux par neo_file_read_cb / neo_file_write_cb, image en
+// lecture seule protégée, écriture tamponnée (neo_writer.h)
+static void test_neo_storage_files(void) {
+    size_t size;
+    uint8_t* img = make_disk(2, 4, 16, &size);
+    static uint8_t out[64];
+    neo_mem_file_t files[] = {
+        {"A.DSK", img, (uint32_t)size, (uint32_t)size},  // modifiable
+        {"B.DSK", img, (uint32_t)size, 0},               // lecture seule
+        {"OUT.TAP", out, 0, sizeof(out)},
+    };
+    neo_mem_volume_t vol = {files, 3};
+    neo_storage_set(NEO_VOL_USB, "Clé", &neo_storage_mem_ops, &vol);
+    neo_file_t a, b;
+    telestrat_fdc_t f;
+    uint8_t buf[512], v;
+    telestrat_fdc_init(&f);
+    CHECK(neo_file_open(&a, NEO_VOL_USB, "A.DSK", NEO_READ | NEO_WRITE) && a.size == size, "A.DSK ouverte en écriture");
+    CHECK(wd1793_insert_streamed_file(&f.wd, 0, a.size, neo_file_read_cb, neo_file_write_cb, &a), "A.DSK en flux");
+    telestrat_fdc_write(&f, 3, 3);
+    telestrat_fdc_write(&f, 0, 0x10);
+    fdc_wait(&f, 100);
+    telestrat_fdc_write(&f, 2, 9);
+    telestrat_fdc_write(&f, 0, 0x80);
+    int n = fdc_read_bytes(&f, buf, sizeof(buf));
+    CHECK(n == 256 && buf[10] == fdc_pattern(3, 0, 9, 10), "lecture par neo_file_read_cb (%d octets)", n);
+    // Écriture : piste réécrite dans le fichier à la fin de la commande
+    telestrat_fdc_write(&f, 2, 4);
+    telestrat_fdc_write(&f, 0, 0xA0);
+    for (int i = 0; i < 256; i++) {
+        fdc_wait(&f, 2000);
+        telestrat_fdc_write(&f, 3, 0x6B);
+    }
+    fdc_wait(&f, 200);
+    telestrat_fdc_read(&f, 0, &v);
+    telestrat_fdc_t g;
+    telestrat_fdc_init(&g);
+    wd1793_insert_mem(&g.wd, 0, img, size, true);
+    telestrat_fdc_write(&g, 3, 3);
+    telestrat_fdc_write(&g, 0, 0x10);
+    fdc_wait(&g, 100);
+    telestrat_fdc_write(&g, 2, 4);
+    telestrat_fdc_write(&g, 0, 0x80);
+    n = fdc_read_bytes(&g, buf, sizeof(buf));
+    CHECK(n == 256 && buf[0] == 0x6B && buf[255] == 0x6B, "piste écrite par neo_file_write_cb, relue");
+    // Lecture seule : l'ouverture en écriture échoue, le lecteur est protégé
+    CHECK(!neo_file_open(&b, NEO_VOL_USB, "B.DSK", NEO_READ | NEO_WRITE), "B.DSK refusée en écriture");
+    CHECK(neo_file_open(&b, NEO_VOL_USB, "B.DSK", NEO_READ), "B.DSK ouverte en lecture");
+    wd1793_insert_streamed_file(&f.wd, 1, b.size, neo_file_read_cb, NULL, &b);
+    telestrat_fdc_write(&f, 4, 0x20);
+    telestrat_fdc_write(&f, 0, 0xA0);
+    fdc_wait(&f, 100);
+    telestrat_fdc_read(&f, 0, &v);
+    CHECK(v & WD1793_ST_WPROT, "B.DSK protégée (%02X)", v);
+    wd1793_eject(&f.wd, 0);
+    wd1793_eject(&f.wd, 1);
+    neo_file_close(&a);
+    neo_file_close(&b);
+    CHECK(!neo_file_is_open(&a) && !neo_file_open(&a, NEO_VOL_USB, "ABSENT.DSK", NEO_READ), "fermeture, fichier absent");
+
+    // Écriture tamponnée : tampon de 8 octets
+    neo_writer_t w;
+    uint8_t wbuf[8];
+    memset(&w, 0, sizeof(w));
+    CHECK(neo_writer_open(&w, NEO_VOL_USB, "OUT.TAP", wbuf, sizeof(wbuf)), "OUT.TAP créé");
+    for (int i = 0; i < 5; i++) neo_writer_write(&w, "abc", 3);
+    CHECK(files[2].size == 12, "tampon : 12 octets écrits sur 15 (%u)", (unsigned)files[2].size);
+    neo_writer_write(&w, "0123456789", 10);  // plus grand que le tampon
+    neo_writer_seek(&w, 0);
+    neo_writer_write(&w, "XY", 2);
+    CHECK(neo_writer_close(&w) && files[2].size == 25 && !memcmp(out, "XYcabcabcabcabc0123456789", 25),
+          "écritures, retour en arrière, fermeture (%u octets)", (unsigned)files[2].size);
+    CHECK(neo_writer_open(&w, NEO_VOL_USB, "OUT.TAP", wbuf, sizeof(wbuf)) && files[2].size == 0, "recréé vide");
+    for (int i = 0; i < 70; i++) neo_writer_write(&w, "z", 1);  // 70 octets pour 64 de place
+    CHECK(!neo_writer_close(&w), "écriture au-delà de la place : échec signalé à la fermeture");
+    CHECK(!neo_writer_is_open(&w), "fermé après l'échec");
+    neo_storage_set(NEO_VOL_USB, NULL, NULL, NULL);
     free(img);
 }
 
@@ -2246,6 +2330,7 @@ int main(void) {
     test_fdc_disk();
     test_fdc_write_track();
     test_fdc_streamed();
+    test_neo_storage_files();
     test_fdc_quiet_steps();
     test_acia();
     test_screen_render();

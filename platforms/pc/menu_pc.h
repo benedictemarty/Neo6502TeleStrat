@@ -5,15 +5,17 @@
 // Même menu et mêmes réglages que le Neo6502 (src/osd) : images .dsk et .rom
 // du répertoire, TELESTRA.CFG (a= … d=, bank1= … bank7=) appliqué au
 // démarrage et réécrit par « Enregistrer ». Les disquettes sont chargées en
-// mémoire et réécrites dans leur fichier à la fin si elles ont changé.
+// mémoire et réécrites dans leur fichier à la fin si elles ont changé. Le
+// répertoire est le volume 0 de neo_storage (la clé), pilote POSIX du socle.
 //
 // Copyright (c) 2026 bmarty — licence zlib/libpng (voir src/osd/osd.h)
 
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
+
+#include "devices/neo_storage.h"
+#include "neo_storage_posix.h"
 
 #include "osd/osd_menu.h"
 #include "osd/osd_config.h"
@@ -79,61 +81,47 @@ static void _menu_pc_path(const menu_pc_t* p, const char* name, char* out, size_
     snprintf(out, n, "%s/%s", p->dir, name);
 }
 
+// Une entrée du répertoire ; false (fin du parcours) quand la liste est pleine
+static bool _menu_pc_scan_entry(const neo_dirent_t* e, void* user) {
+    osd_menu_t* m = (osd_menu_t*)user;
+    bool dsk = _menu_pc_ext(e->name, ".dsk"), rom = _menu_pc_ext(e->name, ".rom"), tap = _menu_pc_ext(e->name, ".tap"),
+         sta = _menu_pc_ext(e->name, ".sta");
+    if (e->dir || (!dsk && !rom && !tap && !sta) || strlen(e->name) >= OSD_NAME_LEN) return true;
+    osd_file_t* f = &m->files[m->nfiles++];
+    snprintf(f->name, sizeof(f->name), "%s", e->name);
+    f->size = e->size;
+    f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : sta ? OSD_FILE_STA : OSD_FILE_ROM;
+    return m->nfiles < OSD_MENU_FILES;
+}
+
 static void menu_pc_scan(menu_pc_t* p) {
     osd_menu_t* m = &p->menu;
     m->nfiles = 0;
-    m->usb_present = false;
-    DIR* d = opendir(p->dir);
-    if (!d) return;
-    m->usb_present = true;
+    m->usb_present = neo_storage_list(NEO_VOL_USB, "/", _menu_pc_scan_entry, m);
+    if (!m->usb_present) return;
     snprintf(m->usb_label, sizeof(m->usb_label), "Répertoire %s", p->dir);
-    struct dirent* e;
-    while ((e = readdir(d)) && m->nfiles < OSD_MENU_FILES) {
-        bool dsk = _menu_pc_ext(e->d_name, ".dsk"), rom = _menu_pc_ext(e->d_name, ".rom"),
-             tap = _menu_pc_ext(e->d_name, ".tap"), sta = _menu_pc_ext(e->d_name, ".sta");
-        if ((!dsk && !rom && !tap && !sta) || strlen(e->d_name) >= OSD_NAME_LEN) continue;
-        char path[512];
-        struct stat st;
-        _menu_pc_path(p, e->d_name, path, sizeof(path));
-        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
-        osd_file_t* f = &m->files[m->nfiles++];
-        snprintf(f->name, sizeof(f->name), "%s", e->d_name);
-        f->size = (uint32_t)st.st_size;
-        f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : sta ? OSD_FILE_STA : OSD_FILE_ROM;
-    }
-    closedir(d);
     qsort(m->files, (size_t)m->nfiles, sizeof(m->files[0]), _menu_pc_cmp);
 }
 
 static uint8_t* _menu_pc_read(const menu_pc_t* p, const char* name, size_t* size) {
-    char path[512];
-    _menu_pc_path(p, name, path, sizeof(path));
-    FILE* f = fopen(path, "rb");
-    if (!f) return NULL;
-    fseek(f, 0, SEEK_END);
-    long n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t* buf = n > 0 ? malloc((size_t)n) : NULL;
-    if (!buf || fread(buf, 1, (size_t)n, f) != (size_t)n) {
+    (void)p;
+    neo_file_t f;
+    if (!neo_file_open(&f, NEO_VOL_USB, name, NEO_READ)) return NULL;
+    uint8_t* buf = f.size > 0 ? malloc(f.size) : NULL;
+    if (!buf || !neo_file_read(&f, 0, buf, f.size)) {
         free(buf);
-        fclose(f);
+        neo_file_close(&f);
         return NULL;
     }
-    fclose(f);
-    *size = (size_t)n;
+    *size = f.size;
+    neo_file_close(&f);
     return buf;
 }
 
 // Réécrit les disquettes modifiées (fin du banc, éjection)
 static void _menu_pc_flush(menu_pc_t* p, telestrat_t* sys, int d) {
     if (!p->disk[d] || !sys->fdc.wd.disk[d].modified) return;
-    char path[512];
-    _menu_pc_path(p, p->disk_name[d], path, sizeof(path));
-    FILE* f = fopen(path, "wb");
-    if (f) {
-        fwrite(p->disk[d], 1, p->disk_size[d], f);
-        fclose(f);
-    }
+    neo_file_save(NEO_VOL_USB, p->disk_name[d], p->disk[d], (uint32_t)p->disk_size[d]);
 }
 
 static bool menu_pc_insert(menu_pc_t* p, telestrat_t* sys, int d, const char* name) {
@@ -299,9 +287,10 @@ static bool menu_pc_user_profile(menu_pc_t* p, telestrat_t* sys, int k, const ch
 }
 
 // TELESTRA.CFG au démarrage : lecteurs et cartouches (après menu_pc_prepare
-// et telestrat_init)
+// et telestrat_init) ; dir devient le volume 0 (la clé)
 static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const char* version) {
     p->dir = dir;
+    neo_storage_set(NEO_VOL_USB, "Répertoire", &neo_storage_posix_ops, (void*)dir);
     p->printer_on = p->modem_on = true;
     if (p->printer_types < 1) p->printer_types = 1;
     osd_menu_init(&p->menu);
@@ -369,20 +358,21 @@ static void menu_pc_save(menu_pc_t* p) {
     const osd_options_t opt = {p->printer_on, p->printer_type, p->modem_on, p->tape_turbo, p->tape_motor_always, -1};
     size_t n = osd_config_merge_ex(old, drives, banks, &opt, out, sizeof(out));
     free(old);
-    char path[512];
-    _menu_pc_path(p, "TELESTRA.CFG", path, sizeof(path));
-    FILE* f = fopen(path, "wb");
-    if (f) {
-        fwrite(out, 1, n, f);
-        fclose(f);
-    }
-    osd_menu_message(&p->menu, !f, f ? "Configuration enregistrée dans TELESTRA.CFG" : "TELESTRA.CFG : écriture impossible");
+    const bool ok = neo_file_save(NEO_VOL_USB, "TELESTRA.CFG", (const uint8_t*)out, (uint32_t)n);
+    osd_menu_message(&p->menu, !ok, ok ? "Configuration enregistrée dans TELESTRA.CFG" : "TELESTRA.CFG : écriture impossible");
 }
 
 /*-- Instantanés ---------------------------------------------------------------*/
+// Écrits à la suite (neo_file_append) ; lus depuis le début, pos servant de
+// position de lecture (fichier ouvert en lecture seule)
 
-static bool _menu_pc_state_write(void* ctx, void* d, uint32_t n) { return fwrite(d, 1, n, (FILE*)ctx) == n; }
-static bool _menu_pc_state_read(void* ctx, void* d, uint32_t n) { return fread(d, 1, n, (FILE*)ctx) == n; }
+static bool _menu_pc_state_write(void* ctx, void* d, uint32_t n) { return neo_file_append((neo_file_t*)ctx, d, n); }
+static bool _menu_pc_state_read(void* ctx, void* d, uint32_t n) {
+    neo_file_t* f = (neo_file_t*)ctx;
+    if (!neo_file_read(f, f->pos, d, n)) return false;
+    f->pos += n;
+    return true;
+}
 
 // Texte de la plate-forme : cartouches (bank1= … bank7=, vide : origine),
 // supports (pour information)
@@ -396,38 +386,38 @@ static void menu_pc_state_info(menu_pc_t* p, telestrat_t* sys, char* out, size_t
 
 // Nouvel instantané ETATnnnn.STA ; name : son nom
 static bool menu_pc_state_save(menu_pc_t* p, telestrat_t* sys, char* name, size_t cap, const char** err) {
-    char path[512];
+    neo_file_t f;
     for (int k = 1; k <= 9999; k++) {
         snprintf(name, cap, "ETAT%04d.STA", k);
-        _menu_pc_path(p, name, path, sizeof(path));
-        FILE* t = fopen(path, "rb");
-        if (!t) break;
-        fclose(t);
+        if (!neo_file_open(&f, NEO_VOL_USB, name, NEO_READ)) break;
+        neo_file_close(&f);
     }
-    FILE* f = fopen(path, "wb");
-    if (!f) {
+    if (!neo_file_open(&f, NEO_VOL_USB, name, NEO_WRITE | NEO_CREATE)) {
         *err = "écriture impossible";
         return false;
     }
     static char info[TELESTRAT_STATE_INFO_MAX];
     menu_pc_state_info(p, sys, info, sizeof(info));
-    const bool ok = telestrat_state_save(sys, info, _menu_pc_state_write, f, err);
-    fclose(f);
-    if (!ok) remove(path);
+    const bool ok = telestrat_state_save(sys, info, _menu_pc_state_write, &f, err);
+    neo_file_close(&f);
+    if (!ok) {
+        // neo_storage n'efface pas de fichier : directement dans le répertoire
+        char path[512];
+        _menu_pc_path(p, name, path, sizeof(path));
+        remove(path);
+    }
     return ok;
 }
 
 // Reprise : cartouches de l'instantané remises, puis la machine
 static bool menu_pc_state_load(menu_pc_t* p, telestrat_t* sys, const char* name, const char** err) {
-    char path[512];
-    _menu_pc_path(p, name, path, sizeof(path));
-    FILE* f = fopen(path, "rb");
-    if (!f) {
+    neo_file_t f;
+    if (!neo_file_open(&f, NEO_VOL_USB, name, NEO_READ)) {
         *err = "illisible";
         return false;
     }
     static char info[TELESTRAT_STATE_INFO_MAX + 1];
-    bool ok = telestrat_state_load_info(_menu_pc_state_read, f, info, sizeof(info), err);
+    bool ok = telestrat_state_load_info(_menu_pc_state_read, &f, info, sizeof(info), err);
     for (char* line = ok ? strtok(info, "\n") : NULL; ok && line; line = strtok(NULL, "\n")) {
         for (int b = 1; b < 8; b++) {
             char key[8];
@@ -442,11 +432,11 @@ static bool menu_pc_state_load(menu_pc_t* p, telestrat_t* sys, const char* name,
             }
         }
     }
-    if (ok && !telestrat_state_load_machine(sys, _menu_pc_state_read, f, err)) {
+    if (ok && !telestrat_state_load_machine(sys, _menu_pc_state_read, &f, err)) {
         telestrat_cold_reset(sys);  // machine incohérente
         ok = false;
     }
-    fclose(f);
+    neo_file_close(&f);
     return ok;
 }
 
