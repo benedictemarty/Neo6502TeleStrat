@@ -177,9 +177,26 @@ static char cfg_dial[64] = "";
 static int cfg_listen = 0;
 static bool cfg_rs232_uext = false;  // TELESTRA.CFG rs232=uext : prise RS232 sur l'UART de l'UEXT
 
+// Octets vers le modem : mis en file, envoyés par modem_flush entre deux
+// tranches d'émulation. neo_cdc_write peut attendre jusqu'à 1 s en faisant
+// tourner tuh_task (rappels du clavier : RESET, instantané…) : jamais depuis
+// l'ACIA, au milieu d'un cycle du 65C02
+static byte_fifo_t modem_txq;
+
 static void modem_write(void *ctx, const uint8_t *data, uint32_t len) {
     (void)ctx;
-    if (modem_present) neo_cdc_write((void *)0, data, (int)len);
+    if (!modem_present) return;
+    for (uint32_t i = 0; i < len; i++) byte_fifo_push(&modem_txq, data[i]);
+}
+
+static void modem_flush(void) {
+    uint32_t n;
+    const uint8_t *p;
+    while (modem_present && (p = byte_fifo_peek(&modem_txq, &n), n > 0)) {
+        if (!neo_cdc_write((void *)0, p, (int)n)) break;  // modem parti : file vidée au retrait
+        byte_fifo_drop(&modem_txq, n);
+    }
+    if (!modem_present) byte_fifo_init(&modem_txq);
 }
 
 // À chaque trame, hors de tuh_task (neo_cdc_serial.c a les rappels de
@@ -1881,6 +1898,7 @@ int main() {
             modem_poll();
             modem_mux_tick(&mux, 1000);
             telestrat_set_ring(&state.telestrat, minitel_port_tick(&minitel, 1000));
+            modem_flush();
         }
 
         if (!osd_open && !diag_up_active) {  // dépôt : l'image sert de tampon
@@ -1892,6 +1910,7 @@ int main() {
         }
         tuh_task();
         modem_watch();
+        modem_flush();
         usb_poll();
 #ifdef TELESTRAT_NET
         net_poll();

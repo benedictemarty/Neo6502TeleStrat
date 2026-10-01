@@ -294,6 +294,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-181 | Fichiers du réseau (TNFS) à côté de la clé : choix de la source dans le menu (décision de bmarty), `net:/` dans TELESTRA.CFG et les instantanés, `reseau=hôte[:port]`, banc `-N` ; firmware standard par le second port USB du modem Neo6502picowifi (pas en RAM 64 Ko) | ✅ `make test` (510 + `test_tnfs` 12/12 contre tnfsd) ; trois variantes ; charge 59 / 67 % ; ⏳ 5 essais sur carte (docs/TESTS.md) |
 
+## v0.16.27 — modem : plus d'attente dans l'émulation ✅ compilé (2026-10-01)
+
+| Id | Anomalie | État |
+|---|---|---|
+| BUG-10 | `neo_cdc_write` (v0.16.26) appelé depuis l'ACIA, au milieu d'un cycle : jusqu'à 1 s d'attente en faisant tourner `tuh_task` (rappels du clavier : RESET, instantané au milieu du cycle). Signalé par reload | ✅ octets en file (`modem_txq`), envoyés entre deux tranches d'émulation ; ⏳ carte |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

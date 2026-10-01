@@ -349,7 +349,13 @@ chaque trame (`neo_cdc_ready`) au lieu des rappels `tuh_cdc_mount_cb` /
 premier appareil série sont pris. DTR + RTS et 9600 8N1 sont posés à
 l'énumération pour chaque port (`CFG_TUH_CDC_LINE_CONTROL_ON_ENUM`) : le port
 TNFS ne répond qu'avec DTR levé. La variante RAM 64 Ko utilise aussi
-`neo_cdc_serial.c`, avec `CFG_TUH_CDC=1` et sans TNFS.
+`neo_cdc_serial.c`, avec `CFG_TUH_CDC=1` et sans TNFS. Depuis v0.16.27, les
+octets vers le modem passent par une file (`modem_txq`, `byte_fifo.h`) vidée
+par `modem_flush` entre deux tranches de 1 ms d'émulation et en fin de
+trame : `neo_cdc_write`, qui peut attendre en faisant tourner `tuh_task`
+(rappels du clavier : RESET, instantané…), n'est plus appelé depuis l'ACIA au
+milieu d'un cycle du 65C02 (signalé par reload). File pleine (1 Ko ; 64 o en
+RAM 64 Ko) : octets perdus, comme avant v0.16.26.
 
 **Activation** (`net_poll`, comme `net_poll` de l'Oric de reload) : modem
 branché, `reseau=` lu, ligne au repos (ni appel, ni sonnerie, ni prise RS232,
