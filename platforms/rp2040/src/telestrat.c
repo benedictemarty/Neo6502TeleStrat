@@ -9,7 +9,13 @@
 // (cartouches, en RAM) ; menu à l'écran (F1, src/osd) et TELESTRA.CFG. Les
 // fichiers passent par neo_storage du socle (volume 0 = la clé, pilote FatFs).
 //
-// Télématique : un PicoWiFiModemUSB (modem Hayes en USB CDC) sert de ligne au
+// Réseau (variante standard) : volume 1 de neo_storage, client TNFS du socle
+// par le second port série (TNFS) du modem Wi-Fi Neo6502picowifi ; serveur
+// réglé par « reseau=hôte[:port] » dans TELESTRA.CFG, fichiers nommés
+// « net:/NOM » (menu, a= … d=, bank1= … bank7=, instantanés).
+//
+// Télématique : un PicoWiFiModemUSB (modem Hayes en USB CDC, port série 0 de
+// neo_cdc_serial.c du socle) sert de ligne au
 // Minitel émulé sur la prise de l'ACIA (devices/minitel_port.h) : appels
 // entrants (RING -> sonnerie sur CB1 du VIA 2, TELEMATIC en serveur) et
 // sortants (ATD, émulation Minitel). Réglages facultatifs dans TELESTRA.CFG à
@@ -136,6 +142,24 @@ volatile uint32_t diag_io_n;
 #include "devices/neo_storage.h"
 #include "devices/neo_writer.h"
 extern const neo_storage_ops_t neo_storage_fatfs_ops;  // neo_storage_fatfs.c du socle
+// Volume Réseau (TNFS) : variante standard seulement (la RAM 64 Ko n'a pas la
+// place : client, trames et dialogue AT, ~3 Ko ; un seul port série USB)
+#ifndef TELESTRAT_RAM64K
+#define TELESTRAT_NET 1
+#define NEO_TNFS_IMPL
+#include "devices/neo_tnfs.h"
+#define NEO_ESP_AT_IMPL
+#include "devices/neo_esp_at.h"
+#define NEO_DGRAM_SERIAL_IMPL
+#include "devices/neo_dgram_serial.h"
+#endif
+// Modem sur le hub USB : ports série de neo_cdc_serial.c (socle), numérotés par
+// interface : 0 = le modem AT (ligne Minitel, RS232), 1 = son port TNFS
+bool neo_cdc_ready(void);
+bool neo_cdc_port_ready(int port);
+uint32_t neo_cdc_mount_count(void);
+bool neo_cdc_write(void *ctx, const uint8_t *p, int n);
+int neo_cdc_read_byte(void *ctx, uint32_t timeout_us);
 
 typedef struct {
     telestrat_t telestrat;
@@ -148,27 +172,26 @@ state_t __not_in_flash() state;
 static minitel_port_t minitel;
 static hayes_line_t modem;
 static modem_mux_t mux;  // le modem suit PA4 : prise Minitel (Hayes géré ici) ou RS232 (octets bruts)
-static int modem_idx = -1;  // interface CDC du modem (-1 : absent)
+static bool modem_present = false;  // port 0 du modem monté (modem_watch)
 static char cfg_dial[64] = "";
 static int cfg_listen = 0;
 static bool cfg_rs232_uext = false;  // TELESTRA.CFG rs232=uext : prise RS232 sur l'UART de l'UEXT
 
 static void modem_write(void *ctx, const uint8_t *data, uint32_t len) {
     (void)ctx;
-    if (modem_idx < 0) return;
-    tuh_cdc_write((uint8_t)modem_idx, data, len);
-    tuh_cdc_write_flush((uint8_t)modem_idx);
+    if (modem_present) neo_cdc_write((void *)0, data, (int)len);
 }
 
-void tuh_cdc_mount_cb(uint8_t idx) {
-    modem_idx = idx;
-    modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
-    printf("Modem USB CDC %u branché\n", idx);
-}
-
-void tuh_cdc_umount_cb(uint8_t idx) {
-    if ((int)idx == modem_idx) {
-        modem_idx = -1;
+// À chaque trame, hors de tuh_task (neo_cdc_serial.c a les rappels de
+// montage) : modem branché -> ligne initialisée ; retiré -> ligne coupée
+static void modem_watch(void) {
+    const bool ready = neo_cdc_ready();
+    if (ready == modem_present) return;
+    modem_present = ready;
+    if (ready) {
+        modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
+        printf("Modem USB branché\n");
+    } else {
         modem_mux_detach(&mux);
     }
 }
@@ -193,13 +216,11 @@ static int user_n;
 static bool tape_motor_always = false;
 static bool printer_enabled = true;
 
+// Octets reçus du modem (port 0), sans attente
 static void modem_poll(void) {
-    if (modem_idx < 0) return;
-    uint8_t buf[64];
-    uint32_t n;
-    while ((n = tuh_cdc_read((uint8_t)modem_idx, buf, sizeof(buf))) > 0) {
-        for (uint32_t i = 0; i < n; i++) modem_mux_feed(&mux, buf[i]);
-    }
+    if (!modem_present) return;
+    int c;
+    while ((c = neo_cdc_read_byte((void *)0, 0)) >= 0) modem_mux_feed(&mux, (uint8_t)c);
 }
 
 static void read_config(void);
@@ -450,6 +471,11 @@ static telestrat_desc_t telestrat_desc(void) {
 
 static osd_menu_t menu;
 static volatile bool osd_open = false;
+#ifdef TELESTRAT_NET
+static char cfg_net[64];    // TELESTRA.CFG reseau= (volume Réseau, plus bas)
+static char net_label[64];  // serveur monté (menu)
+static void net_scan(int item);
+#endif
 // Cassette (.tap de la clé) et son bandeau, incrusté sous l'image pendant que
 // le moteur tourne (dessiné par le cœur 0, affiché par le cœur 1)
 static neo_file_t tape_file;
@@ -485,35 +511,44 @@ static bool usb_exists(const char *name) {
     return true;
 }
 
-// Une entrée de la racine ; false (fin du parcours) quand la liste est pleine
+// Une entrée de la racine ; false (fin du parcours) quand la liste est pleine.
+// user : volume (OSD_VOL_NET : nom préfixé « net:/ »)
 static bool usb_scan_entry(const neo_dirent_t *e, void *user) {
-    (void)user;
+    const int vol = (int)(intptr_t)user;
+    const char *prefix = vol == OSD_VOL_NET ? OSD_NET_PREFIX : "";
     if (e->dir) return true;
     const bool dsk = has_ext(e->name, ".dsk"), rom = has_ext(e->name, ".rom"), tap = has_ext(e->name, ".tap"),
                sta = has_ext(e->name, ".sta");
-    if ((!dsk && !rom && !tap && !sta) || strlen(e->name) >= OSD_NAME_LEN) return true;
+    if ((!dsk && !rom && !tap && !sta) || strlen(prefix) + strlen(e->name) >= OSD_NAME_LEN) return true;
+    if (menu.nfiles >= OSD_MENU_FILES) return false;
     osd_file_t *f = &menu.files[menu.nfiles++];
-    snprintf(f->name, sizeof(f->name), "%s", e->name);
+    snprintf(f->name, sizeof(f->name), "%s%s", prefix, e->name);
     f->size = e->size;
     f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : sta ? OSD_FILE_STA : OSD_FILE_ROM;
+    f->vol = (uint8_t)vol;
     return menu.nfiles < OSD_MENU_FILES;
 }
 
-// Fichiers .dsk, .rom, .tap et .sta de la racine (noms longs jusqu'à OSD_NAME_LEN - 1)
-static void usb_scan(void) {
-    menu.nfiles = 0;
-    menu.usb_present = msc_inquiry_complete && neo_storage_list(NEO_VOL_USB, "/", usb_scan_entry, NULL);
-    if (!menu.usb_present) return;
-    // Tri par nom (insertion : 64 fichiers au plus)
-    for (int i = 1; i < menu.nfiles; i++) {
+// Tri par nom des fichiers from à menu.nfiles - 1 (insertion : 64 au plus)
+static void files_sort(int from) {
+    for (int i = from + 1; i < menu.nfiles; i++) {
         osd_file_t t = menu.files[i];
         int j = i - 1;
-        while (j >= 0 && strcmp(menu.files[j].name, t.name) > 0) {
+        while (j >= from && strcmp(menu.files[j].name, t.name) > 0) {
             menu.files[j + 1] = menu.files[j];
             j--;
         }
         menu.files[j + 1] = t;
     }
+}
+
+// Fichiers .dsk, .rom, .tap et .sta de la racine (noms longs jusqu'à OSD_NAME_LEN - 1)
+static void usb_scan(void) {
+    menu.nfiles = 0;
+    menu.usb_present =
+        msc_inquiry_complete && neo_storage_list(NEO_VOL_USB, "/", usb_scan_entry, (void *)(intptr_t)OSD_VOL_USB);
+    if (!menu.usb_present) return;
+    files_sort(0);
     snprintf(menu.usb_label, sizeof(menu.usb_label), "Clé montée");
 }
 
@@ -523,14 +558,15 @@ static void drive_eject(int d) {
     drive_name[d][0] = 0;
 }
 
-// Image de la clé dans un lecteur ; false si illisible, invalide ou déjà ailleurs
+// Image de la clé (ou du réseau : « net:/NOM ») dans un lecteur ; false si
+// illisible, invalide ou déjà ailleurs
 static bool drive_insert(int d, const char *name) {
     for (int o = 0; o < 4; o++)
         if (o != d && !strcmp(drive_name[o], name)) return false;
     drive_eject(d);
     neo_file_t *f = &drive_file[d];
-    const bool rw = neo_file_open(f, NEO_VOL_USB, name, NEO_READ | NEO_WRITE);
-    if (!rw && !neo_file_open(f, NEO_VOL_USB, name, NEO_READ)) return false;
+    const bool rw = neo_file_open_path(f, name, NEO_READ | NEO_WRITE);
+    if (!rw && !neo_file_open_path(f, name, NEO_READ)) return false;
     if (!wd1793_insert_streamed_file(&state.telestrat.fdc.wd, d, f->size, neo_file_read_cb, rw ? neo_file_write_cb : NULL,
                                      f)) {
         neo_file_close(f);
@@ -553,10 +589,10 @@ static void insert_flash_disk(void) {
 
 static void bank_restore(int bank) { rom_pool_restore(&pool, &state.telestrat, bank); }
 
-// Cartouche de la clé en banque ; *err : raison d'un refus
+// Cartouche de la clé (ou du réseau) en banque ; *err : raison d'un refus
 static bool bank_load(int bank, const char *name, const char **err) {
     neo_file_t f;
-    if (!neo_file_open(&f, NEO_VOL_USB, name, NEO_READ)) {
+    if (!neo_file_open_path(&f, name, NEO_READ)) {
         *err = "fichier illisible";
         return false;
     }
@@ -593,10 +629,10 @@ static void tape_eject(void) {
     tape_name[0] = 0;
 }
 
-// Cassette de la clé (la même : rembobinée), lue en flux
+// Cassette de la clé ou du réseau (la même : rembobinée), lue en flux
 static bool tape_insert(const char *name) {
     tape_eject();
-    if (!neo_file_open(&tape_file, NEO_VOL_USB, name, NEO_READ)) return false;
+    if (!neo_file_open_path(&tape_file, name, NEO_READ)) return false;
     snprintf(tape_name, sizeof(tape_name), "%s", name);
     telestrat_tape_insert(&state.telestrat, tape_file.size, neo_file_read_cb, &tape_file);
     printf("Cassette : %s\n", name);
@@ -660,9 +696,13 @@ static void menu_refresh(void) {
 #endif
         snprintf(menu.printer_file, sizeof(menu.printer_file), "%s", cfg_printer);
     menu.modem_on = modem_enabled;
+    menu.net_present = neo_storage_ready(NEO_VOL_NET);
+#ifdef TELESTRAT_NET
+    menu.net_label = net_label;
+#endif
     menu.tape_turbo = tape_turbo;
     menu.tape_motor_always = tape_motor_always;
-    menu.modem_state = modem_idx < 0            ? "absent"
+    menu.modem_state = !modem_present           ? "absent"
                        : mux.rs232              ? "prise RS232"
                        : hayes_line_carrier(&modem) ? "en ligne"
                        : hayes_line_incoming(&modem) ? "sonnerie"
@@ -681,7 +721,9 @@ static void menu_refresh(void) {
     for (int b = 0; b < 8; b++) {
         if (pool.name[b][0]) {
             snprintf(menu.bank[b], sizeof(menu.bank[b]), "%.47s", rom_builtin_label(pool.name[b]));
-            menu.bank_kind[b] = pool.name[b][0] == '@' ? OSD_BANK_ROM : OSD_BANK_ROM_USB;
+            menu.bank_kind[b] = pool.name[b][0] == '@'     ? OSD_BANK_ROM
+                                : osd_is_net(pool.name[b]) ? OSD_BANK_ROM_NET
+                                                           : OSD_BANK_ROM_USB;
         } else {
             snprintf(menu.bank[b], sizeof(menu.bank[b]), "%s", bank_label(b));
             menu.bank_kind[b] = sys->bank_type[b] == TELESTRAT_BANK_RAM   ? OSD_BANK_RAM
@@ -788,9 +830,10 @@ static bool state_save(char *name, size_t cap, const char **err) {
     return ok;
 }
 
+// Instantané de la clé, ou du réseau (« net:/NOM »)
 static bool state_load(const char *name, const char **err) {
     state_work_t *w = state_work();
-    if (!neo_file_open(&w->file, NEO_VOL_USB, name, NEO_READ)) {
+    if (!neo_file_open_path(&w->file, name, NEO_READ)) {
         *err = "illisible";
         return false;
     }
@@ -808,12 +851,13 @@ static bool state_load(const char *name, const char **err) {
             const rom_builtin_t *rb = v[0] == '@' ? rom_builtin_find(v) : NULL;
             if (!v[0]) rom_pool_restore(&pool, &state.telestrat, b);
             else if (rb ? !rom_pool_load_builtin(&pool, &state.telestrat, b, rb, err) : !bank_load(b, v, err)) {
-                *err = "cartouche de l'instantané absente de la clé";
+                *err = osd_is_net(v) ? "cartouche de l'instantané absente du réseau"
+                                     : "cartouche de l'instantané absente de la clé";
                 ok = false;
             }
         }
     }
-    if (ok && !neo_file_open(&w->file, NEO_VOL_USB, name, NEO_READ)) {
+    if (ok && !neo_file_open_path(&w->file, name, NEO_READ)) {
         *err = "illisible";
         ok = false;
     }
@@ -928,7 +972,7 @@ static void menu_action(osd_action_t a) {
                 modem_enabled = false;
             } else {
                 modem_enabled = true;
-                if (modem_idx >= 0) modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
+                if (modem_present) modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
             }
             osd_menu_message(&menu, false, modem_enabled ? "Modem activé" : "Modem coupé (ligne raccrochée)");
             break;
@@ -999,6 +1043,11 @@ static void menu_action(osd_action_t a) {
                 osd_menu_message(&menu, true, msg);
             }
             break;
+#ifdef TELESTRAT_NET
+        case OSD_ACT_SOURCE:
+            if (a.file == OSD_VOL_NET) net_scan(a.target);
+            break;
+#endif
         case OSD_ACT_RESUME: menu_close(); return;
         default: break;
     }
@@ -1106,20 +1155,28 @@ static bool usb_key_present(void) {
     return false;
 }
 
-// Clé retirée : fichiers abandonnés (ils ne sont plus accessibles ; fermés
-// sans écriture, le volume est déjà démonté), lecteurs vidés (l'image en
-// flash revient dans A), cassette éjectée ; les cartouches déjà chargées
-// restent (en RAM)
-static void usb_unplugged(void) {
+// Clé ou modem retiré : lecteurs et cassette de ce volume abandonnés (ils ne
+// sont plus accessibles ; fermés sans écriture, le volume est déjà parti),
+// ceux de l'autre volume gardés
+static void files_dropped(int vol) {
     for (int d = 0; d < 4; d++) {
-        if (!neo_file_is_open(&drive_file[d])) continue;
+        if (!neo_file_is_open(&drive_file[d]) || osd_is_net(drive_name[d]) != (vol == OSD_VOL_NET)) continue;
         wd1793_eject(&state.telestrat.fdc.wd, d);
         neo_file_close(&drive_file[d]);
         drive_name[d][0] = 0;
     }
-    telestrat_tape_insert(&state.telestrat, 0, NULL, NULL);
-    neo_file_close(&tape_file);
-    tape_name[0] = 0;
+    if (neo_file_is_open(&tape_file) && osd_is_net(tape_name) == (vol == OSD_VOL_NET)) {
+        telestrat_tape_insert(&state.telestrat, 0, NULL, NULL);
+        neo_file_close(&tape_file);
+        tape_name[0] = 0;
+    }
+}
+
+// Clé retirée : ses fichiers abandonnés, lecteurs vidés (l'image en flash
+// revient dans A), cassette éjectée ; les cartouches déjà chargées restent
+// (en RAM), les fichiers du réseau aussi
+static void usb_unplugged(void) {
+    files_dropped(OSD_VOL_USB);
     oric_tape_rec_motor_off(&state.telestrat.tape_rec);  // enregistrement interrompu
     neo_writer_close(&rec_w);
     neo_file_close(&printer_file);
@@ -1133,6 +1190,107 @@ static void usb_unplugged(void) {
     if (!drive_name[0][0]) insert_flash_disk();
     printf("USB : clé retirée\n");
 }
+
+#ifdef TELESTRAT_NET
+/*-- Volume Réseau : TNFS par le modem Wi-Fi Neo6502picowifi -----------------*/
+// TELESTRA.CFG « reseau=hôte[:port] » : serveur TNFS (port 16384 par défaut).
+// Les datagrammes passent par le second port série du modem (port TNFS,
+// trames : longueur sur 2 octets puis le datagramme, neo_dgram_serial.h).
+// Ce port est désactivé par défaut : activé une fois par AT$TNFSUSB=1 puis
+// AT+RST (gardé dans la flash du modem), il apparaît à la nouvelle énumération
+// USB ; le serveur lui est donné par AT$TNFS="hôte",port. Le dialogue AT
+// passe par le port 0, celui de la ligne Minitel : seulement ligne au repos
+// (ni appel, ni sonnerie, ni prise RS232), puis hayes_line est réinitialisé.
+// Pas de repli sur l'UDP du port AT (choix de l'Oric pour un modem sans
+// second port) : il prendrait la ligne Minitel. Une tentative par branchement
+// du modem ; l'émulation attend pendant ce temps (jusqu'à ~35 s sans Wi-Fi).
+static neo_esp_t net_esp;
+static neo_dgram_t net_dgram;
+static neo_tnfs_t net_tnfs;      // volume NEO_VOL_NET, prêt quand monté
+static uint32_t net_tried;       // neo_cdc_mount_count() de la dernière tentative
+static bool net_usb_enabled;     // AT$TNFSUSB=1 envoyé une fois
+static bool net_first_mount = true;
+
+// Source Réseau choisie dans le menu : ses fichiers relus à la suite de ceux
+// de la clé, puis le sélecteur rouvert
+static void net_scan(int item) {
+    int n = 0;
+    for (int i = 0; i < menu.nfiles; i++)
+        if (menu.files[i].vol == OSD_VOL_USB) menu.files[n++] = menu.files[i];
+    menu.nfiles = n;
+    if (!neo_storage_list(NEO_VOL_NET, "/", usb_scan_entry, (void *)(intptr_t)OSD_VOL_NET))
+        osd_menu_message(&menu, true, "Réseau : liste illisible");
+    files_sort(n);
+    osd_menu_browse(&menu, item, OSD_VOL_NET);
+}
+
+// Lecteurs du réseau de TELESTRA.CFG (a=net:/… ), dans les lecteurs vides
+static bool net_cfg_drives(void) {
+    bool any = false;
+    for (int d = 0; d < 4 && net_tnfs.mounted; d++) {
+        if (!osd_is_net(cfg_drive[d]) || (drive_name[d][0] && strcmp(drive_name[d], FLASH_NAME))) continue;
+        if (drive_insert(d, cfg_drive[d])) any = true;
+        else printf("TELESTRA.CFG : %s illisible\n", cfg_drive[d]);
+    }
+    return any;
+}
+
+static void net_poll(void) {
+    if (net_tnfs.mounted && !neo_cdc_port_ready(1)) {
+        net_tnfs.mounted = false;  // modem retiré : volume plus prêt
+        files_dropped(OSD_VOL_NET);
+        osd_menu_message(&menu, true, "Réseau : modem retiré");
+        printf("Réseau : modem retiré\n");
+        return;
+    }
+    if (!cfg_net[0] || net_tnfs.mounted || !modem_present || neo_cdc_mount_count() == net_tried) return;
+    if (osd_open || mux.rs232 || modem.state != HAYES_COMMAND || modem.ringing) return;  // ligne occupée
+    net_tried = neo_cdc_mount_count();
+    char host[48];
+    uint16_t port;
+    if (!osd_config_server(cfg_net, host, sizeof(host), &port, NEO_TNFS_PORT)) {
+        printf("TELESTRA.CFG : reseau=%s invalide\n", cfg_net);
+        return;
+    }
+    const bool relay = neo_cdc_port_ready(1);
+    neo_esp_init(&net_esp, neo_cdc_write, neo_cdc_read_byte, (void *)0);
+    bool ok = neo_esp_prepare(&net_esp, NULL, NULL);
+    if (ok && !relay) {
+        const int usb = neo_esp_tnfs_usb(&net_esp);
+        if (usb == 0 && !net_usb_enabled) {
+            net_usb_enabled = true;
+            if (neo_esp_enable_tnfs_usb(&net_esp)) {
+                printf("Réseau : port TNFS du modem activé, redémarrage du modem\n");
+                return;  // nouvelle tentative à sa nouvelle énumération
+            }
+        }
+        printf("Réseau : %s\n", usb < 0 ? "modem sans port TNFS" : "port TNFS du modem non monté");
+        ok = false;
+    }
+    if (ok) {
+        neo_dgram_init(&net_dgram, neo_cdc_write, neo_cdc_read_byte, (void *)1);
+        neo_tnfs_init(&net_tnfs, neo_dgram_xfer, &net_dgram);
+        ok = neo_esp_tnfs_server(&net_esp, host, port) && neo_tnfs_mount(&net_tnfs, "/", NULL, NULL);
+    }
+    // Ligne Minitel réinitialisée (ATE0V1, ATS0=0… après le dialogue AT)
+    modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
+    printf("Réseau : %s:%u %s\n", host, (unsigned)port, ok ? "monté" : "injoignable");
+    if (!ok) return;
+    snprintf(net_label, sizeof(net_label), "%s:%u", host, (unsigned)port);
+    // Fichiers du réseau de TELESTRA.CFG : lecteurs ; au premier montage,
+    // cartouches aussi (puis démarrage à froid, comme celles de la clé)
+    bool cold = net_cfg_drives() && net_first_mount;
+    for (int b = 1; b < 8 && net_first_mount; b++) {
+        const char *err = "";
+        if (!osd_is_net(cfg_bank[b])) continue;
+        if (bank_load(b, cfg_bank[b], &err)) cold = true;
+        else printf("TELESTRA.CFG : %s : %s\n", cfg_bank[b], err);
+    }
+    net_first_mount = false;
+    tape_options_apply();
+    if (cold) telestrat_cold_reset(&state.telestrat);
+}
+#endif
 
 static void usb_poll(void) {
     msc_poll();
@@ -1156,7 +1314,10 @@ static void usb_poll(void) {
     drive_set_assign(&ds, wanted);
     bool disks = false;
     for (int d = 0; d < 4; d++)
-        if (ds.slot[d] >= 0) disks |= drive_insert(d, ds.names[ds.slot[d]]);
+        if (ds.slot[d] >= 0 && !osd_is_net(cfg_drive[d])) disks |= drive_insert(d, ds.names[ds.slot[d]]);
+#ifdef TELESTRAT_NET
+    disks |= net_cfg_drives();  // réseau déjà monté (clé rebranchée)
+#endif
     tape_options_apply();
     // Rebranchement : lecteurs seulement (cartouches et machine inchangées)
     if (!usb_first_mount) return;
@@ -1197,7 +1358,8 @@ static void usb_poll(void) {
 }
 
 // TELESTRA.CFG : « dial=hôte:port », « listen=port », « rs232=usb|uext »,
-// « a= » … « d= », « bank1= » … « bank7= » (une clé par ligne)
+// « a= » … « d= », « bank1= » … « bank7= » (clé, ou réseau : « net:/NOM »),
+// « reseau=hôte[:port] » (variante standard) ; une clé par ligne
 
 static void read_config(void) {
     neo_file_t f;
@@ -1243,6 +1405,10 @@ static void read_config(void) {
             printer_select(osd_printer_type(v, printer_type));
         } else if ((v = osd_config_value(line, "imprimante"))) {
             snprintf(cfg_printer, sizeof(cfg_printer), "%.47s", v);
+#ifdef TELESTRAT_NET
+        } else if ((v = osd_config_value(line, "reseau"))) {
+            snprintf(cfg_net, sizeof(cfg_net), "%.63s", v);
+#endif
         } else if (!strncmp(line, "rs232=", 6)) {
 #ifdef TELESTRAT_RS232_UART
             cfg_rs232_uext = !strcmp(line + 6, "uext");
@@ -1261,7 +1427,7 @@ static void read_config(void) {
     }
     neo_file_close(&f);
     printf("TELESTRA.CFG : dial=%s listen=%d rs232=%s\n", cfg_dial, cfg_listen, cfg_rs232_uext ? "uext" : "usb");
-    if (modem_idx >= 0) modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
+    if (modem_present) modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
 }
 
 /*-- Ligne de recette par sonde SWD (tools/carte.py ligne ...) ----------------*/
@@ -1323,6 +1489,10 @@ void app_init(void) {
     // Volume 0 : la clé, lecteur FatFs courant (« 0: », monté par msc_poll) ;
     // servi une fois la clé montée (usb_scanned, msc_inquiry_complete)
     neo_storage_set(NEO_VOL_USB, "Clé USB", &neo_storage_fatfs_ops, "");
+#ifdef TELESTRAT_NET
+    // Volume 1 : le réseau, prêt une fois le serveur TNFS monté (net_poll)
+    neo_storage_set(NEO_VOL_NET, "Réseau", &neo_storage_tnfs_ops, &net_tnfs);
+#endif
     modem_mux_init(&mux, &modem);
     hayes = hayes_line_line(&modem);
     minitel_line_t line = {line_dial, line_answer, line_hangup, line_incoming, line_carrier, line_recv, line_send, NULL};
@@ -1721,7 +1891,11 @@ int main() {
 #endif
         }
         tuh_task();
+        modem_watch();
         usb_poll();
+#ifdef TELESTRAT_NET
+        net_poll();
+#endif
         printer_service(start_time_in_micros);
         diag_keys_poll();
         diag_upload_poll();

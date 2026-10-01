@@ -53,7 +53,13 @@
 #define CFG_TUH_ENUMERATION_BUFSIZE 512
 
 #define CFG_TUH_HUB                 1
-#define CFG_TUH_CDC                 1 // Neo6502TeleStrat : modem PicoWiFiModemUSB (Minitel, TELEMATIC)
+// Neo6502TeleStrat : modem Wi-Fi (Minitel, TELEMATIC ; ports de neo_cdc_serial.c
+// du socle) ; variante standard : son second port, TNFS (volume Réseau)
+#ifdef TELESTRAT_RAM64K
+#define CFG_TUH_CDC                 1
+#else
+#define CFG_TUH_CDC                 2
+#endif
 #define CFG_TUH_HID                 4 // Typical keyboard + mouse device can have 3-4 HID interfaces
 #define CFG_TUH_MIDI                0 // There will be at most one MIDIStreaming Interface descriptor
 #define CFG_TUH_MSC                 1
@@ -65,7 +71,9 @@
 //------------- CDC (modem) -------------//
 #define CFG_TUH_CDC_RX_BUFSIZE      128 // Neo6502TeleStrat : 1200-9600 bauds, relevé toutes les ms
 #define CFG_TUH_CDC_TX_BUFSIZE      128
-// Ligne à la mise en service : DTR + RTS, 9600 8N1 (réglage par défaut du PicoWiFiModemUSB)
+// Ligne à la mise en service : DTR + RTS, 9600 8N1 (réglage par défaut du PicoWiFiModemUSB),
+// pour chaque port : le port TNFS du modem ne répond qu'avec DTR levé. Trames TNFS
+// (534 octets au plus) : tampons de 128 octets vidés et remplis par neo_cdc_serial.c
 #define CFG_TUH_CDC_LINE_CONTROL_ON_ENUM 0x03
 #define CFG_TUH_CDC_LINE_CODING_ON_ENUM  { 9600, CDC_LINE_CONDING_STOP_BITS_1, CDC_LINE_CODING_PARITY_NONE, 8 }
 

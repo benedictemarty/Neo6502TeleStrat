@@ -57,6 +57,7 @@ add_executable(telestrat
     ${RELOAD_RP2040}/src/audio.c
     ${RELOAD_RP2040}/src/msc_app.c  # socle : montage de la clé hors de tuh_task (msc_poll)
     ${RELOAD_RP2040}/src/neo_storage_fatfs.c  # socle : volume 0 de neo_storage (la clé) sur FatFs
+    ${RELOAD_RP2040}/src/neo_cdc_serial.c  # socle : ports série USB du modem (ligne, TNFS)
 )
 
 
