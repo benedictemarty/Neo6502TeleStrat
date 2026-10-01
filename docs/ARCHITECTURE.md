@@ -378,7 +378,8 @@ son, garde la ligne telle quelle. Rien ne change dans
 l'émulation (rejeu identique) ni dans la charge (`make charge` : 58 %).
 
 Mémoire : tampon d'énumération USB porté à 512 octets (standard) pour les
-descripteurs de plus de 256 octets, que TinyUSB ignorerait ; 256 en RAM 64 Ko,
+descripteurs de plus de 256 octets, que TinyUSB ignorerait (v0.16.20 : 512
+aussi en RAM 64 Ko, marge 976 octets) ; 256 en RAM 64 Ko jusque-là,
 où il reste 480 octets au-delà du tas réservé (608 avant) ; 376 en v0.16.10
 (`audio_push_sample` de reload placé en RAM). Deux interfaces
 multimédia au plus, quatre champs chacune.

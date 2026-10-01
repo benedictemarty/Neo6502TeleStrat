@@ -33,7 +33,7 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
 
 | Règle (stratégie, section 3) | Écart | Raison | Fin prévue |
 |---|---|---|---|
-| 7 : `CFG_TUH_ENUMERATION_BUFSIZE` 512 | 256 dans la variante RAM 64 Ko (512 dans la variante standard) | 376 octets de RAM au-delà du tas réservé ; un descripteur HID de plus de 256 octets (touches multimédia) est alors ignoré par TinyUSB | place regagnée ailleurs, ou fusion dans le socle |
+| ~~7 : `CFG_TUH_ENUMERATION_BUFSIZE` 512~~ | ~~256 dans la variante RAM 64 Ko~~ | levé en v0.16.20 : 512 dans les deux variantes (place regagnée par les composants du socle) | fait |
 | 6 : bus du W65C02 en PIO par défaut | pilote SIO/GPIO intégré au tick (`platforms/rp2040/src/neo6502_bus.h`) | éprouvé sur carte (v0.4.1 à v0.16.4), charge mesurée par `make charge` | étape 5 du plan (le Telestrat reprend le pilote du socle) |
 
 ## Suivi
@@ -52,6 +52,8 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
 - v0.16.18 : `socle-2026-10-01-4` (AY : aigus justes, périodes < 8 à
   mi-volume ; `audio.c` : plus de `memset` en flash sur le cœur 1, verrou
   réservé pour la section critique du son). Charge : 59 / 67 % (+1 point).
+- v0.16.20 : écart à la règle 7 levé, tampon d'énumération USB de 512 octets
+  aussi en RAM 64 Ko (976 octets de marge au-delà du tas).
 
 ## Conséquences
 
