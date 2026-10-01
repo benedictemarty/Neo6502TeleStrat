@@ -283,8 +283,9 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
   compte, le tas de `dvi_init` étant réservé à l'édition des liens).
   Imprimante : Texte seulement.
 - Fichiers par le réseau (TNFS, décision de bmarty du 2026-10-01) : un seul
-  Pico W, le PicoWiFiModemUSB avec un second port série USB réservé à TNFS
-  (demandé à la session du modem ; trame : datagramme précédé de sa longueur
+  Pico W, avec un second port série USB réservé à TNFS, dans les deux
+  firmwares de modem (`~/picowifi/PicoWiFiModemUSB` et `~/Neo6502picowifi`,
+  ce dernier fait déjà de l'UDP ; en cours par la session neo6502picowifi ; trame : datagramme précédé de sa longueur
   sur 2 octets petit-boutistes ; serveur par `AT$TNFS=hôte:port` sur le port
   modem). Côté Telestrat : 2 instances CDC hôte (`CFG_TUH_CDC=2`), mesuré
   +504 o de RAM : la variante RAM 64 Ko tomberait à 220 o de marge, place à
