@@ -131,7 +131,6 @@ volatile uint32_t diag_io_n;
 #include "telestrat_flash_disk.h"
 #endif
 #include "neo_multiboot.h"
-#include "ff.h"  // f_unlink seulement (neo_storage n'efface pas de fichier)
 // Fichiers de la clé : volumes neo_storage du socle (volume 0 = la clé USB)
 #define NEO_STORAGE_IMPL
 #include "devices/neo_storage.h"
@@ -784,7 +783,7 @@ static bool state_save(char *name, size_t cap, const char **err) {
     state_info(w->info, sizeof(w->info));
     const bool ok = telestrat_state_save(&state.telestrat, w->info, state_write, w, err);
     neo_file_close(&w->file);
-    if (!ok) f_unlink(name);  // volume 0 : la clé, lecteur FatFs courant
+    if (!ok) neo_file_remove(NEO_VOL_USB, name);
     return ok;
 }
 

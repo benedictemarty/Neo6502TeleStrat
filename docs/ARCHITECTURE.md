@@ -42,7 +42,7 @@ disque, un type II/III rend `$80` seul (fiche FD179X). Seule copie gardée :
 avec la NES : IRQ et NMI scrutées à l'avant-dernier cycle, avec le drapeau I
 d'avant `CLI` / `SEI` / `PLP`, et plus de détournement du vecteur NMI pendant
 `BRK` / IRQ (comportements mesurés sur carte par la NES) ; la version PC
-seulement (la carte a le vrai 65C02). Depuis v0.16.21 (`socle-2026-10-01-6`) :
+seulement (la carte a le vrai 65C02). Depuis v0.16.21 (`socle-2026-10-01-8`) :
 montage de la clé par `msc_app.c` du socle (section « Clé USB ») et
 fichiers par `neo_storage` du socle (`src/devices/neo_storage.h`, pilotes
 `neo_storage_fatfs.c` sur la carte et `platforms/pc/neo_storage_posix.h` au
@@ -247,8 +247,8 @@ flux, cassette lue (`neo_file_read_cb`) et enregistrée, imprimante texte
 `TELESTRA.CFG` (lu ligne à ligne comme `f_gets`, réécrit par
 `neo_file_save`), liste du menu (`neo_storage_list`), cartouches `.rom`,
 dépôt et relecture par la sonde (`diag_upload_poll` ; `diag_up_status` donne
-une cause, 1 à 4, au lieu d'un code FatFs). Seul appel FatFs restant :
-`f_unlink` d'un instantané manqué (neo_storage n'efface pas). Les sorties
+une cause, 1 à 4, au lieu d'un code FatFs). Plus aucun appel FatFs direct :
+un instantané manqué est effacé par `neo_file_remove` (socle `-8`). Les sorties
 écrites par petits morceaux (cassette enregistrée octet par octet, PNG et
 SVG) passent par `src/devices/neo_writer.h`, un tampon fourni par
 l'appelant (64 octets pour la cassette, 512 pour les rendus) : une écriture

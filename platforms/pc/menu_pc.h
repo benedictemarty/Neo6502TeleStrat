@@ -77,10 +77,6 @@ static int _menu_pc_cmp(const void* a, const void* b) {
     return strcmp(((const osd_file_t*)a)->name, ((const osd_file_t*)b)->name);
 }
 
-static void _menu_pc_path(const menu_pc_t* p, const char* name, char* out, size_t n) {
-    snprintf(out, n, "%s/%s", p->dir, name);
-}
-
 // Une entrée du répertoire ; false (fin du parcours) quand la liste est pleine
 static bool _menu_pc_scan_entry(const neo_dirent_t* e, void* user) {
     osd_menu_t* m = (osd_menu_t*)user;
@@ -400,12 +396,7 @@ static bool menu_pc_state_save(menu_pc_t* p, telestrat_t* sys, char* name, size_
     menu_pc_state_info(p, sys, info, sizeof(info));
     const bool ok = telestrat_state_save(sys, info, _menu_pc_state_write, &f, err);
     neo_file_close(&f);
-    if (!ok) {
-        // neo_storage n'efface pas de fichier : directement dans le répertoire
-        char path[512];
-        _menu_pc_path(p, name, path, sizeof(path));
-        remove(path);
-    }
+    if (!ok) neo_file_remove(NEO_VOL_USB, name);
     return ok;
 }
 

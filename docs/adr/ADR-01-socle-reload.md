@@ -54,12 +54,13 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
   réservé pour la section critique du son). Charge : 59 / 67 % (+1 point).
 - v0.16.20 : écart à la règle 7 levé, tampon d'énumération USB de 512 octets
   aussi en RAM 64 Ko (976 octets de marge au-delà du tas).
-- v0.16.21 : `socle-2026-10-01-6` ; montage de la clé par `msc_app.c` du
+- v0.16.21 : `socle-2026-10-01-8` (`-6` corrigé à notre demande : statut CSW
+  vérifié, montage en attente annulé au retrait, `neo_file_remove`) ; montage de la clé par `msc_app.c` du
   socle (`MSC_VOLUMES=1`), notre `usb_msc.c` retiré ; `carte.py cle` lit
   `msc_slot_addr[0]`. Fichiers par `neo_storage` du socle (volume 0 = la
   clé ; `NEO_FATFS_FILES` 9, 8 en RAM 64 Ko), firmware et banc PC (pilote
-  POSIX) ; seul `f_unlink` reste en FatFs direct. RAM : 230 924 o
-  (standard), 238 888 o (RAM 64 Ko : 728 o de marge au-delà du tas).
+  POSIX) ; plus d'appel FatFs direct (`neo_file_remove`). RAM : 230 928 o
+  (standard), 238 892 o (RAM 64 Ko : 724 o de marge au-delà du tas).
   Charge : 59 / 67 %.
 
 ## Conséquences

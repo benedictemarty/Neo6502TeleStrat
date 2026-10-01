@@ -256,6 +256,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-177 | Touches multimédia à descripteur HID de plus de 256 octets aussi en variante RAM 64 Ko (règle 7, écart de l'ADR-01 levé) | ✅ compilé (976 o de marge) ; ⏳ carte |
 
+## v0.16.21 — fichiers par neo_storage du socle ✅ au banc (2026-10-01)
+
+| Id | Récit | État |
+|---|---|---|
+| US-178 | Montage de la clé par `msc_app.c` du socle, fichiers par les volumes `neo_storage` (volume 0 = la clé ; réseau TNFS possible plus tard sans retoucher le Telestrat) | ✅ `make` entier (481), trois variantes, charge 59 / 67 % ; ⏳ 8 essais sur carte (docs/TESTS.md) |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
