@@ -42,7 +42,8 @@ disque, un type II/III rend `$80` seul (fiche FD179X). Seule copie gardée :
 avec la NES : IRQ et NMI scrutées à l'avant-dernier cycle, avec le drapeau I
 d'avant `CLI` / `SEI` / `PLP`, et plus de détournement du vecteur NMI pendant
 `BRK` / IRQ (comportements mesurés sur carte par la NES) ; la version PC
-seulement (la carte a le vrai 65C02).
+seulement (la carte a le vrai 65C02). Depuis v0.16.21 (`socle-2026-10-01-6`) :
+montage de la clé par `msc_app.c` du socle (section « Clé USB »).
 
 ## Référence et système optimisé (sprint 4)
 
@@ -457,10 +458,15 @@ l'INQUIRY (36 octets, un paquet) mais son premier READ10 (512 octets, 8
 paquets) n'aboutissait jamais, avec ou sans clavier. TinyUSB 0.21.0
 (sous-module `third_party/tinyusb`, `PICO_TINYUSB_PATH`), dont le pilote hôte
 RP2040 a été refondu (hathach/tinyusb#3561), lit la clé, seule ou avec un
-clavier. `platforms/rp2040/src/usb_msc.c` remplace `msc_app.c` de reload :
-`f_mount` hors du rappel d'INQUIRY (dans la boucle principale), compteurs de
-diagnostic (`msc_diag`, `msc_mount_result`). `hid_app.c` de reload est
-compilé avec `-include stdio.h` (le nouveau `tusb.h` ne l'inclut plus).
+clavier. Le montage est celui du socle (`msc_app.c`, depuis v0.16.21 ; notre
+`usb_msc.c`, qui l'avait précédé, est retiré) : `f_mount` hors du rappel
+d'INQUIRY (`msc_poll`, appelé par la boucle principale), un seul volume
+(`MSC_VOLUMES=1`, lecteur « 0: »), délai de 1 s par transfert, volume
+démonté au retrait (le rebranchement remonte la clé). La sonde lit l'adresse
+USB de la clé dans `msc_slot_addr[0]` (`carte.py cle`). Écarts avec
+`usb_msc.c` : le statut (CSW) d'un transfert n'est plus vérifié (une réponse
+en erreur passe pour réussie), un montage en attente n'est pas annulé si la
+clé part avant lui, compteurs `msc_diag` et `msc_mount_result` supprimés.
 
 **Démarrage** : la clé se monte 2-3 s après la mise sous tension, quand
 TELEMON a déjà demandé sa disquette : une disquette insérée au premier

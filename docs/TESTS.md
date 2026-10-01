@@ -311,10 +311,12 @@ V4.0 », `PRINT 6*7` ; par le menu (banque 7 → STRATORIC, RESET) ; cassette
 (si présente) : copyright Loriciels dans les lignes de texte du mode HIRES
 (`$BF68`).
 
-## Outils de la carte — `tests/test_carte.py` (10 vérifications)
+## Outils de la carte — `tests/test_carte.py` (12 vérifications)
 
 Sans carte : `tools/carte.py` décode l'état de la clé depuis une fausse mémoire
-(clé montée, retirée, adresse USB nulle, nom long de 47 caractères).
+(clé montée, retirée, adresse USB nulle, nom long de 47 caractères ; adresse
+USB lue dans `msc_slot_addr` du socle, v0.16.21, ou `msc_addr` des firmwares
+antérieurs).
 
 ## Oracle Oricutron — `tools/oracle/oracle.sh` (manuel)
 

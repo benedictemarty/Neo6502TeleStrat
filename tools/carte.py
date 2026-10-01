@@ -243,7 +243,9 @@ def mesure(secondes=10):
     print(f"cœur 1 : {lsum / max(ln, 1):.1f} µs par ligne (max {lmax}) ; lignes rouges : {retard}")
 
 
-# Clé USB (US-91) : variables du firmware lues par la sonde
+# Clé USB (US-91) : variables du firmware lues par la sonde. Adresse USB de
+# la clé : msc_slot_addr[0] (msc_app.c du socle, depuis v0.16.21), msc_addr
+# (notre usb_msc.c, firmwares antérieurs)
 CLE_VARS = ("usb_scanned", "msc_addr", "msc_inquiry_complete", "usb_first_mount", "printer_open")
 
 
@@ -251,9 +253,13 @@ def _texte(brut):
     return brut.split(b"\0", 1)[0].decode("utf-8", "replace")
 
 
+def _symbole_cle(s, n):
+    return "msc_slot_addr" if n == "msc_addr" and "msc_slot_addr" in s else n
+
+
 def etat_cle(s, lire):
     """État de la clé ; lire(adresse, n) -> octets (sonde, ou faux lecteur des tests)."""
-    e = {n: lire(s[n], 1)[0] for n in CLE_VARS}
+    e = {n: lire(s[_symbole_cle(s, n)], 1)[0] for n in CLE_VARS}
     taille = TAILLES.get("drive_name", 192) // 4
     noms = lire(s["drive_name"], 4 * taille)
     e["lecteurs"] = [_texte(noms[d * taille:(d + 1) * taille]) for d in range(4)]

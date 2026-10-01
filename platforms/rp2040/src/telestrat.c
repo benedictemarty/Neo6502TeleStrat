@@ -460,7 +460,7 @@ static char cfg_drive[4][OSD_NAME_LEN];   // TELESTRA.CFG : a= … d=
 static char cfg_bank[8][OSD_NAME_LEN];    // TELESTRA.CFG : bank1= … bank7=
 
 extern bool msc_inquiry_complete;
-void usb_msc_poll(void);  // usb_msc.c : montage de la clé hors de tuh_task
+void msc_poll(void);  // msc_app.c du socle : montage de la clé hors de tuh_task
 
 static bool has_ext(const char *name, const char *ext) {
     size_t n = strlen(name), e = strlen(ext);
@@ -1123,8 +1123,8 @@ static void usb_unplugged(void) {
 }
 
 static void usb_poll(void) {
-    usb_msc_poll();
-    // usb_msc.c ne redescend pas msc_inquiry_complete au retrait :
+    msc_poll();
+    // msc_app.c ne redescend pas msc_inquiry_complete au retrait :
     // présence suivie ici, le drapeau est remis à zéro pour le rebranchement
     if (usb_scanned && !usb_key_present()) {
         usb_scanned = false;

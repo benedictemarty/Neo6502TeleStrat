@@ -54,6 +54,9 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
   réservé pour la section critique du son). Charge : 59 / 67 % (+1 point).
 - v0.16.20 : écart à la règle 7 levé, tampon d'énumération USB de 512 octets
   aussi en RAM 64 Ko (976 octets de marge au-delà du tas).
+- v0.16.21 : `socle-2026-10-01-6` ; montage de la clé par `msc_app.c` du
+  socle (`MSC_VOLUMES=1`), notre `usb_msc.c` retiré ; `carte.py cle` lit
+  `msc_slot_addr[0]`.
 
 ## Conséquences
 

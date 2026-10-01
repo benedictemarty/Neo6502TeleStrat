@@ -63,6 +63,15 @@ machine(True, ["STRATSED.DSK", "", "", ""], "", 71001)
 mem[S["msc_addr"]] = 0
 verifie(not carte.etat_cle(S, lire)["montee"], "adresse USB nulle : absente")
 
+# Firmware v0.16.21 et suivants : adresse USB dans msc_slot_addr[0] (msc_app.c du socle)
+S2 = dict(S)
+S2["msc_slot_addr"] = S2.pop("msc_addr")
+machine(True, ["STRATSED.DSK", "", "", ""], "", 71002)
+e = carte.etat_cle(S2, lire)
+verifie(e["montee"] and e["msc_addr"] == 1, "adresse USB lue dans msc_slot_addr")
+mem[S["msc_addr"]] = 0
+verifie(not carte.etat_cle(S2, lire)["montee"], "msc_slot_addr nul : absente")
+
 # Nom de la longueur maximale (47 caractères), sans zéro de fin perdu
 long_nom = "N" * 43 + ".DSK"
 machine(True, [long_nom, "", "", ""], "", 1)
