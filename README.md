@@ -121,13 +121,35 @@ le RP2040 ; le Telestrat ne la voit pas directement mais par ce qu'on y prend
   Telestrat, comme l'Atmos : signal sur CB1 du VIA 1, moteur sur PB6), en
   temps réel.
 
+**Réseau (TNFS)** (variante standard, pas la RAM 64 Ko) : un second volume
+de fichiers, servi par un serveur TNFS (`tnfsd` de Spectranet / FujiNet) à
+travers le modem Wi-Fi Neo6502picowifi branché sur le port USB hôte. Le
+serveur se règle dans `TELESTRA.CFG` par `reseau=hôte` ou
+`reseau=hôte:port` (port 16384 par défaut) ; le modem rejoint le réseau
+Wi-Fi enregistré dans sa propre configuration. Au branchement du modem, le
+firmware active au besoin son second port série « TNFS » (`AT$TNFSUSB=1`
+puis `AT+RST`, une fois : le modem redémarre et le garde), lui donne le
+serveur (`AT$TNFS="hôte",port`) et monte le volume ; le dialogue AT passe par
+la ligne Minitel, seulement quand elle est au repos. L'émulation attend
+pendant ce temps (jusqu'à ~35 s si le modem n'a pas de réseau). Une tentative
+par branchement du modem. La clé et le réseau s'utilisent en même temps : les
+mêmes `.dsk` (lues et écrites piste par piste), `.rom`, `.tap` (lues en flux)
+et `.sta`, à la racine du serveur. **Non essayé sur carte.**
+
 **Menu (F1)** : disquettes des lecteurs A à D, cassette (position, moteur),
 cartouches des banques 7 à 1 (ROM intégrée, `.rom` de la clé ou contenu
 d'origine), périphériques (imprimante et modem : activés ou coupés par
 Entrée, état du modem), Redémarrer (à froid, pour que TELEMON inventorie les
 cartouches), Enregistrer la configuration dans `TELESTRA.CFG`, Reprendre.
 L'émulation est en pause tant qu'il est ouvert. Flèches, Entrée, Suppr
-(éjecter / contenu d'origine), une lettre (aller au fichier), Échap.
+(éjecter / contenu d'origine), une lettre (aller au fichier), Échap. Quand
+le volume Réseau est monté, Entrée sur un lecteur, la cassette, une banque ou
+« Instantanés » demande d'abord la source, **Clé USB** ou **Réseau**
+(curseur sur celle du fichier en place ; `C` / `R` y vont) ; la liste du
+réseau est relue à ce moment-là. Sans réseau, le menu est celui d'avant. Un
+fichier du réseau s'affiche `net:/NOM` sur la page principale ; les ROM
+intégrées ne sont proposées qu'avec la source Clé USB ; un nouvel instantané
+s'écrit toujours sur la clé.
 
 **Démarrage** : `demarrage=choix` dans `TELESTRA.CFG` ouvre, dès le montage
 de la clé, la page « Démarrer sur… » : configuration de la clé, Telestrat
@@ -260,6 +282,8 @@ rs232=usb              # prise RS232 : modem USB (défaut) ou uext
 a=STRATSED.DSK         # lecteurs A à D (a= … d=), écrits par le menu
 bank5=jeu.rom          # cartouches de la clé (bank1= … bank7=), écrites par le menu
 bank7=@stratoric       # ROM intégrée : STRATORIC (banques 7, 6, 5) ; @atmos : BASIC 1.1 seul
+reseau=192.168.1.10    # serveur TNFS (hôte[:port], 16384 par défaut) : volume Réseau
+b=net:/JEUX.DSK        # fichier du réseau : préfixe net:/ (a= … d=, bank1= … bank7=)
 imprimante=IMPRIM.TXT  # imprimante Texte : sortie ajoutée à ce fichier (vide : pas d'impression)
 impression=oui         # imprimante activée (non : coupée) ; écrit par le menu
 imprimante_type=fx80   # texte, fx80 (pages PNG) ou mcp40 (tracés SVG) ; écrit par le menu
@@ -269,6 +293,14 @@ cassette_moteur=relais # toujours : bande défilant sans relais moteur ; écrit 
 demarrage=choix        # page « Démarrer sur… » au montage de la clé ; ou telestrat, stratoric, atmos, Libellé
 profil=Libellé;bank7=a.rom;bank6=@atmos   # profil de la clé (trois au plus), proposé au démarrage
 ```
+
+Fichiers du réseau dans `TELESTRA.CFG` (et dans le texte des instantanés) :
+le préfixe de volume `net:/` du socle (`NEO_NET_PREFIX` de `neo_storage.h`,
+même syntaxe que l'Oric de reload) ; un nom sans préfixe est sur la clé,
+comme avant (les deux points n'existent pas dans un nom FAT : pas de
+confusion possible). Au montage du réseau, les lecteurs `net:/` de
+`TELESTRA.CFG` restés vides sont remplis ; au premier montage, les
+cartouches `net:/` sont chargées aussi, puis démarrage à froid.
 
 Serveur : en HYPER-BASIC, `APLIC 4`, « Accès disque », `N` + nom + CTRL+L pour
 charger l'arborescence (`DEMO` sur la disquette STRATSED), ESC, « 2 Lancer le
@@ -336,6 +368,19 @@ RESET) :
 
 ```sh
 build/telestrat_headless -U cle -M '400:heSerddeTezuue' -O menu.ppm -f 1600 -s
+```
+
+Réseau au banc : `-N HÔTE[:PORT]` monte le volume Réseau (client TNFS du
+socle sur UDP, port 16384 par défaut) avant `TELESTRA.CFG` ; le menu propose
+alors la source (Clé USB / Réseau), `TELESTRA.CFG` et les instantanés
+désignent ses fichiers par `net:/NOM` ; `-K net:/JEU.TAP` lit une cassette
+du réseau. Serveur : `tnfsd RÉPERTOIRE` (Spectranet, UDP 16384).
+
+```sh
+tnfsd ~/oric &
+echo 'a=net:/STRATSED.DSK' > cle/TELESTRA.CFG
+build/telestrat_headless -U cle -N 127.0.0.1 -f 1500 -w 1200 -k 8 -t '1~~~~~~DIR\n' -s
+build/telestrat_headless -U cle -N 127.0.0.1 -M '5:hedeSe' -O menu.ppm -f 10   # A <- Réseau, STRATSED.DSK
 ```
 
 `-S listen:PORT` ou `-S connect:HÔTE:PORT` relie la prise RS232 (PA4 = 1) à

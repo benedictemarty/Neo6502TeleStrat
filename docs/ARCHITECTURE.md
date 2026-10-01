@@ -260,8 +260,9 @@ instantané ferment leur fichier avant de charger des cartouches), plus la
 page ou le tracé en cours hors RAM 64 Ko : 9 (standard), 8 (RAM 64 Ko).
 Clé retirée : fichiers fermés (le volume est déjà démonté : aucune
 écriture), lecteurs vidés, image en flash dans A. Banc PC : volume 0 = le
-répertoire de `-U`, volume 1 = les chemins de la ligne de commande (`-0` …
-`-3`, `-K` lue en flux, `-C`, `-P`, `-G`, `-W`, `-X`, `-J`), pilote POSIX ;
+répertoire de `-U`, volume 1 = le réseau (`-N`, v0.16.26), volume 2 = les
+chemins de la ligne de commande (`-0` … `-3`, `-K` lue en flux, `-C`, `-P`,
+`-G`, `-W`, `-X`, `-J`), pilote POSIX ;
 traces, images PPM et RAM restent en stdio. Une image n'est jamais dans deux
 lecteurs (fichier ouvert en écriture). Au montage : `TELESTRA.CFG` (`a=` …
 `d=`, `bank1=` … `bank7=`, `src/osd/osd_config.h`), sinon la première image
@@ -322,6 +323,79 @@ ouvert ; la variante RAM 64 Ko liste 32 fichiers de la clé (64 sinon). RAM
 libre : environ 16,7 Ko (standard), 2,2 Ko (RAM 64 Ko), plus le tas de 2 Ko.
 v0.9.0 (enregistreur, imprimante) : 14 Ko (standard), **208 octets** (RAM
 64 Ko) — la variante RAM 64 Ko n'a plus de marge.
+
+## Volume Réseau TNFS (v0.16.26)
+
+Second volume de `neo_storage` (`NEO_VOL_NET` = 1), servi par le client TNFS
+du socle (`devices/neo_tnfs.h`, `neo_storage_tnfs_ops`) ; la clé reste le
+volume 0, les deux s'utilisent en même temps.
+
+| | Banc PC | Carte, variante standard |
+|---|---|---|
+| Transport | UDP (`platforms/pc/neo_tnfs_udp.h` du socle) | second port série USB du modem Neo6502picowifi, une trame par datagramme : longueur sur 2 octets petit-boutiste puis le datagramme (`neo_dgram_serial.h`) |
+| Serveur | `-N hôte[:port]` | `TELESTRA.CFG reseau=hôte[:port]` |
+| Montage | au lancement, avant `TELESTRA.CFG` | `net_poll`, une tentative par branchement du modem |
+
+**Ports série du modem** : `neo_cdc_serial.c` du socle (avec
+`CFG_TUH_CDC=2`) remplace l'accès CDC direct de `telestrat.c` : port 0 =
+le modem AT (ligne Minitel et RS232, `hayes_line.h`, `modem_mux.h`), port 1
+= le port TNFS (interface 2). Équivalences pour la ligne : écriture
+`neo_cdc_write((void *)0, …)` (attend, en faisant tourner `tuh_task`, si la
+file d'émission de 128 octets est pleine, au plus 1 s ; l'ancien accès
+perdait l'excédent), lecture `neo_cdc_read_byte((void *)0, 0)` (sans attente,
+octet par octet au lieu de 64), montage et retrait vus par `modem_watch` à
+chaque trame (`neo_cdc_ready`) au lieu des rappels `tuh_cdc_mount_cb` /
+`tuh_cdc_umount_cb`, que `neo_cdc_serial.c` définit ; seuls les ports du
+premier appareil série sont pris. DTR + RTS et 9600 8N1 sont posés à
+l'énumération pour chaque port (`CFG_TUH_CDC_LINE_CONTROL_ON_ENUM`) : le port
+TNFS ne répond qu'avec DTR levé. La variante RAM 64 Ko utilise aussi
+`neo_cdc_serial.c`, avec `CFG_TUH_CDC=1` et sans TNFS.
+
+**Activation** (`net_poll`, comme `net_poll` de l'Oric de reload) : modem
+branché, `reseau=` lu, ligne au repos (ni appel, ni sonnerie, ni prise RS232,
+menu fermé) : dialogue AT par `neo_esp_at.h` sur le port 0 (`AT`, `ATE0`,
+attente d'une adresse IP par `AT+CIPSTATUS`, 30 s au plus) ; port TNFS
+absent mais `AT$TNFSUSB?` répond 0 : `AT$TNFSUSB=1` puis `AT+RST` (une fois ;
+le modem redémarre, la tentative suivante vient à sa nouvelle énumération) ;
+port présent : `AT$TNFS="hôte",port`, `MOUNT` TNFS. La ligne Minitel est
+ensuite réinitialisée (`modem_mux_attach` : `ATE0V1`, `ATS0=0`, `AT$SP`).
+Différence avec l'Oric : pas de repli sur l'UDP du port AT (`neo_esp_xfer`)
+pour un modem sans second port, qui prendrait la ligne Minitel. Modem
+retiré : volume plus prêt, lecteurs et cassette du réseau éjectés (ceux de
+la clé restent ; et l'inverse au retrait de la clé, `files_dropped`).
+
+**Noms** : un fichier du réseau est `net:/NOM` (`NEO_NET_PREFIX` + `/` de
+`neo_storage.h`, `OSD_NET_PREFIX` du menu) partout où un nom est gardé :
+liste du menu, `drive_name`, `tape_name`, `pool.name` (cartouches),
+`TELESTRA.CFG` (`a=` … `d=`, `bank1=` … `bank7=`), texte des instantanés.
+`neo_file_open_path` choisit le volume d'après le préfixe ; un nom sans
+préfixe reste la clé (rétrocompatible : les deux points n'existent pas dans
+un nom FAT). Disquettes du réseau en flux (`wd1793_insert_streamed_file` et
+`neo_file_*_cb`, au banc comme sur la carte), cassette lue en flux,
+cartouches et instantanés lus entiers. Les écritures (disquette,
+`TELESTRA.CFG` du menu, nouvel instantané, cassette enregistrée,
+imprimante) vont sur la clé, sauf la piste réécrite d'une disquette du
+réseau. Au premier montage du réseau, les lecteurs `net:/` de
+`TELESTRA.CFG` restés vides sont remplis, les cartouches `net:/` chargées,
+puis démarrage à froid si l'un ou l'autre a eu lieu ; aux montages suivants,
+les lecteurs seulement. Un lecteur réglé sur le réseau n'est pas rempli par
+la première image de la clé au montage de celle-ci.
+
+**Menu** (`osd_menu.h`) : `net_present` (volume prêt) fait passer Entrée sur
+un lecteur, la cassette, une banque ou « Instantanés » par la page
+`OSD_PAGE_SOURCE` (Clé USB / Réseau, curseur sur la source du fichier en
+place). Le choix rend `OSD_ACT_SOURCE` ; pour le réseau la plate-forme
+relit la liste (`neo_storage_list` du volume 1, à la suite des fichiers de
+la clé, `osd_file_t.vol` = 1) puis rouvre le sélecteur
+(`osd_menu_browse`). Le sélecteur ne montre que les fichiers de la source,
+sans préfixe ; les ROM intégrées seulement avec la clé. Sans réseau, la
+page de la source n'existe pas : mêmes écrans qu'avant (comparés pixel par
+pixel au banc). La liste est commune (`OSD_MENU_FILES` : 40 sur la carte) :
+le réseau prend les places laissées par la clé.
+
+**Mémoire** (v0.16.26, `--print-memory-usage`) : standard 234 260 octets de
+RAM (+3 348 : `neo_tnfs_t`, `neo_esp_t`, trames, second port CDC de
+TinyUSB) ; RAM 64 Ko 238 908 (+16).
 
 ## STRATORIC et banques vides (sprint 10)
 

@@ -64,6 +64,13 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
   Charge : 59 / 67 %.
 - v0.16.25 : `socle-2026-10-01-16` (enregistreur cassette : `STORE` d'un
   tableau enregistré jusqu'à l'arrêt du moteur, défaut trouvé ici).
+- v0.16.26 : `socle-2026-10-01-16` inchangé. Volume Réseau : `neo_tnfs.h`
+  (client TNFS, volume 1), `neo_dgram_serial.h` et `neo_esp_at.h` (port TNFS
+  du modem, activé par `AT$TNFSUSB=1`), `neo_cdc_serial.c` du socle à la
+  place de notre accès CDC direct (`CFG_TUH_CDC=2` ; 1 en RAM 64 Ko, sans
+  TNFS) ; banc : `neo_tnfs_udp.h` (`-N`). Préfixe `net:/` de `neo_storage.h`
+  dans `TELESTRA.CFG`. RAM : 234 260 o (standard), 238 908 o (RAM 64 Ko).
+  Charge : 59 / 67 %.
 
 ## Conséquences
 

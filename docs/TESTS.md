@@ -27,7 +27,7 @@ passés sur la copie locale `src/chips/w65c02cpu.h` (programme
 
 Seule la version PC utilise ce cœur. Sur la carte, c'est le vrai W65C02.
 
-## Tests unitaires — `tests/test_telestrat.c` (487 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (510 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -162,6 +162,20 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - menu : ligne Cassette (sélecteur des `.tap`, insertion, éjection, barre),
   ROM intégrées d'abord dans le choix d'une banque, lettre, bandeau (icône,
   nom, barre, fond tramé) ;
+- volume Réseau (v0.16.26) : sans réseau, Entrée ouvre le sélecteur de la
+  clé (pas de choix de la source) ; réseau prêt : page de la source (Clé USB,
+  Réseau et son serveur), Échap, source Clé USB (ses seuls fichiers), source
+  Réseau (`OSD_ACT_SOURCE`, volume 1, ses seuls fichiers, noms affichés sans
+  `net:/`, saut à l'initiale sans le préfixe), curseur de la source et du
+  sélecteur sur le fichier du réseau en place, banque : ROM intégrées avec
+  la seule clé, cartouche du réseau ; panneau de la clé : ses seuls
+  fichiers comptés, réseau signalé ; F3 : le plus récent de la clé, ou le
+  dernier repris sur le réseau ; `OSD_NET_PREFIX` = `NEO_NET_PREFIX "/"`,
+  `neo_storage_split` (`net:/JEU.DSK` : réseau ; `JEU.DSK` : clé,
+  rétrocompatibilité) ; `TELESTRA.CFG` : `a=net:/…`, `bank5=net:/…` et
+  `reseau=` gardés par la fusion ; `reseau=hôte[:port]` lu
+  (`osd_config_server` : port par défaut, port donné ; vide, sans hôte, port
+  absent, supérieur à 65535 ou non numérique, hôte trop long refusés) ;
 - banque vide instable (bus flottant) ;
 - rendu de l'écran identique au rendu d'origine (copie d'oric_screen_update)
   sur 600 écrans aléatoires : texte, HIRES, attributs série, double hauteur,
@@ -342,6 +356,27 @@ du clignotement, qui dépend du minutage du démarrage ; à la trame 420, les
 deux images sont identiques en tout point). Contre-épreuve : sans imprimante,
 la rangée 6 (« Imprimante, ») diffère et le test échoue.
 
+## Volume Réseau — `tests/test_tnfs.sh` (12 vérifications)
+
+Banc avec `-N` contre le serveur TNFS de référence `tnfsd` (Spectranet,
+`~/spectranet/tnfs/tnfsd/bin/tnfsd`, `TELESTRAT_TNFSD=…`) servant un
+répertoire temporaire. `tnfsd` écoute toujours le port 16384 (UDP et TCP,
+`config.h`) : port libre, ce binaire ; sinon (autre serveur sur la machine)
+une copie de ses sources (`TELESTRAT_TNFSD_SRC=…`, défaut : le répertoire
+parent du binaire) est compilée dans le répertoire temporaire pour un port
+libre (sans optimisation : avec `_FORTIFY_SOURCE`, `tnfsd` s'arrête sur
+« buffer overflow »). Ignoré sans `tnfsd` ni sources, ou si le serveur
+n'écoute pas.
+
+| Étape | Vérifié |
+|---|---|
+| `TELESTRA.CFG a=net:/STRATSED.DSK`, `DIR` | volume monté ; catalogue de la disquette du réseau (« secteurs libres », `INI800K`) |
+| `SAVE "TNFSOK"` | écrit dans le fichier du répertoire de `tnfsd` ; `DIR` d'une nouvelle session le montre |
+| menu `hedeSezue` (A, Réseau, STRATSED.DSK, Enregistrer) | « Lecteur A : net:/STRATSED.DSK » ; `a=net:/STRATSED.DSK` écrit |
+| images du menu (`-O` texte) | page de la source (Clé USB, Réseau et serveur) ; sélecteur du réseau, noms sans préfixe ; sans `-N`, sélecteur de la clé directement |
+| instantané (`-X`) | `a=net:/STRATSED.DSK` dans son texte |
+| menu `hreeddelddddededezuue` (banque 7 ← ROM Atmos, cassette ← Réseau, ESSAI.TAP, RESET), `CLOAD""`, `RUN` | « Cassette : net:/ESSAI.TAP » ; programme lu en flux depuis le réseau et exécuté |
+
 ## Oracle Oricutron — `tools/oracle/oracle.sh` (manuel)
 
 Construit une copie locale d'Oricutron (GPL, non distribuée) avec
@@ -472,4 +507,8 @@ de maintien de la donnée sur le bus.
 `make uf2` doit compiler sans erreur (prise RS232 sur le modem USB, ou sur
 l'UART0 de l'UEXT avec `rs232=uext` ; `-DTELESTRAT_RS232_UART=OFF` retire
 l'UEXT) ; l'occupation RAM est relevée dans
-docs/ARCHITECTURE.md. L'essai sur carte est manuel (non fait aux sprints 1 à 3).
+docs/ARCHITECTURE.md. v0.16.26 : volume Réseau dans la variante standard
+seulement (`CFG_TUH_CDC=2`), compilé dans les trois variantes (standard,
+`-DTELESTRAT_RAM64K=ON`, `-DTELESTRAT_FLASH_DISK=…`) ; RAM standard 234 260
+octets, RAM 64 Ko 238 908. Activation du port TNFS du modem et volume monté
+sur carte : **non essayés**. L'essai sur carte est manuel (non fait aux sprints 1 à 3).
