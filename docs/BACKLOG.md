@@ -279,8 +279,16 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
   Fabrice BROCHE » au lieu du menu (banc) ; Oricutron ne simule pas de banque
   vide. À vérifier : notice de la cartouche, vrai Telestrat. (Sans TELE-ASS,
   l'arrêt après la liste des ROM est reproduit par Oricutron : v0.8.1.)
-- Variante RAM 64 Ko : 860 octets de RAM libres (v0.14.0). Imprimante :
-  Texte seulement.
+- Variante RAM 64 Ko : 724 octets au-delà du tas réservé (v0.16.21 ; ce qui
+  compte, le tas de `dvi_init` étant réservé à l'édition des liens).
+  Imprimante : Texte seulement.
+- Fichiers par le réseau (TNFS, décision de bmarty du 2026-10-01) : un seul
+  Pico W, le PicoWiFiModemUSB avec un second port série USB réservé à TNFS
+  (demandé à la session du modem ; trame : datagramme précédé de sa longueur
+  sur 2 octets petit-boutistes ; serveur par `AT$TNFS=hôte:port` sur le port
+  modem). Côté Telestrat : 2 instances CDC hôte (`CFG_TUH_CDC=2`), mesuré
+  +504 o de RAM : la variante RAM 64 Ko tomberait à 220 o de marge, place à
+  regagner avant (tampons CDC, réserve de FIL).
 - Vraie imprimante USB (classe imprimante USB, ESC/P ou PCL) à la place des
   images : envoi des octets bruts, ou de la page rendue.
 - FX-80 : police 9 x 11 de la FX-80, mode proportionnel, caractères de
