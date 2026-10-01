@@ -46,7 +46,12 @@
 //              du Telestrat centrée, bandeau de la cassette si le moteur tourne
 //   -C RÉP     CSAVE : cassettes enregistrées en RÉP/NOM.TAP (défaut : le
 //              répertoire de -U s'il est donné)
-//   -K FICHIER cassette .tap insérée (mode Atmos : -c atmos, ou cartouche Atmos)
+//   -K FICHIER cassette .tap insérée (mode Atmos : -c atmos, ou cartouche Atmos) ;
+//              net:/NOM : cassette du réseau (-N), lue en flux
+//   -N HÔTE[:PORT] monte le volume Réseau (TNFS sur UDP, port 16384 par
+//              défaut, devices/neo_tnfs.h du socle) : le menu propose la source
+//              Clé USB / Réseau ; TELESTRA.CFG a= … d=, bank1= … bank7= et les
+//              instantanés désignent ses fichiers par « net:/NOM »
 //   -Z         cassette rapide : CLOAD du BASIC 1.1 sans attendre (ROM patchée,
 //              oric_tape_turbo.h) ; avec -U, TELESTRA.CFG cassette_rapide= prime
 //   -Y         moteur de la cassette toujours en marche (câble sans relais)
@@ -63,8 +68,9 @@
 //
 // Fichiers de la machine (disquettes, cassettes, imprimante, instantanés, clé
 // du menu) : par neo_storage du socle, comme sur la carte (pilote POSIX) ;
-// volume 0 = le répertoire de -U (la clé), volume 1 = les chemins de la ligne
-// de commande tels quels. Traces, images et RAM du banc : stdio.
+// volume 0 = le répertoire de -U (la clé), volume 1 = le réseau (-N, comme
+// sur la carte), volume 2 = les chemins de la ligne de commande tels quels.
+// Traces, images et RAM du banc : stdio.
 //
 // ## Licence zlib/libpng
 //
@@ -115,11 +121,18 @@
 #else
 #include "systems/telestrat.h"
 #endif
+// Volumes : 0 la clé (-U), 1 le réseau (-N), 2 les chemins de la ligne de commande
+#define NEO_STORAGE_VOLUMES 3
 #define NEO_STORAGE_IMPL
 #include "devices/neo_storage.h"
 #include "neo_storage_posix.h"
 #include "devices/neo_writer.h"
-#define NEO_VOL_HOST 1  // chemins de la ligne de commande
+#define NEO_VOL_HOST 2  // chemins de la ligne de commande
+#ifndef TELESTRAT_REF
+#define NEO_TNFS_IMPL
+#include "devices/neo_tnfs.h"
+#include "neo_tnfs_udp.h"
+#endif
 #include "line_tcp.h"
 #ifndef TELESTRAT_REF  // la référence figée n'a pas de menu
 #include "menu_pc.h"
@@ -413,6 +426,7 @@ int main(int argc, char** argv) {
     const char* line_spec = NULL;
     const char* rs232_spec = NULL;
     const char* usb_dir = NULL;
+    const char* net_spec = NULL;
     const char* tape_file = NULL;
     bool tape_turbo = false, tape_motor_always = false;
     int state_frame = -1;
@@ -432,7 +446,7 @@ int main(int argc, char** argv) {
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:ZYX:J:Q:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:ZYX:J:Q:N:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = atoi(optarg); break;
@@ -449,6 +463,7 @@ int main(int argc, char** argv) {
             case 'L': line_spec = optarg; break;
             case 'S': rs232_spec = optarg; break;
             case 'U': usb_dir = optarg; break;
+            case 'N': net_spec = optarg; break;
             case 'M':
                 menu_frame = atoi(optarg);
                 menu_script = strchr(optarg, ':') ? strchr(optarg, ':') + 1 : "";
@@ -489,6 +504,36 @@ int main(int argc, char** argv) {
     }
     // Volume des chemins de la ligne de commande
     neo_storage_set(NEO_VOL_HOST, "Fichiers", &neo_storage_posix_ops, "");
+#ifndef TELESTRAT_REF
+    // Volume Réseau : client TNFS du socle sur UDP, monté avant TELESTRA.CFG
+    static neo_tnfs_udp_t net_udp;
+    static neo_tnfs_t net_tnfs;
+    static char net_label[80];
+    if (net_spec) {
+        char host[64];
+        uint16_t port = NEO_TNFS_PORT;
+        if (!osd_config_server(net_spec, host, sizeof(host), &port, NEO_TNFS_PORT)) {
+            fprintf(stderr, "-N HÔTE[:PORT] attendu : %s\n", net_spec);
+            return 2;
+        }
+        if (!neo_tnfs_udp_open(&net_udp, host, port)) {
+            fprintf(stderr, "réseau : %s inconnu\n", host);
+            return 1;
+        }
+        neo_tnfs_init(&net_tnfs, neo_tnfs_udp_xfer, &net_udp);
+        net_tnfs.sleep = neo_tnfs_udp_sleep;
+        if (!neo_tnfs_mount(&net_tnfs, "/", NULL, NULL)) {
+            fprintf(stderr, "réseau : serveur TNFS %s:%u injoignable\n", host, (unsigned)port);
+            return 1;
+        }
+        neo_storage_set(NEO_VOL_NET, "Réseau", &neo_storage_tnfs_ops, &net_tnfs);
+        snprintf(net_label, sizeof(net_label), "%s:%u", host, (unsigned)port);
+        menu_pc.net_label = net_label;
+        fprintf(stderr, "réseau : %s monté\n", net_label);
+    }
+#else
+    (void)net_spec;
+#endif
     static neo_writer_t printer_w;
     static uint8_t printer_buf[4096];
     neo_writer_t* printer = NULL;
@@ -629,7 +674,8 @@ int main(int argc, char** argv) {
     }
     static neo_file_t tape;  // lue en flux, comme sur la carte
     if (tape_file) {
-        if (!neo_file_open(&tape, NEO_VOL_HOST, tape_file, NEO_READ)) {
+        const bool net = !strncmp(tape_file, NEO_NET_PREFIX, sizeof(NEO_NET_PREFIX) - 1);
+        if (!(net ? neo_file_open_path(&tape, tape_file, NEO_READ) : neo_file_open(&tape, NEO_VOL_HOST, tape_file, NEO_READ))) {
             perror(tape_file);
             return 1;
         }

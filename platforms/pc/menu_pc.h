@@ -8,6 +8,11 @@
 // mémoire et réécrites dans leur fichier à la fin si elles ont changé. Le
 // répertoire est le volume 0 de neo_storage (la clé), pilote POSIX du socle.
 //
+// Volume 1 (Réseau, -N : neo_tnfs du socle sur UDP) : le menu propose alors
+// la source avant le sélecteur ; fichiers nommés « net:/NOM ». Les disquettes
+// du réseau sont lues et écrites piste par piste (wd1793_insert_streamed_file,
+// comme sur la carte), la cassette du réseau lue en flux.
+//
 // Copyright (c) 2026 bmarty — licence zlib/libpng (voir src/osd/osd.h)
 
 #include <stdio.h>
@@ -40,11 +45,14 @@ typedef struct {
     bool tape_turbo;           // cassette_rapide= (-Z)
     bool tape_motor_always;    // cassette_moteur= (-Y)
     bool line_present;         // -L
+    const char* net_label;     // -N : serveur (volume Réseau monté)
     osd_menu_t menu;
     osd_surface_t surf;
     uint8_t* tape;
     size_t tape_size;
     char tape_name[OSD_NAME_LEN];
+    neo_file_t tape_file;      // cassette du réseau, lue en flux
+    neo_file_t disk_file[4];   // disquettes du réseau, lues et écrites piste par piste
     uint8_t* disk[4];
     size_t disk_size[4];
     char disk_name[4][OSD_NAME_LEN];
@@ -77,32 +85,61 @@ static int _menu_pc_cmp(const void* a, const void* b) {
     return strcmp(((const osd_file_t*)a)->name, ((const osd_file_t*)b)->name);
 }
 
-// Une entrée du répertoire ; false (fin du parcours) quand la liste est pleine
+// Une entrée du répertoire ; false (fin du parcours) quand la liste est pleine.
+// Réseau : nom préfixé « net:/ »
+typedef struct {
+    osd_menu_t* m;
+    int vol;  // OSD_VOL_*
+} _menu_pc_scan_t;
+
 static bool _menu_pc_scan_entry(const neo_dirent_t* e, void* user) {
-    osd_menu_t* m = (osd_menu_t*)user;
+    const _menu_pc_scan_t* c = (const _menu_pc_scan_t*)user;
+    osd_menu_t* m = c->m;
+    const int vol = c->vol;
+    const char* prefix = vol == OSD_VOL_NET ? OSD_NET_PREFIX : "";
     bool dsk = _menu_pc_ext(e->name, ".dsk"), rom = _menu_pc_ext(e->name, ".rom"), tap = _menu_pc_ext(e->name, ".tap"),
          sta = _menu_pc_ext(e->name, ".sta");
-    if (e->dir || (!dsk && !rom && !tap && !sta) || strlen(e->name) >= OSD_NAME_LEN) return true;
+    if (e->dir || (!dsk && !rom && !tap && !sta) || strlen(prefix) + strlen(e->name) >= OSD_NAME_LEN) return true;
+    if (m->nfiles >= OSD_MENU_FILES) return false;
     osd_file_t* f = &m->files[m->nfiles++];
-    snprintf(f->name, sizeof(f->name), "%s", e->name);
+    snprintf(f->name, sizeof(f->name), "%s%s", prefix, e->name);
     f->size = e->size;
     f->kind = dsk ? OSD_FILE_DSK : tap ? OSD_FILE_TAP : sta ? OSD_FILE_STA : OSD_FILE_ROM;
+    f->vol = (uint8_t)vol;
     return m->nfiles < OSD_MENU_FILES;
 }
 
 static void menu_pc_scan(menu_pc_t* p) {
     osd_menu_t* m = &p->menu;
     m->nfiles = 0;
-    m->usb_present = neo_storage_list(NEO_VOL_USB, "/", _menu_pc_scan_entry, m);
+    m->net_present = neo_storage_ready(NEO_VOL_NET);
+    m->net_label = p->net_label;
+    _menu_pc_scan_t c = {m, OSD_VOL_USB};
+    m->usb_present = neo_storage_list(NEO_VOL_USB, "/", _menu_pc_scan_entry, &c);
     if (!m->usb_present) return;
     snprintf(m->usb_label, sizeof(m->usb_label), "Répertoire %s", p->dir);
     qsort(m->files, (size_t)m->nfiles, sizeof(m->files[0]), _menu_pc_cmp);
 }
 
+// Source Réseau choisie dans le menu : ses fichiers relus (neo_storage_list
+// du volume 1) à la suite de ceux de la clé, puis le sélecteur rouvert
+static void menu_pc_scan_net(menu_pc_t* p, int item) {
+    osd_menu_t* m = &p->menu;
+    int n = 0;
+    for (int i = 0; i < m->nfiles; i++)
+        if (m->files[i].vol == OSD_VOL_USB) m->files[n++] = m->files[i];
+    m->nfiles = n;
+    _menu_pc_scan_t c = {m, OSD_VOL_NET};
+    if (!neo_storage_list(NEO_VOL_NET, "/", _menu_pc_scan_entry, &c)) osd_menu_message(m, true, "Réseau : liste illisible");
+    qsort(m->files + n, (size_t)(m->nfiles - n), sizeof(m->files[0]), _menu_pc_cmp);
+    osd_menu_browse(m, item, OSD_VOL_NET);
+}
+
+// Fichier de la clé, ou du réseau avec le préfixe « net:/ »
 static uint8_t* _menu_pc_read(const menu_pc_t* p, const char* name, size_t* size) {
     (void)p;
     neo_file_t f;
-    if (!neo_file_open(&f, NEO_VOL_USB, name, NEO_READ)) return NULL;
+    if (!neo_file_open_path(&f, name, NEO_READ)) return NULL;
     uint8_t* buf = f.size > 0 ? malloc(f.size) : NULL;
     if (!buf || !neo_file_read(&f, 0, buf, f.size)) {
         free(buf);
@@ -114,15 +151,44 @@ static uint8_t* _menu_pc_read(const menu_pc_t* p, const char* name, size_t* size
     return buf;
 }
 
-// Réécrit les disquettes modifiées (fin du banc, éjection)
+// Réécrit les disquettes modifiées (fin du banc, éjection) ; celles du réseau
+// écrivent leur piste en attente
 static void _menu_pc_flush(menu_pc_t* p, telestrat_t* sys, int d) {
+    if (neo_file_is_open(&p->disk_file[d])) wd1793_flush(&sys->fdc.wd);
     if (!p->disk[d] || !sys->fdc.wd.disk[d].modified) return;
     neo_file_save(NEO_VOL_USB, p->disk_name[d], p->disk[d], (uint32_t)p->disk_size[d]);
 }
 
+// Disquette du réseau : lue et écrite piste par piste dans son fichier
+static bool _menu_pc_insert_net(menu_pc_t* p, telestrat_t* sys, int d, const char* name) {
+    neo_file_t f;
+    const bool rw = neo_file_open_path(&f, name, NEO_READ | NEO_WRITE);
+    if (!rw && !neo_file_open_path(&f, name, NEO_READ)) return false;
+    uint8_t head[8];
+    if (f.size < 16 || !neo_file_read(&f, 0, head, 8) || memcmp(head, "MFM_DISK", 8) != 0) {
+        neo_file_close(&f);
+        return false;
+    }
+    _menu_pc_flush(p, sys, d);  // l'image en place, si elle a changé
+    wd1793_eject(&sys->fdc.wd, d);
+    neo_file_close(&p->disk_file[d]);
+    free(p->disk[d]);
+    p->disk[d] = NULL;
+    p->disk_file[d] = f;
+    if (!wd1793_insert_streamed_file(&sys->fdc.wd, d, f.size, neo_file_read_cb, rw ? neo_file_write_cb : NULL,
+                                     &p->disk_file[d])) {
+        neo_file_close(&p->disk_file[d]);
+        p->disk_name[d][0] = 0;
+        return false;
+    }
+    snprintf(p->disk_name[d], sizeof(p->disk_name[d]), "%s", name);
+    return true;
+}
+
 static bool menu_pc_insert(menu_pc_t* p, telestrat_t* sys, int d, const char* name) {
     for (int o = 0; o < 4; o++)
-        if (o != d && p->disk[o] && !strcmp(p->disk_name[o], name)) return false;  // déjà dans un autre lecteur
+        if (o != d && p->disk_name[o][0] && !strcmp(p->disk_name[o], name)) return false;  // déjà dans un autre lecteur
+    if (osd_is_net(name)) return _menu_pc_insert_net(p, sys, d, name);
     size_t size = 0;
     uint8_t* img = _menu_pc_read(p, name, &size);
     if (!img) return false;
@@ -132,6 +198,10 @@ static bool menu_pc_insert(menu_pc_t* p, telestrat_t* sys, int d, const char* na
         return false;
     }
     _menu_pc_flush(p, sys, d);  // l'image en place, si elle a changé
+    if (neo_file_is_open(&p->disk_file[d])) {
+        wd1793_eject(&sys->fdc.wd, d);
+        neo_file_close(&p->disk_file[d]);
+    }
     if (!telestrat_insert_disk(sys, d, img, size, false)) {
         free(img);
         return false;
@@ -146,6 +216,7 @@ static bool menu_pc_insert(menu_pc_t* p, telestrat_t* sys, int d, const char* na
 static void menu_pc_eject(menu_pc_t* p, telestrat_t* sys, int d) {
     _menu_pc_flush(p, sys, d);  // avant l'éjection, qui efface le drapeau « modifié »
     wd1793_eject(&sys->fdc.wd, d);
+    neo_file_close(&p->disk_file[d]);
     free(p->disk[d]);
     p->disk[d] = NULL;
     p->disk_name[d][0] = 0;
@@ -187,11 +258,23 @@ static bool _menu_pc_tape_read(void* ctx, uint32_t off, uint8_t* buf, uint32_t l
     return true;
 }
 
-// Cassette de la clé (la même : rembobinée)
+// Cassette de la clé (la même : rembobinée) ; celle du réseau lue en flux
 static bool menu_pc_tape(menu_pc_t* p, telestrat_t* sys, const char* name) {
+    if (osd_is_net(name)) {
+        neo_file_t f;
+        if (!neo_file_open_path(&f, name, NEO_READ)) return false;
+        telestrat_tape_insert(sys, 0, NULL, NULL);
+        neo_file_close(&p->tape_file);
+        p->tape_file = f;
+        snprintf(p->tape_name, sizeof(p->tape_name), "%s", name);
+        telestrat_tape_insert(sys, f.size, neo_file_read_cb, &p->tape_file);
+        return true;
+    }
     size_t size = 0;
     uint8_t* img = _menu_pc_read(p, name, &size);
     if (!img) return false;
+    telestrat_tape_insert(sys, 0, NULL, NULL);
+    neo_file_close(&p->tape_file);
     free(p->tape);
     p->tape = img;
     p->tape_size = size;
@@ -228,13 +311,15 @@ static void menu_pc_refresh(menu_pc_t* p, telestrat_t* sys) {
     for (int k = 0; k < ROM_PROFILES && k < OSD_PROFILES; k++) m->profile[k] = rom_profiles[k].label;
     for (int k = 0; k < p->user_n && ROM_PROFILES + k < OSD_PROFILES; k++) m->profile[ROM_PROFILES + k] = p->user_label[k];
     for (int d = 0; d < 4; d++) {
-        snprintf(m->drive[d], sizeof(m->drive[d]), "%s", p->disk[d] ? p->disk_name[d] : "");
-        m->drive_ro[d] = p->disk[d] && sys->fdc.wd.disk[d].write_protected;
+        snprintf(m->drive[d], sizeof(m->drive[d]), "%s", p->disk_name[d]);
+        m->drive_ro[d] = p->disk_name[d][0] && sys->fdc.wd.disk[d].write_protected;
     }
     for (int b = 0; b < 8; b++) {
         if (p->pool.name[b][0]) {
             snprintf(m->bank[b], sizeof(m->bank[b]), "%s", rom_builtin_label(p->pool.name[b]));
-            m->bank_kind[b] = p->pool.name[b][0] == '@' ? OSD_BANK_ROM : OSD_BANK_ROM_USB;
+            m->bank_kind[b] = p->pool.name[b][0] == '@'     ? OSD_BANK_ROM
+                              : osd_is_net(p->pool.name[b]) ? OSD_BANK_ROM_NET
+                                                            : OSD_BANK_ROM_USB;
             continue;
         }
         snprintf(m->bank[b], sizeof(m->bank[b]), "%s", menu_pc_bank_label(p, sys, b));
@@ -348,7 +433,7 @@ static void menu_pc_save(menu_pc_t* p) {
     char* old = _menu_pc_read_cfg(p);
     const char* drives[4];
     const char* banks[8];
-    for (int d = 0; d < 4; d++) drives[d] = p->disk[d] ? p->disk_name[d] : NULL;
+    for (int d = 0; d < 4; d++) drives[d] = p->disk_name[d];
     for (int b = 0; b < 8; b++) banks[b] = p->pool.name[b];
     static char out[4096];
     const osd_options_t opt = {p->printer_on, p->printer_type, p->modem_on, p->tape_turbo, p->tape_motor_always, -1};
@@ -376,7 +461,7 @@ static void menu_pc_state_info(menu_pc_t* p, telestrat_t* sys, char* out, size_t
     size_t n = 0;
     for (int b = 1; b < 8 && n < cap; b++) n += (size_t)snprintf(out + n, cap - n, "bank%d=%s\n", b, p->pool.name[b]);
     for (int d = 0; d < 4 && n < cap; d++)
-        if (p->disk[d]) n += (size_t)snprintf(out + n, cap - n, "%c=%s\n", 'a' + d, p->disk_name[d]);
+        if (p->disk_name[d][0]) n += (size_t)snprintf(out + n, cap - n, "%c=%s\n", 'a' + d, p->disk_name[d]);
     if (n < cap && sys->tape.inserted) snprintf(out + n, cap - n, "cassette=%s\n", p->tape_name);
 }
 
@@ -400,10 +485,11 @@ static bool menu_pc_state_save(menu_pc_t* p, telestrat_t* sys, char* name, size_
     return ok;
 }
 
-// Reprise : cartouches de l'instantané remises, puis la machine
+// Reprise : cartouches de l'instantané remises, puis la machine (instantané
+// de la clé, ou du réseau avec le préfixe « net:/ »)
 static bool menu_pc_state_load(menu_pc_t* p, telestrat_t* sys, const char* name, const char** err) {
     neo_file_t f;
-    if (!neo_file_open(&f, NEO_VOL_USB, name, NEO_READ)) {
+    if (!neo_file_open_path(&f, name, NEO_READ)) {
         *err = "illisible";
         return false;
     }
@@ -418,7 +504,8 @@ static bool menu_pc_state_load(menu_pc_t* p, telestrat_t* sys, const char* name,
             const rom_builtin_t* rb = v[0] == '@' ? rom_builtin_find(v) : NULL;
             if (!v[0]) menu_pc_restore(p, sys, b);
             else if (rb ? !rom_pool_load_builtin(&p->pool, sys, b, rb, err) : !menu_pc_load_rom(p, sys, b, v, err)) {
-                *err = "cartouche de l'instantané absente de la clé";
+                *err = osd_is_net(v) ? "cartouche de l'instantané absente du réseau"
+                                     : "cartouche de l'instantané absente de la clé";
                 ok = false;
             }
         }
@@ -553,6 +640,9 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
                 osd_menu_message(m, true, msg);
             }
             break;
+        case OSD_ACT_SOURCE:
+            if (a.file == OSD_VOL_NET) menu_pc_scan_net(p, a.target);
+            return false;  // sélecteur ouvert : rien d'autre à rafraîchir
         case OSD_ACT_RESUME: return true;
         default: break;
     }
@@ -641,4 +731,6 @@ static void menu_pc_ppm(menu_pc_t* p, const char* path) {
 
 static void menu_pc_finish(menu_pc_t* p, telestrat_t* sys) {
     for (int d = 0; d < 4; d++) _menu_pc_flush(p, sys, d);
+    for (int d = 0; d < 4; d++) neo_file_close(&p->disk_file[d]);
+    neo_file_close(&p->tape_file);
 }

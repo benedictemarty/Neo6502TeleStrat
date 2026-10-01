@@ -9,7 +9,11 @@
 // TELESTRA.CFG (une clé par ligne) : « a=NOM.DSK » … « d=NOM.DSK » (lecteurs),
 // « bank1=NOM.ROM » … « bank7=NOM.ROM » (cartouches de la clé), « volume=0 »
 // … « volume=8 » (8 : maximum, 0 : silence ; même clé que ORIC.CFG de reload).
-// Le menu réécrit ces lignes et garde les autres (dial=, listen=, rs232=…).
+// Le menu réécrit ces lignes et garde les autres (dial=, listen=, rs232=,
+// reseau=…). Un fichier du réseau (TNFS) s'écrit avec le préfixe de volume
+// de neo_storage.h : « a=net:/JEU.DSK », « bank5=net:/ORIX.ROM » ; un nom sans
+// préfixe est sur la clé (les deux points n'existent pas dans un nom FAT).
+// « reseau=hôte[:port] » : serveur TNFS (carte ; port 16384 par défaut).
 //
 // Indépendant de la plate-forme (testé dans tests/test_telestrat.c).
 //
@@ -56,6 +60,28 @@ static inline const char* osd_config_value(const char* line, const char* key) {
     size_t n = strlen(key);
     if (strncmp(line, key, n) != 0 || line[n] != '=') return NULL;
     return line + n + 1;
+}
+
+// Serveur TNFS « hôte[:port] » (TELESTRA.CFG « reseau= », -N du banc) :
+// hôte copié dans host, *port = le port donné ou dflt ; false si l'hôte est
+// vide, trop long ou le port invalide
+static inline bool osd_config_server(const char* value, char* host, size_t cap, uint16_t* port, uint16_t dflt) {
+    const char* colon = strchr(value, ':');
+    const size_t n = colon ? (size_t)(colon - value) : strlen(value);
+    if (!n || n >= cap) return false;
+    memcpy(host, value, n);
+    host[n] = 0;
+    *port = dflt;
+    if (!colon) return true;
+    unsigned long p = 0;
+    const char* d = colon + 1;
+    if (!*d) return false;
+    for (; *d; d++) {
+        if (*d < '0' || *d > '9' || (p = p * 10 + (unsigned long)(*d - '0')) > 65535) return false;
+    }
+    if (!p) return false;
+    *port = (uint16_t)p;
+    return true;
 }
 
 // Modèle d'imprimante (TELESTRA.CFG « imprimante_type= ») : texte brut dans

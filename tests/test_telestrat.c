@@ -1935,6 +1935,123 @@ static void test_osd_menu(void) {
     CHECK(!memcmp(&osd_s.ch[9][22 + 76 - 18], "en B", 4), "image déjà en B signalée");
 }
 
+// Volume Réseau (v0.16.26) : choix de la source, fichiers « net:/NOM »,
+// TELESTRA.CFG et rétrocompatibilité (un nom sans préfixe reste la clé)
+static void test_osd_net(void) {
+    // Sans réseau : sélecteur de la clé directement, comme avant
+    osd_sample();
+    osd_m.cursor = OSD_ITEM_DRIVE0;
+    osd_action_t a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_vol == OSD_VOL_USB &&
+              osd_m.browse_count == 3,
+          "sans réseau : pas de choix de la source (%d)", osd_m.page);
+    // Réseau prêt : fichiers du volume 1 à la suite de ceux de la clé
+    osd_sample();
+    osd_m.net_present = true;
+    osd_m.net_label = "192.168.1.10:16384";
+    const char* net[3] = {"net:/ZORGON.DSK", "net:/ORIX.ROM", "net:/AIGLE.TAP"};
+    const uint8_t kinds[3] = {OSD_FILE_DSK, OSD_FILE_ROM, OSD_FILE_TAP};
+    for (int i = 0; i < 3; i++) {
+        strcpy(osd_m.files[5 + i].name, net[i]);
+        osd_m.files[5 + i].kind = kinds[i];
+        osd_m.files[5 + i].vol = OSD_VOL_NET;
+    }
+    osd_m.nfiles = 8;
+    osd_m.builtin[0] = "TELEMON 2.4";
+    osd_m.cursor = OSD_ITEM_DRIVE0;
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_SOURCE && osd_m.source_cursor == 0,
+          "réseau prêt : choix de la source, curseur sur la clé (image en place de la clé)");
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(!memcmp(&osd_s.ch[8][26], "Cl", 2) && !memcmp(&osd_s.ch[9][26], "R", 1) && !memcmp(&osd_s.ch[9][38], "192.168", 7),
+          "page de la source : Clé USB, Réseau et son serveur");
+    a = osd_menu_key(&osd_m, OSD_KEY_ESC);
+    CHECK(a.type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_MAIN, "Échap : retour à la page principale");
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_SOURCE && a.file == OSD_VOL_USB && osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_count == 3,
+          "source Clé USB : les seules .dsk de la clé (%d)", osd_m.browse_count);
+    osd_menu_key(&osd_m, OSD_KEY_ESC);
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_SOURCE && a.target == OSD_ITEM_DRIVE0 && a.file == OSD_VOL_NET && osd_m.browse_vol == OSD_VOL_NET &&
+              osd_m.browse_count == 1 && osd_m.browse_list[0] == 5,
+          "source Réseau : la seule .dsk du réseau (%d)", osd_m.browse_count);
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(!memcmp(&osd_s.ch[9][26], "ZORGON.DSK", 10), "sélecteur du réseau : nom sans préfixe");
+    osd_menu_key(&osd_m, OSD_KEY_HOME);
+    osd_menu_key(&osd_m, 'z');
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_INSERT && a.target == 0 && a.file == 5, "lettre z (sans le préfixe) puis Entrée : net:/ZORGON.DSK");
+    // Image du réseau en place : curseur de la source sur Réseau, puis sur l'image
+    strcpy(osd_m.drive[0], "net:/ZORGON.DSK");
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(osd_m.page == OSD_PAGE_SOURCE && osd_m.source_cursor == 1, "image du réseau en place : curseur sur Réseau");
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(osd_m.browse_cursor == 1, "curseur du sélecteur sur l'image en place");
+    osd_menu_key(&osd_m, OSD_KEY_ESC);
+    // Banque : ROM intégrées avec la seule source Clé USB
+    osd_m.cursor = OSD_ITEM_BANK7;
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    osd_menu_key(&osd_m, 'r');
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(osd_m.browse_count == 1 && osd_m.browse_list[0] == 6, "banque, source Réseau : ses .rom, sans ROM intégrée");
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(a.type == OSD_ACT_LOAD_ROM && a.target == 7 && a.file == 6, "cartouche du réseau en banque 7");
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    osd_menu_key(&osd_m, 'c');
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(osd_m.browse_count == 3 && osd_m.browse_list[0] == -2, "banque, source Clé USB : ROM intégrée puis .rom");
+    // Panneau de la clé : ses seuls fichiers comptés ; réseau signalé
+    osd_menu_key(&osd_m, OSD_KEY_ESC);
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(!memcmp(&osd_s.ch[20][5], "3 .dsk   0 .tap   2 .rom", 24) && !memcmp(&osd_s.ch[19][32], "R", 1),
+          "panneau Clé USB : fichiers de la clé seulement, réseau signalé");
+    // F3 : instantané le plus récent de la clé ; celui du réseau s'il est le dernier repris
+    strcpy(osd_m.files[7].name, "net:/ETAT0099.STA");
+    osd_m.files[7].kind = OSD_FILE_STA;
+    strcpy(osd_m.files[0].name, "ETAT0002.STA");
+    osd_m.files[0].kind = OSD_FILE_STA;
+    osd_m.state_last[0] = 0;
+    CHECK(osd_state_latest(&osd_m) == 0, "F3 : le plus récent de la clé (pas celui du réseau)");
+    strcpy(osd_m.state_last, "net:/ETAT0099.STA");
+    CHECK(osd_state_latest(&osd_m) == 7, "F3 : le dernier repris, sur le réseau");
+    // Préfixe : celui de neo_storage.h du socle ; nom sans préfixe = la clé
+    int vol = -1;
+    CHECK(!strcmp(OSD_NET_PREFIX, NEO_NET_PREFIX "/") && sizeof(OSD_NET_PREFIX) - 1 == OSD_NET_PREFIX_LEN,
+          "OSD_NET_PREFIX = NEO_NET_PREFIX \"/\"");
+    CHECK(!strcmp(neo_storage_split("net:/JEU.DSK", &vol), "/JEU.DSK") && vol == NEO_VOL_NET, "net:/JEU.DSK : réseau");
+    CHECK(!strcmp(neo_storage_split("JEU.DSK", &vol), "JEU.DSK") && vol == NEO_VOL_USB && !osd_is_net("JEU.DSK") &&
+              osd_is_net("net:/JEU.DSK") && !osd_is_net("NET.DSK"),
+          "rétrocompatibilité : JEU.DSK sur la clé");
+}
+
+// TELESTRA.CFG : fichiers du réseau gardés par le menu, serveur (reseau=)
+static void test_osd_config_net(void) {
+    const char* old = "reseau=192.168.1.10\na=VIEUX.DSK\nbank5=net:/OLD.ROM\n";
+    const char* drives[4] = {"net:/STRATSED.DSK", "JEUX.DSK", NULL, NULL};
+    const char* banks[8] = {NULL, NULL, NULL, NULL, NULL, "net:/ORIX.ROM", NULL, NULL};
+    char out[256];
+    osd_config_merge(old, drives, banks, out, sizeof(out));
+    CHECK(!strcmp(out, "reseau=192.168.1.10\na=net:/STRATSED.DSK\nb=JEUX.DSK\nbank5=net:/ORIX.ROM\n"),
+          "TELESTRA.CFG : net:/ gardé, reseau= gardé, nom sans préfixe inchangé :\n%s", out);
+    char host[16];
+    uint16_t port = 0;
+    CHECK(osd_config_server("192.168.1.10", host, sizeof(host), &port, 16384) && !strcmp(host, "192.168.1.10") &&
+              port == 16384,
+          "reseau=hôte : port par défaut");
+    CHECK(osd_config_server("tnfs.local:16385", host, sizeof(host), &port, 16384) && !strcmp(host, "tnfs.local") &&
+              port == 16385,
+          "reseau=hôte:port");
+    CHECK(!osd_config_server("", host, sizeof(host), &port, 1) && !osd_config_server(":16384", host, sizeof(host), &port, 1) &&
+              !osd_config_server("h:", host, sizeof(host), &port, 1) && !osd_config_server("h:65536", host, sizeof(host), &port, 1) &&
+              !osd_config_server("h:12a", host, sizeof(host), &port, 1) &&
+              !osd_config_server("un.nom.bien.trop.long", host, sizeof(host), &port, 1),
+          "reseau= invalide : vide, sans hôte, port absent, trop grand ou non numérique, hôte trop long");
+}
+
 // --- Rendu de l'écran : identique au rendu d'origine (oric.h) -----------------
 // Copie exacte de l'ancien telestrat_screen_update (oric_screen_update de
 // reload), comme référence
@@ -2380,6 +2497,8 @@ int main(void) {
     test_osd_menu();
     test_osd_config();
     test_osd_tape_menu();
+    test_osd_net();
+    test_osd_config_net();
     printf("test_telestrat : %d/%d vérifications réussies\n", checks - failures, checks);
     return failures ? 1 : 0;
 }
