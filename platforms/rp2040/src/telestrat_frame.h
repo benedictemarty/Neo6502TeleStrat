@@ -37,8 +37,12 @@ static inline void TELESTRAT_VIDEO_RAM telestrat_frame_line(int y, int width, in
         telestrat_video_line(&fb[src * TELESTRAT_VIDEO_BYTES_PER_LINE], red, green, blue,
                              (unsigned)(width - TELESTRAT_VIDEO_PIXELS) / 2);
     } else {
-        memset(red, 0, (size_t)width / 8);
-        memset(green, 0, (size_t)width / 8);
-        memset(blue, 0, (size_t)width / 8);
+        // Bordure noire : mots volatils, pas memset (en flash, appelé depuis le
+        // cœur 1 : tools/core1_flash.py du socle) ; volatile empêche GCC de
+        // reconnaître la boucle et d'y remettre memset
+        volatile uint32_t* r = red;
+        volatile uint32_t* g = green;
+        volatile uint32_t* b = blue;
+        for (int i = 0; i < width / 32; i++) r[i] = g[i] = b[i] = 0;
     }
 }

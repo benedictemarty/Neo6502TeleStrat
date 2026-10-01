@@ -413,6 +413,13 @@ froid). Le test pose maintenant TELE-ASS en banque 5. Enquête : option `-Q`
 traces des deux versions ; le modèle de référence donne le même résultat que
 le système optimisé (test_replay C).
 
+**Cœur 1 sans flash** (v0.16.19) : `tools/core1_flash.py` du socle (reload)
+liste ce que le cœur 1 atteint en flash ; il trouvait `memset` (bordures
+noires de `telestrat_frame_line`), remplacé par des écritures de mots
+volatiles (0 octet de RAM en plus, au lieu d'environ 1,2 Ko avec
+`PICO_MEM_IN_RAM`). Reste, dans PicoDVI (socle) : un littéral en flash et un
+appel indirect dans `dvi_dma_irq_handler`, signalés à reload.
+
 **Verrous des files DVI** (v0.16.11) : `dvi_init` reçoit deux verrous
 dédiés (`spin_lock_claim_unused`) au lieu de `next_striped_spin_lock_num()`,
 dont les verrous 16-23 sont partagés avec FatFs et TinyUSB : le cœur 1

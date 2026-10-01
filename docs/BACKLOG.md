@@ -244,6 +244,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | BUG-5 | « lignes DVI en retard : 0 » ne prouvait rien (compteur de PicoDVI qui redescend) | ✅ `diag_late_total` cumulé, `carte.py mesure` ; ⏳ relevé sur carte |
 | US-176 | Socle `-4` : aigus de l'AY justes, son sans `memset` en flash ni verrou partagé | ✅ test période 17 ; charge 59 / 67 % ; ⏳ écoute |
 
+## v0.16.19 — cœur 1 sans appel en flash ✅ (2026-10-01)
+
+| Id | Anomalie | État |
+|---|---|---|
+| BUG-6 | `memset` en flash appelé par le cœur 1 (bordures de l'image), cause possible de lignes rouges | ✅ mots volatiles ; `core1_flash.py` : 0 fonction en flash ; image DVI identique au bit près |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
