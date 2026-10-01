@@ -268,6 +268,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-179 | F2 enregistre un instantané, F3 reprend le dernier (par le menu : zone de travail de l'image) | ✅ code + 5 tests (`osd_state_latest`) ; ⏳ carte |
 
+## v0.16.23 — image comparée à Oricutron ✅ (2026-10-01)
+
+| Id | Récit | État |
+|---|---|---|
+| US-180 | Image rendue comparée pixel par pixel à celle d'Oricutron (test « golden ») | ✅ `tests/test_golden.sh` dans `make test` : écran de STRATSED identique (hors case du curseur, phase du clignotement) ; contre-épreuve sans imprimante : échec |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
@@ -298,7 +304,10 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
   regagner avant (tampons CDC, réserve de FIL). Neo6502picowifi `eeda7d3`
   (testé sur PC) : VID:PID 2E8A:000A (identifiant de test partagé : ne suffit
   pas seul), fabricant « Neo6502drive », interface 0 « Modem AT », interface 2
-  « TNFS » ; le port TNFS ne répond qu'avec DTR levé.
+  « TNFS » ; le port TNFS ne répond qu'avec DTR levé. Désactivé par défaut
+  (`5dae630`, décision bmarty) : `AT$TNFSUSB=1` puis `AT+RST` ; l'hôte USB du
+  RP2040 n'a que 15 points de terminaison pour tous les appareils, le second
+  port en prend 3 (hub + 2 HID + clé = 10).
 - Vraie imprimante USB (classe imprimante USB, ESC/P ou PCL) à la place des
   images : envoi des octets bruts, ou de la page rendue.
 - FX-80 : police 9 x 11 de la FX-80, mode proportionnel, caractères de
@@ -308,7 +317,6 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
   pointillés, les graduations de `X`, l'interligne mesuré sur une figure ;
   police vectorielle de la machine ; commutateurs DIP (80 colonnes,
   CR + LF).
-- Test « golden » image contre Oricutron (PPM).
 
 ## Définition de « terminé »
 

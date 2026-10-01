@@ -28,7 +28,7 @@
 | `oric_roms.h` de reload-emulator (local) | ROM ORIC EXTENDED BASIC V1.1 (md5 `a330779c42ad7d0c4ac6ef9e92788ec6`) |
 | `AIGLE.TAP` (« L'Aigle d'Or », Loriciels 1984), `~/Téléchargements` | essai manuel de chargement |
 | ROM BASIC 1.1 désassemblée (da65) | écriture d'un octet `$E65E` (trame de 13 bits, parité), lecture d'un bit `$E71C` |
-| Oricutron 1.2.0 (rev. 002279f, `~/oricutron`) avec `tools/oracle/oricutron-dump.patch` | oracle sans fenêtre (écran texte après N trames) : STRATSED sans TELE-ASS |
+| Oricutron 1.2.0 (rev. 002279f, `~/oricutron`) avec `tools/oracle/oricutron-dump.patch` | oracle sans fenêtre (écran texte après N trames ; image rendue avec `ORIC_DUMP_PPM`, v0.16.23) : STRATSED sans TELE-ASS ; référence de `tests/test_golden.sh` |
 | [jedeoric/stratoric](https://github.com/jedeoric/stratoric) (`B7STRA40.ROM`, md5 `19c56dfcab72a082f449d2bc6ec15032`) | cartouche STRATORIC 4.0 (banque 7) |
 | `~/Oric1/roms/basic10.rom` (local, md5 `ebe418ec8a6c85d5ac32956c9a96c179`) | ORIC BASIC V1.0 (banque 5 de STRATORIC) |
 | Manuel du développeur Telestrat (F. Broche, ORIC International 1987), `~/Téléchargements/manuel_developpeur_telestrat.pdf` — fourni par le PO | répartition des banques par cartouche (page 3), entête de banque `$FFF8`-`$FFFF` (bit 4 : ignorer) |

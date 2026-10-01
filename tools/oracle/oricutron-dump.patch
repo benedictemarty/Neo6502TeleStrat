@@ -1,6 +1,18 @@
---- a/main.c	2026-09-28 23:28:13.163198317 +0200
-+++ b/main.c	2026-09-29 12:56:39.092372481 +0200
-@@ -1826,6 +1826,26 @@
+diff -ru a/machine.c b/machine.c
+--- a/machine.c	2026-10-01 18:21:27.795960560 +0200
++++ b/machine.c	2026-10-01 18:21:27.908014882 +0200
+@@ -2026,6 +2026,7 @@
+       {
+         // assign oric->rom to allow binary patches
+         oric->rom = oric->tele_bank[i].ptr  = &oric->mem[0x0c000+(i*0x4000)];
++        { const char* e = getenv("ORIC_RAM_BANKS"); if(e && strchr(e, '0'+i)) telebankfiles[i][0] = 0; }  /* outil de comparaison */
+         if(telebankfiles[i][0])
+         {
+           oric->tele_bank[i].type = TELEBANK_ROM;
+diff -ru a/main.c b/main.c
+--- a/main.c	2026-10-01 18:21:27.796315103 +0200
++++ b/main.c	2026-10-01 18:22:02.976094998 +0200
+@@ -1826,6 +1826,39 @@
  
        if(ctx->framedone)
        {
@@ -21,19 +33,22 @@
 +              putchar('\n');
 +            }
 +            fflush(stdout);
++            {
++              /* Image rendue (240 x 224, palette d'Oricutron) en PPM si ORIC_DUMP_PPM */
++              extern Uint8 oricpalette[];
++              const char* ppm = getenv("ORIC_DUMP_PPM");
++              FILE* f = ppm ? fopen(ppm, "wb") : NULL;
++              if(f && oric->scr)
++              {
++                int i;
++                fprintf(f, "P6\n240 224\n255\n");
++                for(i = 0; i < 240*224; i++) fwrite(&oricpalette[(oric->scr[i] & 7) * 3], 1, 3, f);
++              }
++              if(f) fclose(f);
++            }
 +            exit(0);
 +          }
 +        }
          once_per_frame(oric);
  
          ctx->then = ctx->now;
---- a/machine.c	2026-09-28 23:28:13.163198317 +0200
-+++ b/machine.c	2026-09-29 12:57:59.166277110 +0200
-@@ -2026,6 +2026,7 @@
-       {
-         // assign oric->rom to allow binary patches
-         oric->rom = oric->tele_bank[i].ptr  = &oric->mem[0x0c000+(i*0x4000)];
-+        { const char* e = getenv("ORIC_RAM_BANKS"); if(e && strchr(e, '0'+i)) telebankfiles[i][0] = 0; }  /* outil de comparaison */
-         if(telebankfiles[i][0])
-         {
-           oric->tele_bank[i].type = TELEBANK_ROM;

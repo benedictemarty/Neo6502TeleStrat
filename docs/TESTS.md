@@ -326,6 +326,17 @@ Sans carte : `tools/carte.py` décode l'état de la clé depuis une fausse mémo
 USB lue dans `msc_slot_addr` du socle, v0.16.21, ou `msc_addr` des firmwares
 antérieurs).
 
+## Image comparée à Oricutron — `tests/test_golden.sh` (1 image)
+
+Image de référence d'Oricutron (`tests/golden/stratsed_menu_oricutron.ppm.gz`,
+2 Ko, produite par `ORIC_DUMP_PPM=ref.ppm sh tools/oracle/oracle.sh 400
+STRATSED.DSK`) : configuration `oricutron`, STRATSED dans A, imprimante
+branchée, 400 trames, menu « Votre choix: ». Notre image (`-p`) doit être
+identique pixel par pixel, hors case du curseur (rangée 20, colonne 12 : phase
+du clignotement, qui dépend du minutage du démarrage ; à la trame 420, les
+deux images sont identiques en tout point). Contre-épreuve : sans imprimante,
+la rangée 6 (« Imprimante, ») diffère et le test échoue.
+
 ## Oracle Oricutron — `tools/oracle/oracle.sh` (manuel)
 
 Construit une copie locale d'Oricutron (GPL, non distribuée) avec

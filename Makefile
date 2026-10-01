@@ -82,6 +82,7 @@ test: cpu_harte $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/tel
 	sh tests/test_state.sh $(BUILD)/telestrat_headless
 	sh tests/test_profiles.sh $(BUILD)/telestrat_headless
 	sh tests/test_replay.sh $(BUILD)/telestrat_headless_ref $(BUILD)/replay $(BUILD)/telestrat_headless
+	sh tests/test_golden.sh $(BUILD)/telestrat_headless
 	python3 tests/test_carte.py
 
 uf2: $(ROMS_H)
