@@ -288,6 +288,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | BUG-9 | `STORE` (tableau) n'enregistrait que l'en-tête : l'en-tête d'un tableau part avant que la ROM ne fixe début et fin (BASIC 1.1 `$E99D` puis `$EA9E`) ; trouvé ici, corrigé dans le socle (`socle-2026-10-01-16`, enregistrement jusqu'à l'arrêt du moteur) | ✅ `test_tape.sh` : STORE 47 octets, RECALL « 42  7 » ; bandeau : octets écrits quand la longueur est inconnue |
 
+## v0.16.26 — volume Réseau (TNFS) ✅ au banc (2026-10-01)
+
+| Id | Récit | État |
+|---|---|---|
+| US-181 | Fichiers du réseau (TNFS) à côté de la clé : choix de la source dans le menu (décision de bmarty), `net:/` dans TELESTRA.CFG et les instantanés, `reseau=hôte[:port]`, banc `-N` ; firmware standard par le second port USB du modem Neo6502picowifi (pas en RAM 64 Ko) | ✅ `make test` (510 + `test_tnfs` 12/12 contre tnfsd) ; trois variantes ; charge 59 / 67 % ; ⏳ 5 essais sur carte (docs/TESTS.md) |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
