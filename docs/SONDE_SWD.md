@@ -51,13 +51,21 @@ variables `volatile`.
 3. **Un octet s'écrit par `mwb`**, pas par `mww` (adresse non alignée,
    risque d'écrire les octets voisins).
 4. **« Failed to connect multidrop rp2040.dap0 »** : câble SWD ou alimentation
-   qui a bougé (deux fois) ; bmarty rebranche.
-5. **Reset après flash** : `program … verify reset` a toujours redémarré le
+   qui a bougé (deux fois) ; bmarty rebranche. Astuce de la session
+   reload-emulator (2026-10-01), à essayer d'abord : une connexion de secours,
+   puis la connexion normale :
+   `openocd -f interface/cmsis-dap.cfg -c "set RESCUE 1" -f target/rp2040.cfg -c init -c shutdown`.
+   Non essayée par la session Telestrat.
+5. **OpenOCD décroche au retrait ou au branchement de la clé USB** (« Failed
+   to read/write memory », « core1 Examination failed », vu trois fois par la
+   session Telestrat) : la lecture suivante réussit ; ne pas conclure à un
+   échec, relire l'état.
+6. **Reset après flash** : `program … verify reset` a toujours redémarré le
    firmware Telestrat (une dizaine de fois), sans `set USE_CORE 0`. La
    session Trinity a vu un HardFault après le reset avec `USE_CORE 0` ;
    hypothèse non vérifiée : n'attacher que le cœur 0 laisserait le cœur 1 sur
    l'ancien firmware.
-6. Une seule session OpenOCD à la fois.
+7. Une seule session OpenOCD à la fois.
 
 ## Pièges du firmware vus sur la carte (pas sur le banc PC)
 
