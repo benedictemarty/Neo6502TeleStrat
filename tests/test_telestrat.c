@@ -1471,6 +1471,27 @@ static void test_via_ier(void) {
     CHECK(mos6522via_read(&v, MOS6522VIA_REG_IER) & 0x40, "IER relu");
 }
 
+// F3 (v0.16.22) : instantané à reprendre
+static void test_state_latest(void) {
+    static osd_menu_t m;
+    memset(&m, 0, sizeof(m));
+    CHECK(osd_state_latest(&m) == -1, "clé vide : aucun instantané");
+    const char* names[] = {"ETAT0002.STA", "JEU.DSK", "ETAT0010.STA", "ETAT0003.STA"};
+    const uint8_t kinds[] = {OSD_FILE_STA, OSD_FILE_DSK, OSD_FILE_STA, OSD_FILE_STA};
+    for (int i = 0; i < 4; i++) {
+        snprintf(m.files[i].name, sizeof(m.files[i].name), "%s", names[i]);
+        m.files[i].kind = kinds[i];
+    }
+    m.nfiles = 4;
+    CHECK(osd_state_latest(&m) == 2, "sans dernier connu : le plus grand nom (ETAT0010.STA)");
+    snprintf(m.state_last, sizeof(m.state_last), "ETAT0003.STA");
+    CHECK(osd_state_latest(&m) == 3, "dernier enregistré ou repris, s'il est sur la clé");
+    snprintf(m.state_last, sizeof(m.state_last), "ETAT0099.STA");
+    CHECK(osd_state_latest(&m) == 2, "dernier connu absent de la clé : le plus grand nom");
+    m.files[0].kind = m.files[2].kind = m.files[3].kind = OSD_FILE_DSK;
+    CHECK(osd_state_latest(&m) == -1, "aucun .STA : -1");
+}
+
 static void test_state(void) {
     // Programme : boucle qui écrit en RAM, VIA 1 : timer 1 libre (IRQ au RESET masquées)
     const uint8_t prog[] = {0xA2, 0x00, 0xA0, 0x80, 0xA9, 0x10,       // LDX #0, LDY #$80, LDA #$10
@@ -2351,6 +2372,7 @@ int main(void) {
     test_audio();
     test_via_ier();
     test_hid_media();
+    test_state_latest();
     test_oric_tape_rec();
     test_osd_render();
     test_osd_menu();

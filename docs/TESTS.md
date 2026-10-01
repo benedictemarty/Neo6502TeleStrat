@@ -27,7 +27,7 @@ passés sur la copie locale `src/chips/w65c02cpu.h` (programme
 
 Seule la version PC utilise ce cœur. Sur la carte, c'est le vrai W65C02.
 
-## Tests unitaires — `tests/test_telestrat.c` (481 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (486 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -37,6 +37,8 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
 - DDRA partiel : les lignes en entrée gardent la banque précédente ;
 - VIA (v0.16.13) : T1 échu = IRQ ; T1 interdit par IER = IRQ relâchée,
   drapeau T1 gardé ;
+- F3 (v0.16.22) : instantané à reprendre, `osd_state_latest` (dernier connu
+  s'il est sur la clé, sinon le plus grand nom, -1 sans .STA) ;
 - son aigu (v0.16.18, AY du socle `-4`) : période 17 = ~7 353 changements
   d'échantillon par seconde (3 676 Hz ; l'ancien AY donnait 5 208, 2 604 Hz) ;
 - son (v0.16.8) : exactement 22 050, 44 100 et 11 025 échantillons en une

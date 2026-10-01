@@ -262,6 +262,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-178 | Montage de la clé par `msc_app.c` du socle, fichiers par les volumes `neo_storage` (volume 0 = la clé ; réseau TNFS possible plus tard sans retoucher le Telestrat) | ✅ `make` entier (481), trois variantes, charge 59 / 67 % ; ⏳ 8 essais sur carte (docs/TESTS.md) |
 
+## v0.16.22 — touches rapides des instantanés ✅ au banc (2026-10-01)
+
+| Id | Récit | État |
+|---|---|---|
+| US-179 | F2 enregistre un instantané, F3 reprend le dernier (par le menu : zone de travail de l'image) | ✅ code + 5 tests (`osd_state_latest`) ; ⏳ carte |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
@@ -289,7 +295,10 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
   sur 2 octets petit-boutistes ; serveur par `AT$TNFS=hôte:port` sur le port
   modem). Côté Telestrat : 2 instances CDC hôte (`CFG_TUH_CDC=2`), mesuré
   +504 o de RAM : la variante RAM 64 Ko tomberait à 220 o de marge, place à
-  regagner avant (tampons CDC, réserve de FIL).
+  regagner avant (tampons CDC, réserve de FIL). Neo6502picowifi `eeda7d3`
+  (testé sur PC) : VID:PID 2E8A:000A (identifiant de test partagé : ne suffit
+  pas seul), fabricant « Neo6502drive », interface 0 « Modem AT », interface 2
+  « TNFS » ; le port TNFS ne répond qu'avec DTR levé.
 - Vraie imprimante USB (classe imprimante USB, ESC/P ou PCL) à la place des
   images : envoi des octets bruts, ou de la page rendue.
 - FX-80 : police 9 x 11 de la FX-80, mode proportionnel, caractères de
@@ -299,7 +308,6 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
   pointillés, les graduations de `X`, l'interligne mesuré sur une figure ;
   police vectorielle de la machine ; commutateurs DIP (80 colonnes,
   CR + LF).
-- Instantanés : touches rapides (F2 enregistrer, F3 reprendre le dernier).
 - Test « golden » image contre Oricutron (PPM).
 
 ## Définition de « terminé »

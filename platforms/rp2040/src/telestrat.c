@@ -1530,6 +1530,26 @@ void kbd_raw_key_down(int code) {
             else menu_open();
 #endif
             break;
+#ifdef TELESTRAT_OSD
+        // Instantanés : par le menu (sa zone de travail est l'image, menu
+        // ouvert). F2 : enregistrer, résultat affiché ; F3 : reprendre le
+        // dernier, menu refermé si tout va bien
+        case 0x13B:  // F2
+            menu_open();
+            menu_action((osd_action_t){.type = OSD_ACT_STATE_SAVE});
+            break;
+        case 0x13C: {  // F3
+            menu_open();
+            const int i = osd_state_latest(&menu);
+            if (i < 0) {
+                osd_menu_message(&menu, true, "Aucun instantané (ETATnnnn.STA) sur la clé");
+                break;
+            }
+            menu_action((osd_action_t){.type = OSD_ACT_STATE_LOAD, .file = i});
+            if (!menu.message_error) menu_close();
+            break;
+        }
+#endif
         case 0x144:  // F11
             telestrat_nmi(sys);
             break;

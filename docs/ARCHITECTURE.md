@@ -550,6 +550,12 @@ retiré (décision du PO).
 
 ## Instantanés (sprint 14)
 
+**Touches rapides** (v0.16.22) : F2 enregistre, F3 reprend le dernier
+(`osd_state_latest` : celui enregistré ou repris en dernier s'il est encore sur
+la clé, sinon le plus grand `ETATnnnn.STA`). Les deux passent par le menu,
+dont l'image du Telestrat est la zone de travail : F2 laisse le menu ouvert
+sur le résultat, F3 le referme si la reprise réussit.
+
 **Registres du processeur** (`telestrat.h`, `telestrat_cpu_capture` /
 `telestrat_cpu_restore`) : le 65C02 du Neo6502 est une vraie puce, ses
 registres ne se lisent pas. On les lui fait écrire, ou charger, par un NMI

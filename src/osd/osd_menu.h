@@ -309,6 +309,19 @@ static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
     return a;
 }
 
+// Instantané à reprendre par F3 : le dernier enregistré ou repris
+// (state_last) s'il est encore sur la clé, sinon celui de plus grand nom
+// parmi les .STA (ETAT0001.STA… : le plus récent) ; -1 : aucun
+static inline int osd_state_latest(const osd_menu_t* m) {
+    int best = -1;
+    for (int i = 0; i < m->nfiles; i++) {
+        if (m->files[i].kind != OSD_FILE_STA) continue;
+        if (m->state_last[0] && !strcmp(m->files[i].name, m->state_last)) return i;
+        if (best < 0 || strcmp(m->files[i].name, m->files[best].name) > 0) best = i;
+    }
+    return best;
+}
+
 static inline void osd_menu_message(osd_menu_t* m, bool error, const char* text) {
     snprintf(m->message, sizeof(m->message), "%s", text);
     m->message_error = error;

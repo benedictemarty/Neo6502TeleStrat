@@ -290,6 +290,8 @@ sinon sur cet UART, n'y passent plus. **Pas encore essayé sur carte.**
 |---|---|
 | F1 | menu : disquettes, cassette, cartouches, RESET, configuration |
 | F12 | RESET |
+| F2 | instantané enregistré (ETATnnnn.STA sur la clé), résultat dans le menu |
+| F3 | reprend le dernier instantané (enregistré ou repris, sinon le plus grand numéro) |
 | F11 | NMI |
 | Windows gauche | FUNCT |
 | Pause | retour au firmware Neo6502 (multi-boot) |
