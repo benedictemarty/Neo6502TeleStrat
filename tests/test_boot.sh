@@ -74,5 +74,18 @@ else
     echo "test_boot : disquette système absente ($DSK), tests disque ignorés"
 fi
 
+# Frappe du banc (-t, v0.16.24) : SHIFT seul appuyé une trame avant un
+# caractère qui en a besoin ; pressé avec la touche, il manquait parfois
+# (« A95) » pour « A(5) ») ; lignes à parenthèses et guillemets, -k 10 (le
+# banc d'avant y perdait SHIFT ; à -k 8, une lettre tapée juste après une
+# ligne longue à exécuter peut encore se perdre : autre cause, non examinée)
+n=$((n + 1))
+FRAPPE=$("$BIN" -c atmos -f 2200 -w 150 -k 10 \
+    -t 'DIM A(9)\nA(1)=1:A(2)=2\nA(3)=(4)\nA(5)=(6)\nA(7)=(8)\nPRINT "(OK)";A(5)\nB$="()"\nA(9)=(1)\nPRINT A(1)+A(9)\n' -s 2>&1)
+if echo "$FRAPPE" | grep -q 'SYNTAX' || ! echo "$FRAPPE" | grep -q '(OK) 6'; then
+    fail=$((fail + 1))
+    echo "ÉCHEC [frappe] : SHIFT perdu ? $(echo "$FRAPPE" | grep -v '^ *$' | tail -6 | tr '\n' '|')"
+fi
+
 echo "test_boot : $((n - fail))/$n vérifications réussies"
 [ "$fail" -eq 0 ]

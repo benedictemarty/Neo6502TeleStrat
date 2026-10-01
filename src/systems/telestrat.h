@@ -1156,6 +1156,7 @@ static void _telestrat_init_key_map(telestrat_t* sys) {
     kbd_register_key(&sys->kbd, 0x0D, 5, 7, 0);   // RETURN
     kbd_register_key(&sys->kbd, 0x1B, 5, 1, 0);   // ESC
     kbd_register_key(&sys->kbd, 0x146, 4, 5, 0);  // FUNCT (8912.c d'Oricutron : SDLK_LALT)
+    kbd_register_key(&sys->kbd, 0x1E1, 4, 4, 0);  // SHIFT seul (Shift gauche : HID 0xE1 | 0x100)
 
     // CTRL + lettre (codes ASCII 1..26), sauf les codes qui ont leur propre
     // touche : 8 (DEL, pas CTRL+H) et 13 (RETURN, pas CTRL+M)

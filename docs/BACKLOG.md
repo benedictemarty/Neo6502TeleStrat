@@ -274,6 +274,14 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-180 | Image rendue comparée pixel par pixel à celle d'Oricutron (test « golden ») | ✅ `tests/test_golden.sh` dans `make test` : écran de STRATSED identique (hors case du curseur, phase du clignotement) ; contre-épreuve sans imprimante : échec |
 
+## v0.16.24 — frappe du banc : SHIFT d'abord ✅ (2026-10-01)
+
+| Id | Anomalie | État |
+|---|---|---|
+| BUG-7 | Banc (`-t`) : SHIFT pressé avec la touche manquait parfois (« A95) » pour « A(5) ») : la ROM lit les rangées l'une après l'autre | ✅ SHIFT seul (code `0x1E1`, colonne 4 rangée 4) une trame avant ; test dans `test_boot.sh` |
+| BUG-8 | Banc, `-k 8` : la lettre tapée juste après une ligne longue à exécuter peut se perdre | à examiner (cause non établie) |
+| — | Carte : le clavier USB donne le caractère avec SHIFT d'un coup (code ASCII) ; même risque possible avec un vrai clavier, non observé | à vérifier sur carte |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

@@ -667,8 +667,22 @@ int main(int argc, char** argv) {
 
     size_t pos = 0, len = text ? strlen(text) : 0;
     int key_down = 0;
+    int shift_down = 0;  // SHIFT seul appuyé avant un caractère qui en a besoin
     int funct = 0;
     for (int frame = 0; frame < frames; frame++) {
+        // Caractère suivant avec SHIFT : SHIFT seul une trame plus tôt (la ROM
+        // lit les rangées l'une après l'autre ; pressés ensemble entre deux
+        // rangées, SHIFT pouvait manquer : « A95) » pour « A(5) »)
+        if (text && frame + 1 >= wait && pos < len && ((frame + 1 - wait) % key_period) == 0 && !shift_down) {
+            size_t q = pos;
+            if (text[q] == '\\' && q + 2 < len && text[q + 1] == 'f') q += 2;
+            const int n = (unsigned char)text[q];
+            if (n != '\\' && n != '\n' && (sys.kbd.key_masks[n] >> (KBD_MAX_COLUMNS + KBD_MAX_LINES)) & 1) {
+                telestrat_key_down(&sys, 0x1E1);
+                bench_key(frame, 1, 0x1E1);
+                shift_down = 1;
+            }
+        }
         if (text && frame >= wait && pos < len && ((frame - wait) % key_period) == 0) {
             int c = (unsigned char)text[pos];
             funct = 0;
@@ -701,6 +715,11 @@ int main(int argc, char** argv) {
                 funct = 0;
             }
             key_down = 0;
+            if (shift_down) {
+                telestrat_key_up(&sys, 0x1E1);
+                bench_key(frame, 0, 0x1E1);
+                shift_down = 0;
+            }
         }
         current_frame = frame;
         if (frame == cold_frame) telestrat_cold_reset(&sys);

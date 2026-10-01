@@ -167,9 +167,12 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   sur 600 écrans aléatoires : texte, HIRES, attributs série, double hauteur,
   jeu alternatif, inversion, clignotement.
 
-## Tests de démarrage — `tests/test_boot.sh` (33 vérifications)
+## Tests de démarrage — `tests/test_boot.sh` (34 vérifications)
 
 Vraies ROM (`tools/fetch_roms.py`), 300 trames (6 s émulées), 4 configurations.
+Plus (v0.16.24) la frappe du banc : lignes à parenthèses et guillemets en mode
+Atmos (`-k 10`) sans `?SYNTAX ERROR` ; le banc d'avant y perdait SHIFT
+(« A99)=(10 »).
 Écran texte attendu : « TELEMON V2.4 », « (c) 1986 ORIC International »,
 « Drive:A-B-C-D », « Inserez une disquette », et la ligne mémoire propre à
 chaque configuration :
