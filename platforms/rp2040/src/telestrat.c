@@ -1697,13 +1697,46 @@ static int host_to_telestrat(int code) {
 
 volatile int diag_last_key[4];  // derniers codes reçus du clavier USB (diagnostic SWD)
 
+// Touches de commande (menu, F1-F3, F11, F12) : notées dans le rappel du
+// clavier, exécutées par keys_service dans la boucle principale. Le rappel
+// peut venir d'un tuh_task lancé pendant l'émulation (lecture d'une piste ou
+// d'une cassette en flux sur la clé ou le réseau) : un RESET, un instantané
+// ou une action du menu tomberaient au milieu d'un cycle du 65C02, ou au
+// milieu d'une autre action (signalé par reload). Les touches du Telestrat
+// restent immédiates, comme sur la vraie machine.
+#define KEY_CMD_Q 8
+static int key_cmd_q[KEY_CMD_Q];
+static volatile uint32_t key_cmd_head, key_cmd_tail;
+
+static void key_command(int code);
+
 void kbd_raw_key_down(int code) {
     diag_last_key[3] = diag_last_key[2];
     diag_last_key[2] = diag_last_key[1];
     diag_last_key[1] = diag_last_key[0];
     diag_last_key[0] = code;
     if (code == (NEO_MULTIBOOT_RETURN_KEY | 0x100)) neo_multiboot_return();
+    // (derrière une commande en attente, toute touche attend aussi : l'ordre est gardé)
+    if (osd_open || key_cmd_head != key_cmd_tail || code == 0x13A || code == 0x13B || code == 0x13C || code == 0x144 ||
+        code == 0x145) {
+        if (key_cmd_tail - key_cmd_head < KEY_CMD_Q) key_cmd_q[key_cmd_tail++ % KEY_CMD_Q] = code;
+        return;
+    }
+    telestrat_key_down(&state.telestrat, host_to_telestrat(code));
+}
+
+// Touches de commande en attente (boucle principale, hors émulation) ; une
+// touche reçue pendant une action (lecture de fichier) attend la suivante
+static void keys_service(void) {
+    while (key_cmd_head != key_cmd_tail) key_command(key_cmd_q[key_cmd_head++ % KEY_CMD_Q]);
+}
+
+static void key_command(int code) {
     telestrat_t *sys = &state.telestrat;
+    if (code < 0) {  // relâché, mis en file derrière un appui
+        if (!osd_open) telestrat_key_up(sys, host_to_telestrat(-code));
+        return;
+    }
 #ifdef TELESTRAT_OSD
     if (osd_open && code != 0x13A) {
         const int key = menu_key(code);
@@ -1751,6 +1784,10 @@ void kbd_raw_key_down(int code) {
 }
 
 void kbd_raw_key_up(int code) {
+    if (key_cmd_head != key_cmd_tail) {  // derrière l'appui en attente (code négatif : relâché)
+        if (key_cmd_tail - key_cmd_head < KEY_CMD_Q) key_cmd_q[key_cmd_tail++ % KEY_CMD_Q] = -code;
+        return;
+    }
     if (osd_open) return;
     telestrat_key_up(&state.telestrat, host_to_telestrat(code));
 }
@@ -1917,6 +1954,7 @@ int main() {
 #endif
         printer_service(start_time_in_micros);
         diag_keys_poll();
+        keys_service();
         diag_upload_poll();
 
         uint32_t execution_time = time_us_32() - start_time_in_micros;

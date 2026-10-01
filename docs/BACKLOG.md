@@ -300,6 +300,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | BUG-10 | `neo_cdc_write` (v0.16.26) appelé depuis l'ACIA, au milieu d'un cycle : jusqu'à 1 s d'attente en faisant tourner `tuh_task` (rappels du clavier : RESET, instantané au milieu du cycle). Signalé par reload | ✅ octets en file (`modem_txq`), envoyés entre deux tranches d'émulation ; ⏳ carte |
 
+## v0.16.28 — touches de commande hors de l'émulation ✅ compilé (2026-10-01)
+
+| Id | Anomalie | État |
+|---|---|---|
+| BUG-11 | Rappel du clavier pendant un `tuh_task` lancé par la lecture en flux d'une piste ou d'une cassette (clé, réseau) : F12, F11, F1-F3 et les touches du menu exécutés au milieu d'un cycle du 65C02 ou d'une autre action (même défaut trouvé par reload sur l'Oric) | ✅ touches de commande en file (`key_cmd_q`), exécutées par `keys_service` dans la boucle principale ; relâchés en file derrière ; ⏳ carte |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

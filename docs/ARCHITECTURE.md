@@ -509,6 +509,15 @@ clé, 0 ligne DVI en retard.
 
 ## Premiers essais sur carte depuis la v0.4.2 (sprint 16)
 
+**Touches de commande hors de l'émulation** (v0.16.28) : la lecture en flux
+d'une piste ou d'une cassette (clé : `wait_for_disk_io` ; réseau :
+`neo_cdc_read_byte`) fait tourner `tuh_task` pendant l'émulation, donc les
+rappels du clavier. F1-F3, F11, F12 et les touches du menu sont mis en file
+(`key_cmd_q`, 8) et exécutés par `keys_service` dans la boucle principale ;
+derrière une commande en attente, les touches suivantes (appuis et relâchés)
+attendent aussi, pour garder l'ordre. Les touches du Telestrat restent
+immédiates, comme une frappe réelle. Même défaut trouvé par reload sur l'Oric.
+
 **VIA : IER** (v0.16.13, correctif de reload `d95caf9`) : écrire IER pour
 interdire une source dont le drapeau est levé relâche l'IRQ (fiche 6522 :
 IRQ = OU de IFR & IER) ; avant, l'IRQ restait levée jusqu'à l'acquittement.
