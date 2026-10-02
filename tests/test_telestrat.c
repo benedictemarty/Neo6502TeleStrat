@@ -15,6 +15,15 @@
 #include "chips/chips_common.h"
 #include "chips/w65c02cpu.h"
 #include "chips/mos6522via.h"
+#ifdef TELESTRAT_VIA6522
+#include "chips/via6522.h"
+#endif
+// Compteur de T1 lu sans effet de bord (VIA du socle ou mos6522via)
+#ifdef TELESTRAT_VIA6522
+#define TV_T1(v) ((uint16_t)(via_peek((v), 4) | via_peek((v), 5) << 8))
+#else
+#define TV_T1(v) ((uint16_t)(v)->t1.counter)
+#endif
 #include "chips/ay38910psg.h"
 #include "chips/kbd.h"
 #include "chips/clk.h"
@@ -282,13 +291,13 @@ static void test_bank_ddr_keeps_inputs(void) {
     load_program(prog, sizeof(prog));
     boot();
     // DDRA = %001 : seul PA0 est piloté ; PA1-PA2 gardent la valeur (7 -> 6 ou 7)
-    mos6522via_write(&sys.via2, 3, 0x01);
-    mos6522via_write(&sys.via2, 1, 0x00);
+    _tv_write(&sys.via2, 3, 0x01);
+    _tv_write(&sys.via2, 1, 0x00);
     // appliquer comme le fait une écriture CPU
     sys.bank = 7;
     {
-        uint8_t ddr = sys.via2.pa.ddr & 7;
-        uint8_t bank = (sys.bank & ~ddr) | (sys.via2.pa.outr & ddr);
+        uint8_t ddr = _tv_pa_ddr(&sys.via2) & 7;
+        uint8_t bank = (sys.bank & ~ddr) | (_tv_pa_outr(&sys.via2) & ddr);
         telestrat_select_bank(&sys, bank);
     }
     CHECK(sys.bank == 6, "DDRA partiel : banque %d (attendu 6)", sys.bank);
@@ -1492,6 +1501,40 @@ static void test_state_latest(void) {
     CHECK(osd_state_latest(&m) == -1, "aucun .STA : -1");
 }
 
+// Timer 1 en roue libre par pas de 4 cycles (v0.16.29, VIA du socle) :
+// demi-période de PB7 = N + 2 cycles comme le matériel (mos6522via : N + 8)
+static void test_via_t1_period(void) {
+    static const int ns[] = {25, 100, 1000};
+    for (int k = 0; k < 3; k++) {
+        const int n = ns[k];
+        telestrat_desc_t d = {0};
+        d.banks[7] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom7};
+        telestrat_init(&sys, &d);
+        _tv_write(&sys.via, MOS6522VIA_REG_DDRB, 0x80);
+        _tv_write(&sys.via, MOS6522VIA_REG_ACR, 0xC0);  // T1 continu, sortie PB7
+        _tv_write(&sys.via, MOS6522VIA_REG_T1CL, (uint8_t)(n & 0xFF));
+        _tv_write(&sys.via, MOS6522VIA_REG_T1CH, (uint8_t)(n >> 8));
+        int last = -1, prev = -1, cyc = 0, mes = 0, somme = 0;
+        for (int i = 0; i < 400000 && mes < 40; i += 4) {
+            _tv_tick4(&sys.via);
+            cyc += 4;
+            const int pb7 = _tv_pb7(&sys.via);
+            if (last >= 0 && pb7 != last) {
+                if (prev >= 0) {
+                    somme += cyc - prev;
+                    mes++;
+                }
+                prev = cyc;
+            }
+            last = pb7;
+        }
+        // Moyenne sur 40 demi-périodes (fronts vus au pas de 4 près)
+        const int moy10 = mes ? somme * 10 / mes : 0;
+        CHECK(mes == 40 && moy10 >= (n + 2) * 10 - 2 && moy10 <= (n + 2) * 10 + 2,
+              "T1 continu N=%d : demi-période %d.%d cycles (attendu %d)", n, moy10 / 10, moy10 % 10, n + 2);
+    }
+}
+
 static void test_state(void) {
     // Programme : boucle qui écrit en RAM, VIA 1 : timer 1 libre (IRQ au RESET masquées)
     const uint8_t prog[] = {0xA2, 0x00, 0xA0, 0x80, 0xA9, 0x10,       // LDX #0, LDY #$80, LDA #$10
@@ -1504,14 +1547,25 @@ static void test_state(void) {
     static uint8_t buf[300000];
     mem_state_t m = {buf, 0, 0, sizeof(buf)};
     const char* err = "";
+#ifdef TELESTRAT_VIA6522
+    // Rappels de la VIA faussés pendant l'enregistrement (comme un instantané
+    // d'un autre lancement) : la reprise doit garder ceux de ce programme
+    const via6522_t via_ok = sys.via;
+    sys.via.portb_read = NULL;
+    sys.via.userdata = (void*)&err;
+#endif
     CHECK(telestrat_state_save(&sys, "bank7=@essai\n", mem_state_write, &m, &err), "instantané enregistré (%s)", err);
+#ifdef TELESTRAT_VIA6522
+    sys.via.portb_read = via_ok.portb_read;
+    sys.via.userdata = via_ok.userdata;
+#endif
     CHECK(m.len > 0xC000, "instantané : %u octets", (unsigned)m.len);
     // Suite de référence
     run(7000);
     static uint8_t ram_ref[0xC000];
     memcpy(ram_ref, sys.ram, sizeof(ram_ref));
     const uint8_t a = sys.cpu.A, x = sys.cpu.X, y = sys.cpu.Y;
-    const uint16_t t1 = sys.via.t1.counter;
+    const uint16_t t1 = TV_T1(&sys.via);
     // Machine dérangée, puis instantané relu
     memset(sys.ram + 0x2000, 0x55, 0x100);
     run(3333);
@@ -1520,9 +1574,13 @@ static void test_state(void) {
     CHECK(telestrat_state_load_info(mem_state_read, &m, info, sizeof(info), &err) && !strcmp(info, "bank7=@essai\n"),
           "instantané : texte de la plate-forme relu (%s)", err);
     CHECK(telestrat_state_load_machine(&sys, mem_state_read, &m, &err), "instantané relu (%s)", err);
+#ifdef TELESTRAT_VIA6522
+    CHECK(sys.via.portb_read == via_ok.portb_read && sys.via.userdata == (void*)&sys,
+          "instantané relu : rappels de la VIA de ce programme gardés");
+#endif
     run(7000);
     CHECK(!memcmp(ram_ref, sys.ram, sizeof(ram_ref)) && sys.cpu.A == a && sys.cpu.X == x && sys.cpu.Y == y &&
-              sys.via.t1.counter == t1,
+              TV_T1(&sys.via) == t1,
           "relu puis 7000 cycles : même RAM, mêmes registres, même timer que la suite d'origine");
     // Refus : autre signature, fichier tronqué, accès disque
     buf[20] ^= 1;
@@ -2490,6 +2548,7 @@ int main(void) {
     test_state();
     test_audio();
     test_via_ier();
+    test_via_t1_period();
     test_hid_media();
     test_state_latest();
     test_oric_tape_rec();

@@ -126,6 +126,8 @@ tables de masques + multiplication : 1,6 fois. À mesurer sur carte.
 - Échantillons de l'AY : en entiers depuis v0.16.8 (plus de flottants
   logiciels) ; `make charge` passe de 60 % à 58 % en moyenne (67 % à 65 % au pire).
   v0.16.18 (AY du socle `-4`, reste du compteur gardé) : 59 % (67 % au pire).
+  v0.16.29 (VIA du socle, `via6522`, mode paresseux) : 56 % (63 % au pire ; VIA
+  en flash : 56 / 64 %, cache XIP supposé toujours plein).
 - Une seule trace (disque) ; la télématique ajoute l'ACIA actif.
 
 ## Pistes proposées avant le sprint 4 (pour mémoire)

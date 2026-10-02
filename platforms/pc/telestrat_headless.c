@@ -105,6 +105,9 @@
 #include "chips/chips_common.h"
 #include "chips/w65c02cpu.h"
 #include "chips/mos6522via.h"
+#ifdef TELESTRAT_VIA6522
+#include "chips/via6522.h"
+#endif
 #include "chips/ay38910psg.h"
 #include "chips/kbd.h"
 #include "chips/mem.h"

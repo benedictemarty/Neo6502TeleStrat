@@ -7,7 +7,7 @@ l'emporte.
 
 | Fichier | Écart au socle | Fin prévue |
 |---|---|---|
-| `mos6522via.h` | pas de mode paresseux (`idle` / `pending`) : `_telestrat_via_skip` et `_telestrat_quiet_steps` (`telestrat.h`) avancent les compteurs eux-mêmes | arbitrage du VIA commun (étape 9 du plan de fusion de reload, avec Vic20 et Tangerine) |
+| `mos6522via.h` | plus utilisée par défaut depuis v0.16.29 (VIA du socle `via6522`) : repli seulement (`TELESTRAT_VIA6522=OFF`) ; timer 1 faux par pas de 4 (N + 8) | à supprimer après l'essai de `via6522` sur carte |
 
 Base : reload `462372a` (2026-09-29), licence zlib/libpng (en-tête inchangé),
 plus le correctif IER de reload `d95caf9` (v0.16.13).

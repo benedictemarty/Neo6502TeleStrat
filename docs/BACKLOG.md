@@ -306,6 +306,15 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | BUG-11 | Rappel du clavier pendant un `tuh_task` lancé par la lecture en flux d'une piste ou d'une cassette (clé, réseau) : F12, F11, F1-F3 et les touches du menu exécutés au milieu d'un cycle du 65C02 ou d'une autre action (même défaut trouvé par reload sur l'Oric) | ✅ touches de commande en file (`key_cmd_q`), exécutées par `keys_service` dans la boucle principale ; relâchés en file derrière ; ⏳ carte |
 
+## v0.16.29 — VIA du socle (via6522) ✅ au banc (2026-10-02)
+
+| Id | Récit / anomalie | État |
+|---|---|---|
+| US-182 | Les deux VIA du socle (`via6522`), référence comprise (étape 9 de la fusion, décision de bmarty) | ✅ `make test` entier, rejeu 3/3 ; charge 56 / 63 % (59 / 67 avant) ; ⏳ carte (VIA en flash en RAM 64 Ko) |
+| BUG-12 | Timer 1 en roue libre : demi-période N + 8 au lieu de N + 2 avec `mos6522via` par pas de 4 (trouvé par reload) | ✅ test `test_via_t1_period` (l'ancienne VIA y échoue) |
+| BUG-13 | Instantané repris : la structure brute de `via6522` écrasait ses rappels et pointeurs (adresses d'un autre lancement ou firmware) | ✅ rappels gardés à la reprise, test ; format 4 |
+| BUG-8 | (suite) Banc : touches perdues quand la frappe est trop rapide pour la ROM (système occupé par le disque ; même touche deux fois à 4 trames) : artefact de frappe, pas d'émulation | contourné dans `test_boot` (`-k 6`) |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

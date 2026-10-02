@@ -43,7 +43,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define TELESTRAT_STATE_VERSION 3  // 2 : horloge audio fractionnaire (v0.16.8) ; 3 : WD1793 du socle
+#define TELESTRAT_STATE_VERSION 4  // 2 : horloge audio fractionnaire (v0.16.8) ; 3 : WD1793 du socle ; 4 : via6522 (v0.16.29)
 #define TELESTRAT_STATE_INFO_MAX 1024
 
 // Lecture ou écriture de len octets ; false : erreur
@@ -75,7 +75,7 @@ typedef struct {
 
 static inline uint32_t telestrat_state_signature(void) {
     uint32_t s = 2166136261u;
-    const uint32_t v[] = {(uint32_t)sizeof(mos6522via_t), (uint32_t)sizeof(ay38910psg_t), (uint32_t)sizeof(kbd_t),
+    const uint32_t v[] = {(uint32_t)sizeof(TELESTRAT_VIA_T), (uint32_t)sizeof(ay38910psg_t), (uint32_t)sizeof(kbd_t),
                           (uint32_t)sizeof(mos6551acia_t), (uint32_t)sizeof(void*), TELESTRAT_MAX_RAM_BANKS,
                           (uint32_t)sizeof(_telestrat_state_fdc_t), (uint32_t)sizeof(_telestrat_state_misc_t)};
     for (size_t i = 0; i < sizeof(v) / sizeof(v[0]); i++) s = (s ^ v[i]) * 16777619u;
@@ -190,8 +190,25 @@ static inline bool telestrat_state_load_machine(telestrat_t* sys, telestrat_stat
     _TELESTRAT_IO(&r, sizeof(r));
     _TELESTRAT_IO(sys->ram, sizeof(sys->ram));
     _TELESTRAT_IO(sys->bank_ram, sizeof(sys->bank_ram));
+#ifdef TELESTRAT_VIA6522
+    // Rappels et pointeurs de la VIA : ceux de ce programme, pas ceux de
+    // l'instantané (adresses d'un autre lancement ou d'un autre firmware)
+    const via6522_t keep[2] = {sys->via, sys->via2};
+#endif
     _TELESTRAT_IO(&sys->via, sizeof(sys->via));
     _TELESTRAT_IO(&sys->via2, sizeof(sys->via2));
+#ifdef TELESTRAT_VIA6522
+    via6522_t* v[2] = {&sys->via, &sys->via2};
+    for (int i = 0; i < 2; i++) {
+        v[i]->porta_read = keep[i].porta_read;
+        v[i]->porta_write = keep[i].porta_write;
+        v[i]->portb_read = keep[i].portb_read;
+        v[i]->portb_write = keep[i].portb_write;
+        v[i]->userdata = keep[i].userdata;
+        v[i]->irq_callback = keep[i].irq_callback;
+        v[i]->irq_userdata = keep[i].irq_userdata;
+    }
+#endif
     // AY, ACIA : rappels de la plate-forme gardés
     const ay38910psg_t psg = sys->psg;
     _TELESTRAT_IO(&sys->psg, sizeof(sys->psg));

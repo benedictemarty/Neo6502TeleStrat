@@ -64,6 +64,9 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
   Charge : 59 / 67 %.
 - v0.16.25 : `socle-2026-10-01-16` (enregistreur cassette : `STORE` d'un
   tableau enregistré jusqu'à l'arrêt du moteur, défaut trouvé ici).
+- v0.16.29 : `socle-2026-10-01-21` (VIA `via6522` à la place de notre copie
+  `mos6522via`, gardée en repli par `TELESTRAT_VIA6522=OFF` ; correctif `BRK`
+  de `w65c02cpu.h`).
 - v0.16.26 : `socle-2026-10-01-16` inchangé. Volume Réseau : `neo_tnfs.h`
   (client TNFS, volume 1), `neo_dgram_serial.h` et `neo_esp_at.h` (port TNFS
   du modem, activé par `AT$TNFSUSB=1`), `neo_cdc_serial.c` du socle à la

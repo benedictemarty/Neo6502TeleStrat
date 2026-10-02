@@ -1,5 +1,11 @@
 #pragma once
 
+#ifdef TELESTRAT_VIA6522
+#define TELESTRAT_VIA_T via6522_t
+#else
+#define TELESTRAT_VIA_T mos6522via_t
+#endif
+
 // telestrat_ref.h — MODÈLE DE RÉFÉRENCE (ne pas optimiser)
 //
 // Copie figée de systems/telestrat.h tel qu'au sprint 3 (v0.3.2 + réception
@@ -143,8 +149,8 @@ typedef struct {
 
 typedef struct {
     MOS6502CPU_T cpu;
-    mos6522via_t via;   // VIA 1 ($0300)
-    mos6522via_t via2;  // VIA 2 ($0320)
+    TELESTRAT_VIA_T via;   // VIA 1 ($0300)
+    TELESTRAT_VIA_T via2;  // VIA 2 ($0320)
     ay38910psg_t psg;
     kbd_t kbd;
     telestrat_fdc_t fdc;
@@ -181,6 +187,81 @@ typedef struct {
     uint32_t sample_rate;  // échantillons audio par seconde (desc.audio.sample_rate)
     uint32_t sample_acc;   // horloge fractionnaire : + sample_rate à chaque cycle
 } telestrat_t;
+
+// Accès aux VIA, communs aux deux VIA possibles (TELESTRAT_VIA6522 : celle du socle)
+#ifdef TELESTRAT_VIA6522
+static inline uint8_t _tv_read(via6522_t* v, uint8_t reg) { return via_read(v, reg); }
+static inline void _tv_write(via6522_t* v, uint8_t reg, uint8_t d) { via_write(v, reg, d); }
+static inline uint8_t _tv_pa_ddr(const via6522_t* v) { return v->ddra; }
+static inline uint8_t _tv_pa_outr(const via6522_t* v) { return v->ora; }
+static inline uint8_t _tv_pb_ddr(const via6522_t* v) { return v->ddrb; }
+static inline uint8_t _tv_pb_outr(const via6522_t* v) { return v->orb; }
+static inline uint8_t _tv_pa_pins(const via6522_t* v) { return (uint8_t)((v->ora & v->ddra) | (v->ira & ~v->ddra)); }
+static inline bool _tv_pb7(via6522_t* v) { return via_get_pb7(v); }
+static inline bool _tv_ca2(via6522_t* v) { return via_get_ca2(v); }
+static inline bool _tv_cb2(via6522_t* v) { return via_get_cb2(v); }
+static inline void _tv_psg_in(via6522_t* v, uint8_t d) { v->ira = d; }   // AY sur le bus du port A
+// ACK de l'imprimante : impulsion basse sur CA1, ligne tirée à 1 (repos haut dans via6522) ;
+// appelé à chaque pas : seulement au changement (mode paresseux gardé)
+static inline void _tv_ca1(via6522_t* v, bool ack) {
+    if (v->ca1_pin != !ack) via_set_ca1(v, !ack);
+}
+static inline void _tv_cb1(via6522_t* v, bool level) {
+    if (v->cb1_pin != level) via_set_cb1(v, level);
+}
+static inline bool _tv_tick4(via6522_t* v) {
+    if (v->quiet >= 4) {
+        v->quiet -= 4;
+        v->pending += 4;
+    } else {
+        via_advance(v, 4);
+    }
+    return v->irq_line;
+}
+static inline void _tv_reset(via6522_t* v) { via_reset(v); }
+// VIA 1, port B : PB3 = touche de la ligne choisie (PB0-PB2), lu quand le 6502 lit ORB
+static uint8_t _tv_kbd_read(void* user) {
+    telestrat_t* sys = (telestrat_t*)user;
+    const uint8_t line = (uint8_t)(sys->via.orb & sys->via.ddrb & 7);
+    return (kbd_scan_lines(&sys->kbd) & (1 << line)) ? 0xFF : (uint8_t)~(1 << 3);
+}
+// VIA 2, port B : PB7 choisit la manette droite, PB6 la gauche (en entrée : à 1) ;
+// directions sur PB0-PB4, actives à 0
+static uint8_t _tv_joy_read(void* user) {
+    telestrat_t* sys = (telestrat_t*)user;
+    const uint8_t sel = (uint8_t)((sys->via2.orb & sys->via2.ddrb) | ~sys->via2.ddrb);
+    uint8_t mask = 0;
+    if (sel & 0x80) mask |= sys->joy[0];
+    if (sel & 0x40) mask |= sys->joy[1];
+    return (uint8_t)~mask;
+}
+static inline void _tv_init(telestrat_t* sys) {
+    via_init(&sys->via);
+    via_init(&sys->via2);
+    via_set_port_callbacks(&sys->via, 0, 0, _tv_kbd_read, 0, sys);
+    via_set_port_callbacks(&sys->via2, 0, 0, _tv_joy_read, 0, sys);
+}
+#else
+static inline uint8_t _tv_read(mos6522via_t* v, uint8_t reg) { return mos6522via_read(v, reg); }
+static inline void _tv_write(mos6522via_t* v, uint8_t reg, uint8_t d) { mos6522via_write(v, reg, d); }
+static inline uint8_t _tv_pa_ddr(const mos6522via_t* v) { return v->pa.ddr; }
+static inline uint8_t _tv_pa_outr(const mos6522via_t* v) { return v->pa.outr; }
+static inline uint8_t _tv_pb_ddr(const mos6522via_t* v) { return v->pb.ddr; }
+static inline uint8_t _tv_pb_outr(const mos6522via_t* v) { return v->pb.outr; }
+static inline uint8_t _tv_pa_pins(mos6522via_t* v) { return mos6522via_get_pa(v); }
+static inline bool _tv_pb7(mos6522via_t* v) { return (mos6522via_get_pb(v) >> 7) & 1; }
+static inline bool _tv_ca2(mos6522via_t* v) { return mos6522via_get_ca2(v); }
+static inline bool _tv_cb2(mos6522via_t* v) { return mos6522via_get_cb2(v); }
+static inline void _tv_psg_in(mos6522via_t* v, uint8_t d) { mos6522via_set_pa(v, d); }
+static inline void _tv_ca1(mos6522via_t* v, bool ack) { mos6522via_set_ca1(v, ack); }
+static inline void _tv_cb1(mos6522via_t* v, bool level) { mos6522via_set_cb1(v, level); }
+static inline bool _tv_tick4(mos6522via_t* v) { return mos6522via_tick(v, 4); }
+static inline void _tv_reset(mos6522via_t* v) { mos6522via_reset(v); }
+static inline void _tv_init(telestrat_t* sys) {
+    mos6522via_init(&sys->via);
+    mos6522via_init(&sys->via2);
+}
+#endif
 
 void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc);
 void telestrat_discard(telestrat_t* sys);
@@ -252,7 +333,7 @@ static uint8_t _telestrat_psg_in(int port_id, void* user_data) {
 void telestrat_select_bank(telestrat_t* sys, uint8_t bank) { sys->bank = bank & 7; }
 
 // PA4 du VIA 2 : prise RS232 (1) ou Minitel (0)
-bool telestrat_serial_is_rs232(telestrat_t* sys) { return (mos6522via_get_pa(&sys->via2) & 0x10) != 0; }
+bool telestrat_serial_is_rs232(telestrat_t* sys) { return (_tv_pa_pins(&sys->via2) & 0x10) != 0; }
 
 static void _telestrat_serial_tx(uint8_t data, void* user_data) {
     telestrat_t* sys = (telestrat_t*)user_data;
@@ -282,8 +363,7 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     sys->sample_rate = (uint32_t)CHIPS_DEFAULT(desc->audio.sample_rate, 22050);
 
     MOS6502CPU_INIT(&sys->cpu, &(MOS6502CPU_DESC_T){0});
-    mos6522via_init(&sys->via);
-    mos6522via_init(&sys->via2);
+    _tv_init(sys);
     ay38910psg_init(&sys->psg, &(ay38910psg_desc_t){.type = AY38910PSG_TYPE_8912,
                                                     .in_cb = _telestrat_psg_in,
                                                     .out_cb = _telestrat_psg_out,
@@ -351,8 +431,8 @@ void telestrat_cold_reset(telestrat_t* sys) {
 
 void telestrat_reset(telestrat_t* sys) {
     CHIPS_ASSERT(sys && sys->valid);
-    mos6522via_reset(&sys->via);
-    mos6522via_reset(&sys->via2);
+    _tv_reset(&sys->via);
+    _tv_reset(&sys->via2);
     ay38910psg_reset(&sys->psg);
     telestrat_fdc_reset(&sys->fdc);
     mos6551acia_reset(&sys->acia);
@@ -364,8 +444,8 @@ void telestrat_reset(telestrat_t* sys) {
 // Banque = PA0-PA2 du VIA 2 ; une ligne en entrée garde la valeur précédente
 // (comme via_tele_w_iora d'Oricutron).
 static inline void _telestrat_update_bank(telestrat_t* sys) {
-    uint8_t ddr = sys->via2.pa.ddr & 7;
-    uint8_t bank = (sys->bank & ~ddr) | (sys->via2.pa.outr & ddr);
+    uint8_t ddr = _tv_pa_ddr(&sys->via2) & 7;
+    uint8_t bank = (sys->bank & ~ddr) | (_tv_pa_outr(&sys->via2) & ddr);
     if (bank != sys->bank) {
         telestrat_select_bank(sys, bank);
     }
@@ -395,9 +475,9 @@ static inline void _telestrat_io_rw(telestrat_t* sys, uint16_t addr, bool rw) {
     if (reg >= 0x20 && reg <= 0x2F) {
         // VIA 2
         if (rw) {
-            MOS6502CPU_SET_DATA(&sys->cpu, mos6522via_read(&sys->via2, reg & 0xF));
+            MOS6502CPU_SET_DATA(&sys->cpu, _tv_read(&sys->via2, reg & 0xF));
         } else {
-            mos6522via_write(&sys->via2, reg & 0xF, MOS6502CPU_GET_DATA(&sys->cpu));
+            _tv_write(&sys->via2, reg & 0xF, MOS6502CPU_GET_DATA(&sys->cpu));
             _telestrat_update_bank(sys);
         }
         return;
@@ -426,9 +506,9 @@ static inline void _telestrat_io_rw(telestrat_t* sys, uint16_t addr, bool rw) {
     }
     // VIA 1 et ses reflets
     if (rw) {
-        MOS6502CPU_SET_DATA(&sys->cpu, mos6522via_read(&sys->via, reg & 0xF));
+        MOS6502CPU_SET_DATA(&sys->cpu, _tv_read(&sys->via, reg & 0xF));
     } else {
-        mos6522via_write(&sys->via, reg & 0xF, MOS6502CPU_GET_DATA(&sys->cpu));
+        _tv_write(&sys->via, reg & 0xF, MOS6502CPU_GET_DATA(&sys->cpu));
     }
 }
 
@@ -455,19 +535,23 @@ void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state) {
 // Port B du VIA 2 : PB7 sélectionne le port droit, PB6 le gauche ; les
 // directions arrivent sur PB0-PB4 actives à 0 (joystick.c d'Oricutron).
 static inline void _telestrat_update_joysticks(telestrat_t* sys) {
+#ifdef TELESTRAT_VIA6522
+    (void)sys;   // Rappel du port B du VIA 2 (_tv_joy_read)
+#else
     uint8_t sel = mos6522via_get_pb(&sys->via2);
     uint8_t mask = 0;
     if (sel & 0x80) mask |= sys->joy[0];
     if (sel & 0x40) mask |= sys->joy[1];
     mos6522via_set_pb(&sys->via2, (uint8_t)~mask);
     mos6522via_set_pa(&sys->via2, 0xFF);
+#endif
 }
 
 static inline void _telestrat_update_printer(telestrat_t* sys, uint8_t pb) {
     if (!sys->printer) return;
-    bool strobe = (pb & sys->via.pb.ddr & 0x10) != 0;
+    bool strobe = (pb & _tv_pb_ddr(&sys->via) & 0x10) != 0;
     if (sys->strobe && !strobe) {
-        sys->printer(sys->via.pa.outr, sys->printer_user_data);
+        sys->printer(_tv_pa_outr(&sys->via), sys->printer_user_data);
         sys->printer_ack = 40;
     } else if (sys->printer_ack > 0) {
         sys->printer_ack -= 4;
@@ -475,7 +559,7 @@ static inline void _telestrat_update_printer(telestrat_t* sys, uint8_t pb) {
     sys->strobe = strobe;
     // Niveau de CA1 redonné à chaque pas : le VIA de reload ne détecte un front
     // qu'au changement de niveau entre deux appels de mos6522via_set_ca1()
-    mos6522via_set_ca1(&sys->via, sys->printer_ack > 0);
+    _tv_ca1(&sys->via, sys->printer_ack > 0);
 }
 
 TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
@@ -501,30 +585,33 @@ TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
 
     // VIA 1 et 2, par pas de 4 cycles comme oric.h
     if ((sys->system_ticks & 3) == 0) {
-        bool irq = mos6522via_tick(&sys->via, 4);
-        irq |= mos6522via_tick(&sys->via2, 4);
+        bool irq = _tv_tick4(&sys->via);
+        irq |= _tv_tick4(&sys->via2);
         telestrat_fdc_tick(&sys->fdc, 4);
         mos6551acia_tick(&sys->acia, 4);
         if ((sys->system_ticks & 63) == 0) mos6551acia_poll_rx(&sys->acia);
         // Niveau redonné à chaque pas (le VIA de reload détecte le front entre deux appels)
-        mos6522via_set_cb1(&sys->via2, sys->ring);
+        _tv_cb1(&sys->via2, sys->ring);
         irq |= telestrat_fdc_irq(&sys->fdc);
         irq |= mos6551acia_irq(&sys->acia);
         MOS6502CPU_SET_IRQ(&sys->cpu, irq);
 
         // AY-3-8912 piloté par PA / CA2 / CB2 du VIA 1
-        if (mos6522via_get_cb2(&sys->via)) {
-            const uint8_t psg_data = mos6522via_get_pa(&sys->via);
-            if (mos6522via_get_ca2(&sys->via)) {
+        if (_tv_cb2(&sys->via)) {
+            const uint8_t psg_data = _tv_pa_pins(&sys->via);
+            if (_tv_ca2(&sys->via)) {
                 ay38910psg_latch_address(&sys->psg, psg_data);
             } else {
                 ay38910psg_write(&sys->psg, psg_data);
             }
         } else {
-            mos6522via_set_pa(&sys->via, ay38910psg_read(&sys->psg));
+            _tv_psg_in(&sys->via, ay38910psg_read(&sys->psg));
         }
 
         // PB0-PB2 : ligne du clavier ; PB3 : touche enfoncée
+#ifdef TELESTRAT_VIA6522
+        const uint8_t pb = _tv_pb_outr(&sys->via) & _tv_pb_ddr(&sys->via);   // Clavier : rappel du port B
+#else
         uint8_t pb = mos6522via_get_pb(&sys->via);
         // Touche dans la ligne sélectionnée, parmi les colonnes actives : les autres
         // lignes n'y changent rien (oric.h testait l'égalité, fausse dès que deux
@@ -535,6 +622,7 @@ TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
         } else {
             mos6522via_set_pb(&sys->via, pb & ~(1 << 3));
         }
+#endif
 
         _telestrat_update_joysticks(sys);
         _telestrat_update_printer(sys, pb);

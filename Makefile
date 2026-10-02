@@ -10,7 +10,7 @@
 # épinglé sur une étiquette de socle vérifiée (tools/reload_socle.sh, clone
 # local dans ~/.cache/reload-socle). Changer d'étiquette : RELOAD_SOCLE=… ;
 # un autre arbre (ex. la tête de reload) : RELOAD_DIR=~/reload-emulator.
-RELOAD_SOCLE ?= socle-2026-10-01-16
+RELOAD_SOCLE ?= socle-2026-10-01-21
 ifeq ($(origin RELOAD_DIR),undefined)
 RELOAD_DIR := $(HOME)/.cache/reload-socle/$(RELOAD_SOCLE)
 _SOCLE := $(shell sh tools/reload_socle.sh $(RELOAD_SOCLE) >&2 || echo erreur)
@@ -25,6 +25,9 @@ CFLAGS  += -std=c11 -Wall -Wextra -Wno-unused-function -Wno-missing-field-initia
 CPPFLAGS += -Isrc -I$(RELOAD_DIR)/src
 # Menu à l'écran : osd.h du socle, grille du Telestrat (960 x 544 : 120 x 34 cases)
 CPPFLAGS += -DOSD_COLS=120 -DOSD_ROWS=34
+# VIA du socle (via6522, v0.16.29) : compilé avec chaque programme du système
+CPPFLAGS += -DTELESTRAT_VIA6522
+VIA_SRC := $(RELOAD_DIR)/src/chips/via6522.c
 
 BUILD := build
 ROMS_H := src/roms/telestrat_roms.h
@@ -37,20 +40,20 @@ all: test
 $(ROMS_H): tools/fetch_roms.py
 	python3 tools/fetch_roms.py
 
-$(BUILD)/telestrat_headless: platforms/pc/telestrat_headless.c $(HEADERS) platforms/rp2040/src/telestrat_frame.h platforms/rp2040/src/telestrat_video.h | $(BUILD)
-	$(CC) $(CPPFLAGS) $(PC_STORAGE) -Iplatforms/rp2040/src $(CFLAGS) -o $@ $<
+$(BUILD)/telestrat_headless: platforms/pc/telestrat_headless.c $(VIA_SRC) $(HEADERS) platforms/rp2040/src/telestrat_frame.h platforms/rp2040/src/telestrat_video.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(PC_STORAGE) -Iplatforms/rp2040/src $(CFLAGS) -o $@ $< $(VIA_SRC)
 
-$(BUILD)/telestrat_headless_ref: platforms/pc/telestrat_headless.c $(HEADERS) src/systems/telestrat_ref.h | $(BUILD)
-	$(CC) $(CPPFLAGS) $(PC_STORAGE) $(CFLAGS) -DTELESTRAT_REF -o $@ $<
+$(BUILD)/telestrat_headless_ref: platforms/pc/telestrat_headless.c $(VIA_SRC) $(HEADERS) src/systems/telestrat_ref.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(PC_STORAGE) $(CFLAGS) -DTELESTRAT_REF -o $@ $< $(VIA_SRC)
 
 $(BUILD)/printer_render: platforms/pc/printer_render.c $(HEADERS) | $(BUILD)
 	$(CC) $(CPPFLAGS) $(PC_STORAGE) $(CFLAGS) -o $@ $<
 
-$(BUILD)/replay: tests/replay.c $(HEADERS) | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $<
+$(BUILD)/replay: tests/replay.c $(VIA_SRC) $(HEADERS) | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< $(VIA_SRC)
 
-$(BUILD)/test_telestrat: tests/test_telestrat.c $(HEADERS) platforms/rp2040/src/telestrat_video.h | $(BUILD)
-	$(CC) $(CPPFLAGS) -Iplatforms/rp2040/src $(CFLAGS) -o $@ $<
+$(BUILD)/test_telestrat: tests/test_telestrat.c $(VIA_SRC) $(HEADERS) platforms/rp2040/src/telestrat_video.h | $(BUILD)
+	$(CC) $(CPPFLAGS) -Iplatforms/rp2040/src $(CFLAGS) -o $@ $< $(VIA_SRC)
 
 # SingleStepTests de Tom Harte (docs/TESTS.md) sur le cœur du socle
 # ($(RELOAD_DIR)/src/chips/w65c02cpu.h) ; ignorés sans données

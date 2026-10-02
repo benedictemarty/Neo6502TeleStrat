@@ -57,9 +57,11 @@ if [ -f "$DSK" ]; then
     run_disk "  42" -0 "$TMP/a.dsk" -f 1200 -w 500 -t '1~~~~~~PRINT 6*7\n'
     run_disk "secteurs libres, 88 fichiers" -0 "$TMP/a.dsk" -f 1500 -w 500 -t '1~~~~~~DIR\n'
     # Écriture : SAVE sur une copie, relecture dans une nouvelle session
-    "$BIN" -c oricutron -0 "$TMP/a.dsk" -W "$TMP/b.dsk" -f 1600 -w 500 \
+    # (-k 6 : à 4 trames par touche, le second S d'ESSAI peut se perdre, la
+    # ROM ne voyant pas le relâchement ; vu avec le VIA du socle, v0.16.29)
+    "$BIN" -c oricutron -0 "$TMP/a.dsk" -W "$TMP/b.dsk" -f 1800 -w 500 -k 6 \
         -t '1~~~~~~10 PRINT "NEO6502"\nSAVE "ESSAI"\n' >/dev/null
-    run_disk " NEO6502" -0 "$TMP/b.dsk" -f 1500 -w 500 -t '1~~~~~~LOAD "ESSAI"\nRUN\n'
+    run_disk " NEO6502" -0 "$TMP/b.dsk" -f 1700 -w 500 -k 6 -t '1~~~~~~LOAD "ESSAI"\nRUN\n'
     run_disk "secteurs libres, 89 fichiers" -0 "$TMP/b.dsk" -f 1500 -w 500 -t '1~~~~~~DIR\n'
     # Imprimante
     "$BIN" -c oricutron -0 "$TMP/a.dsk" -P "$TMP/lpr.txt" -f 1300 -w 500 \

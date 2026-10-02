@@ -518,6 +518,28 @@ derrière une commande en attente, les touches suivantes (appuis et relâchés)
 attendent aussi, pour garder l'ordre. Les touches du Telestrat restent
 immédiates, comme une frappe réelle. Même défaut trouvé par reload sur l'Oric.
 
+**VIA du socle** (v0.16.29, `via6522`, étape 9 de la fusion avec reload) :
+les deux VIA, dans la référence comme dans le système optimisé, sont celles
+du socle (`chips/via6522.c`), par une couche d'accès `_tv_*`
+(`telestrat.h`, `telestrat_ref.h`) écrite par la session reload sur une copie
+de ce dépôt. Clavier (VIA 1) et manettes (VIA 2) sont lus par les rappels du
+port B ; CA1 (ACK de l'imprimante) est au repos haut ; CA1 et CB1 ne sont
+donnés qu'au changement (mode paresseux gardé). Les pas au repos utilisent
+`via_quiet_cycles` / `via_advance` (même résultat que des pas de 4 cycles).
+Raison : avec `mos6522via` avancée par pas de 4, le timer 1 en roue libre
+avait une demi-période de N + 8 cycles au lieu de N + 2 (N = 25 : 32 ; 100 :
+108 ; 1 000 : 1 008), sons du timer trop graves, et la référence avait le même
+défaut (le rejeu ne pouvait pas le voir) ; trouvé par reload, vérifié ici.
+Charge (`make charge`) : 56 % en moyenne, 63 % au pire, contre 59 / 67 %.
+Firmware : VIA en RAM dans la variante standard, en flash dans la variante
+RAM 64 Ko (en RAM, elle déborde ; le modèle de charge suppose la flash dans
+le cache XIP : à mesurer sur carte). `TELESTRAT_VIA6522=OFF` garde l'ancienne
+`mos6522via` en repli. Instantanés (format 4) : les rappels et pointeurs de
+la VIA (`porta_read`… `irq_userdata`) ne sont pas repris de l'instantané.
+Banc : à 4 trames par touche, le second S d'« ESSAI » peut se perdre (la ROM
+ne voit pas le relâchement ; phase changée par le minutage juste des IRQ) :
+`test_boot` tape ces lignes à 6 trames par touche.
+
 **VIA : IER** (v0.16.13, correctif de reload `d95caf9`) : écrire IER pour
 interdire une source dont le drapeau est levé relâche l'IRQ (fiche 6522 :
 IRQ = OU de IFR & IER) ; avant, l'IRQ restait levée jusqu'à l'acquittement.
