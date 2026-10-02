@@ -108,6 +108,16 @@ else()
     set(TELESTRAT_VIA_DEFS ${_via_ram})
 endif()
 target_sources(telestrat PRIVATE ${RELOAD_DIR}/src/chips/via6522.c)
+
+# Bus du 65C02 (wdc65C02bus.h du socle) : SIO intégré au tick par défaut ;
+# TELESTRAT_BUS_PIO : cycles par une machine d'état PIO (pio1, bus6502.pio),
+# à mesurer sur carte (make charge n'émule pas la PIO)
+option(TELESTRAT_BUS_PIO "bus du 65C02 par la PIO (bus6502.pio du socle)" OFF)
+if(TELESTRAT_BUS_PIO)
+    pico_generate_pio_header(telestrat ${RELOAD_RP2040}/src/chips/bus6502.pio)
+    target_compile_definitions(telestrat PRIVATE WDC65C02_BUS_PIO=1)
+    target_link_libraries(telestrat hardware_pio)
+endif()
 if(TELESTRAT_VIA_DEFS)
     target_compile_definitions(telestrat PRIVATE ${TELESTRAT_VIA_DEFS})
 endif()

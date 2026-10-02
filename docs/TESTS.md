@@ -470,6 +470,20 @@ cumule les hausses de ce compteur (`diag_late_total`, relevé deux fois par
 ligne rendue : un minimum) et `carte.py mesure` affiche les lignes rouges
 pendant la mesure et depuis le démarrage. Pas encore relevé sur carte.
 
+### Pilote de bus du socle sur carte (v0.16.34-35, 2026-10-02)
+
+| Bus | Repos (HYPER-BASIC) | `DIR` (moyenne / au pire) | Lignes rouges |
+|---|---|---|---|
+| socle, SIO (défaut) | 54 % | 53 % / 62 % | 0 |
+| socle, PIO (`TELESTRAT_BUS_PIO`) | 57 % | 56 % / 65 % | 0 |
+| ancien `neo6502_bus.h` (v0.16.31) | 59 % | 59 % / 70 % | 0 |
+
+SIO : inventaire des banques exact (« 64 Ko RAM, 56 Ko ROM »), `DIR`, `SAVE
+"BUSOK"` relu dans l'image sur la clé. F12 non essayé avec ce pilote (même
+séquence de RESET que celle validée en v0.16.31). Incident : un firmware
+d'essai a reçu des frappes de la sonde aux adresses d'un autre ELF ; reflashé,
+clé vérifiée intacte (92 fichiers, TELESTRA.CFG inchangé).
+
 ### RAM 64 Ko et RESET sur carte (v0.16.31, 2026-10-02)
 
 | Essai | Résultat |

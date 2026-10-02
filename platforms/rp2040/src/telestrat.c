@@ -1521,6 +1521,9 @@ void app_init(void) {
     minitel_port_init(&minitel, &line);
     telestrat_desc_t desc = telestrat_desc();
     telestrat_init(&state.telestrat, &desc);
+#ifdef WDC65C02_BUS_PIO
+    bus_pio_start();  // broches du bus et PHI2 à la machine d'état (après wdc65C02cpu_init)
+#endif
     static const oric_tape_rec_out_t rec_out = {rec_open, rec_write, rec_close, NULL};
     telestrat_tape_recorder(&state.telestrat, &rec_out);
     insert_flash_disk();

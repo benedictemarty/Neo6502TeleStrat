@@ -34,7 +34,7 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
 | Règle (stratégie, section 3) | Écart | Raison | Fin prévue |
 |---|---|---|---|
 | ~~7 : `CFG_TUH_ENUMERATION_BUFSIZE` 512~~ | ~~256 dans la variante RAM 64 Ko~~ | levé en v0.16.20 : 512 dans les deux variantes (place regagnée par les composants du socle) | fait |
-| 6 : bus du W65C02 en PIO par défaut | pilote du socle (`wdc65C02bus.h`, v0.16.33) en mode SIO, pas PIO : mesurable par `make charge` (le modèle n'émule pas la PIO) | le mode PIO (`WDC65C02_BUS_PIO`) reste à mesurer sur carte | essai du mode PIO sur carte |
+| 6 : bus du W65C02 en PIO par défaut | pilote du socle (`wdc65C02bus.h`) en mode SIO ; PIO en option (`TELESTRAT_BUS_PIO`, v0.16.35) | mesuré sur carte (2026-10-02) : SIO 54 % au repos, 53 / 62 % pendant `DIR` ; PIO 57 %, 56 / 65 % : la PIO est plus lente pour le Telestrat | écart justifié par la mesure ; à revoir si le socle change |
 
 ## Suivi
 

@@ -331,7 +331,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | Id | Récit | État |
 |---|---|---|
-| US-184 | Pilote de bus du 65C02 du socle (`wdc65C02bus.h`, mode SIO) à la place de `neo6502_bus.h` (étape 5 de la fusion) | ✅ `make test`, deux variantes ; `make charge` 47 / 56 % (56 / 65 avant) ; ⏳ carte (démarrage, banques, disquettes, F12 ; puis mode PIO) |
+| US-184 | Pilote de bus du 65C02 du socle (`wdc65C02bus.h`, mode SIO) à la place de `neo6502_bus.h` (étape 5 de la fusion) | ✅ `make test`, deux variantes ; ✅ carte (v0.16.34) : banques, DIR, SAVE, 54 % au repos, 53 / 62 % pendant DIR, 0 ligne rouge ; PIO mesurée plus lente (57 %) ; ⏳ F12 avec ce pilote |
 
 ## Plus tard
 

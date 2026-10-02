@@ -511,6 +511,12 @@ clé, 0 ligne DVI en retard.
 
 ## Premiers essais sur carte depuis la v0.4.2 (sprint 16)
 
+**Bus du 65C02 : SIO ou PIO** (v0.16.35) : le pilote du socle offre les deux ;
+mesuré sur carte, le mode SIO (défaut) prend 54 % du cœur 0 au repos et 53 / 62 %
+pendant `DIR`, le mode PIO (`-DTELESTRAT_BUS_PIO=ON` : `bus6502.pio` sur pio1,
+`bus_pio_start()` après `telestrat_init`) 57 % et 56 / 65 %. Le SIO reste le
+défaut (écart à la règle 6 de la stratégie commune, ADR-01).
+
 **RESET du 65C02 cadencé** (v0.16.31, `neo6502_bus.h` ; depuis v0.16.33,
 `wdc65C02cpu_reset` du socle, même séquence) : le W65C02S ne prend
 RESB en compte que s'il reste bas 2 cycles d'horloge au moins ; l'horloge
