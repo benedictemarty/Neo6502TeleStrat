@@ -57,6 +57,23 @@ typedef struct {
 
 #define NEO_NOP6() __asm volatile("nop\n nop\n nop\n nop\n nop\n nop\n")
 
+// RESET : le W65C02S ne prend RESB en compte que s'il reste bas 2 cycles
+// d'horloge au moins ; ici l'horloge n'avance que dans neo6502bus_tick : on
+// lui donne 8 cycles, bus de données non piloté (OE3 haut). Avant (v0.16.31) :
+// RESB bas 1 ms sans horloge, un RESET après le démarrage (F12) pouvait être
+// ignoré (constaté sur l'Apple IIe de reload, wdc65C02cpu.h, 2026-10-02)
+static inline void neo6502bus_reset(void) {
+    gpio_put(NEO_OE3_PIN, 1);
+    gpio_put(NEO_RESET_PIN, 0);
+    for (int i = 0; i < 8; i++) {
+        gpio_put(NEO_CLOCK_PIN, 0);
+        sleep_us(1);
+        gpio_put(NEO_CLOCK_PIN, 1);
+        sleep_us(1);
+    }
+    gpio_put(NEO_RESET_PIN, 1);
+}
+
 static inline void neo6502bus_init(neo6502bus_t* c) {
     gpio_init_mask(NEO_BUS_MASK);
     const uint pins[] = {NEO_OE1_PIN, NEO_OE2_PIN, NEO_OE3_PIN};
@@ -78,15 +95,7 @@ static inline void neo6502bus_init(neo6502bus_t* c) {
     gpio_set_dir(NEO_NMI_PIN, GPIO_OUT);
     gpio_put(NEO_NMI_PIN, 1);
     c->irq = false;
-    gpio_put(NEO_RESET_PIN, 0);
-    sleep_us(1000);
-    gpio_put(NEO_RESET_PIN, 1);
-}
-
-static inline void neo6502bus_reset(void) {
-    gpio_put(NEO_RESET_PIN, 0);
-    sleep_us(1000);
-    gpio_put(NEO_RESET_PIN, 1);
+    neo6502bus_reset();
 }
 
 static inline void neo6502bus_nmi(void) {

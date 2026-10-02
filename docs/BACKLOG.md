@@ -315,6 +315,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | BUG-13 | Instantané repris : la structure brute de `via6522` écrasait ses rappels et pointeurs (adresses d'un autre lancement ou firmware) | ✅ rappels gardés à la reprise, test ; format 4 |
 | BUG-8 | (suite) Banc : touches perdues quand la frappe est trop rapide pour la ROM (système occupé par le disque ; même touche deux fois à 4 trames) : artefact de frappe, pas d'émulation | contourné dans `test_boot` (`-k 6`) |
 
+## v0.16.31 — RESET du 65C02 cadencé ✅ compilé (2026-10-02)
+
+| Id | Anomalie | État |
+|---|---|---|
+| BUG-14 | `neo6502bus_reset` : RESB bas 1 ms sans horloge ; le W65C02S demande 2 cycles d'horloge au moins : un RESET après le démarrage (F12) pouvait être ignoré (même défaut corrigé dans `wdc65C02cpu.h` du socle, constaté sur l'Apple IIe de reload) | ✅ 8 cycles d'horloge, OE3 haut ; ⏳ carte (F12) |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

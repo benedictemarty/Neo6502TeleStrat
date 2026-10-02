@@ -509,6 +509,13 @@ clé, 0 ligne DVI en retard.
 
 ## Premiers essais sur carte depuis la v0.4.2 (sprint 16)
 
+**RESET du 65C02 cadencé** (v0.16.31, `neo6502_bus.h`) : le W65C02S ne prend
+RESB en compte que s'il reste bas 2 cycles d'horloge au moins ; l'horloge
+n'avançant que dans `neo6502bus_tick`, le RESET lui donne 8 cycles, bus de
+données non piloté (OE3 haut). Avant : RESB bas 1 ms sans horloge ; un RESET
+après le démarrage (F12) pouvait être ignoré (constaté sur l'Apple IIe de
+reload ; ici non mesuré).
+
 **Touches de commande hors de l'émulation** (v0.16.28) : la lecture en flux
 d'une piste ou d'une cassette (clé : `wait_for_disk_io` ; réseau :
 `neo_cdc_read_byte`) fait tourner `tuh_task` pendant l'émulation, donc les
