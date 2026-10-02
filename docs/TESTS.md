@@ -470,6 +470,25 @@ cumule les hausses de ce compteur (`diag_late_total`, relevé deux fois par
 ligne rendue : un minimum) et `carte.py mesure` affiche les lignes rouges
 pendant la mesure et depuis le démarrage. Pas encore relevé sur carte.
 
+### VIA du socle sur carte (v0.16.29, 2026-10-02)
+
+| Firmware | Charge moyenne | Au pire | 65C02 | Lignes rouges (cumul) |
+|---|---|---|---|---|
+| standard, via6522 en RAM (défaut) | 59 % | 70 % (pendant `DIR`) | 1,000 MHz | 0 |
+| standard, via6522 en flash | 64 % (62 % pendant `DIR`) | 73 % | 1,000 MHz | 0 |
+| RAM 64 Ko, via6522 en flash (défaut) | 113 % | 126 % | 0,875 MHz | 0 |
+| RAM 64 Ko, mos6522via en RAM | 89 % | 102 % | 1,000 MHz | 0 |
+
+Variante standard validée (premier relevé avec le compteur cumulé de lignes
+rouges : 0). La flash coûte ~5 points sur carte contre 0-1 au banc (`make
+charge` suppose la flash toujours dans le cache XIP : trop optimiste). Variante
+RAM 64 Ko : mesurée pendant la boucle chaotique connue (banque 5 vide exécutée,
+« HYPER BASIC V2.0b » sans menu), pas un usage normal ; mais via6522 en flash
+n'y tient pas le temps réel : à corriger (VIA en RAM, ~3 Ko à regagner, ou
+seules les fonctions chaudes en RAM). Séance interrompue : sonde disparue du
+bus USB du PC, carte réattribuée à reload avec un firmware d'essai (RAM 64 Ko,
+mos6522via).
+
 ### WD1793 et cassette du socle sur carte (v0.16.17, 2026-10-01)
 
 | Essai | Résultat |
