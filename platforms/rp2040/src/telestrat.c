@@ -85,18 +85,6 @@ volatile uint32_t diag_io_n;
 #include "chips/wdc65C02cpu.h"
 #include "chips/wdc65C02bus.h"
 #define MOS6502CPU_DESC_T int
-// IRQ demandée à chaque pas de 4 cycles : la broche n'est réécrite qu'au
-// changement (wdc65C02cpu_set_irq, une fonction, l'écrirait à chaque fois)
-static bool bus_irq;
-#undef MOS6502CPU_SET_IRQ
-#define MOS6502CPU_SET_IRQ(c, state)          \
-    do {                                      \
-        const bool s_ = (state);              \
-        if (s_ != bus_irq) {                  \
-            bus_irq = s_;                     \
-            gpio_put(_IRQ_PIN, !s_);          \
-        }                                     \
-    } while (0)
 #include "chips/via6522.h"
 // AY en flash (appelé tous les 64 cycles) : en RAM, +1 Ko sans gain de charge mesuré
 #define AY38910_HOT

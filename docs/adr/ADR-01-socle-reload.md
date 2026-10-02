@@ -73,6 +73,8 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
 - v0.16.33 : `socle-2026-10-01-26` ; pilote de bus du socle (`wdc65C02cpu.h`,
   `wdc65C02bus.h` en mode SIO) à la place de `neo6502_bus.h` (étape 5 du plan) ;
   IRQ réécrite seulement au changement ; `make charge` 47 / 56 % (56 / 65 avant).
+- v0.16.34 : `socle-2026-10-01-27` (IRQ écrite au changement et RESET cadencé
+  à l'init dans `wdc65C02cpu.h`, à notre demande ; notre macro locale retirée).
 - v0.16.32 : plus aucune copie de reload dans le dépôt (`src/chips/` supprimé :
   `mos6522via.h` et son option de repli `TELESTRAT_VIA6522` retirées).
 - v0.16.26 : `socle-2026-10-01-16` inchangé. Volume Réseau : `neo_tnfs.h`
