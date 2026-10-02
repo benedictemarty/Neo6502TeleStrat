@@ -3,11 +3,11 @@ cmake_minimum_required(VERSION 3.12)
 # Firmware telestrat.uf2 pour Olimex Neo6502. Réutilise le SDK Pico, PicoDVI,
 # tinyusb et les sources de plate-forme de reload-emulator (RELOAD_DIR).
 #
-#   cmake -S platforms/rp2040 -B build/rp2040 [-DRELOAD_DIR=~/.cache/reload-socle/socle-2026-10-01-21]
+#   cmake -S platforms/rp2040 -B build/rp2040 [-DRELOAD_DIR=~/.cache/reload-socle/socle-2026-10-01-25]
 #         [-DTELESTRAT_RAM64K=ON] [-DNEO_MULTIBOOT_DIR=... -DNEO_SLOT_TELESTRAT=n]
 
 # Par défaut : le socle reload épinglé (tools/reload_socle.sh, comme le Makefile)
-set(RELOAD_DIR "$ENV{HOME}/.cache/reload-socle/socle-2026-10-01-21" CACHE PATH "reload-emulator (puces, SDK Pico, PicoDVI, tinyusb)")
+set(RELOAD_DIR "$ENV{HOME}/.cache/reload-socle/socle-2026-10-01-25" CACHE PATH "reload-emulator (puces, SDK Pico, PicoDVI, tinyusb)")
 if(NOT EXISTS "${RELOAD_DIR}/platforms/rp2040/lib/pico-sdk/pico_sdk_init.cmake")
     message(FATAL_ERROR "reload-emulator absent de ${RELOAD_DIR} : lancer tools/reload_socle.sh (ou -DRELOAD_DIR=...)")
 endif()
@@ -84,24 +84,35 @@ set(TELESTRAT_OSD_GRID OSD_COLS=120 OSD_ROWS=34)
 target_compile_definitions(telestrat PRIVATE ${TELESTRAT_OSD_GRID})
 
 # VIA du socle (via6522, v0.16.29) : timer 1 juste par pas de 4 cycles (N + 2),
-# mode paresseux. En RAM dans la variante standard (appelée tous les 4 cycles ;
-# make charge : 56 / 63 %, contre 56 / 64 % en flash, mais le modèle suppose
-# la flash toujours dans le cache XIP) ; en flash dans la variante RAM 64 Ko
-# (en RAM, elle déborde). TELESTRAT_VIA6522=OFF : ancienne mos6522via (repli).
+# mode paresseux. Placement (TELESTRAT_VIA6522_PLACE) :
+#   RAM     : tout en RAM (défaut, variante standard ; sur carte 59 %, contre
+#             64 % en flash : le modèle de make charge sous-estime la flash) ;
+#   PARTIEL : chemin de chaque pas en RAM (VIA6522_HOT : via_advance,
+#             via_update…), accès aux registres en flash (VIA6522_HOT_ACCESS)
+#             (défaut, variante RAM 64 Ko, où tout en RAM déborde ; tampon
+#             audio de 1 Ko pour la place) ;
+#   FLASH   : tout en flash (sur carte en RAM 64 Ko : 113 %, ne tient pas).
+# TELESTRAT_VIA6522=OFF : ancienne mos6522via (repli).
 option(TELESTRAT_VIA6522 "VIA du socle (via6522) à la place de mos6522via" ON)
 if(TELESTRAT_RAM64K)
-    set(_via_flash ON)
+    set(TELESTRAT_VIA6522_PLACE PARTIEL CACHE STRING "placement de via6522 : RAM, PARTIEL ou FLASH")
+    target_compile_definitions(telestrat PRIVATE SAMPLES_BUFFER_SIZE=1024)
 else()
-    set(_via_flash OFF)
+    set(TELESTRAT_VIA6522_PLACE RAM CACHE STRING "placement de via6522 : RAM, PARTIEL ou FLASH")
 endif()
-option(TELESTRAT_VIA6522_FLASH "via6522 en flash (sans VIA6522_HOT)" ${_via_flash})
+set(_via_ram "VIA6522_HOT=__attribute__((section(\".time_critical.via\")))")
+if(NOT TELESTRAT_VIA6522)
+    set(TELESTRAT_VIA_DEFS "")
+elseif(TELESTRAT_VIA6522_PLACE STREQUAL "FLASH")
+    set(TELESTRAT_VIA_DEFS TELESTRAT_VIA6522)
+elseif(TELESTRAT_VIA6522_PLACE STREQUAL "PARTIEL")
+    set(TELESTRAT_VIA_DEFS TELESTRAT_VIA6522 ${_via_ram} "VIA6522_HOT_ACCESS=")
+else()
+    set(TELESTRAT_VIA_DEFS TELESTRAT_VIA6522 ${_via_ram})
+endif()
 if(TELESTRAT_VIA6522)
     target_sources(telestrat PRIVATE ${RELOAD_DIR}/src/chips/via6522.c)
-    if(TELESTRAT_VIA6522_FLASH)
-        target_compile_definitions(telestrat PRIVATE TELESTRAT_VIA6522)
-    else()
-        target_compile_definitions(telestrat PRIVATE TELESTRAT_VIA6522 "VIA6522_HOT=__attribute__((section(\".time_critical.via\")))")
-    endif()
+    target_compile_definitions(telestrat PRIVATE ${TELESTRAT_VIA_DEFS})
 endif()
 
 option(TELESTRAT_RS232_UART "prise RS232 possible sur l'UART0 de l'UEXT (TELESTRA.CFG rs232=uext)" ON)
@@ -120,7 +131,7 @@ target_compile_definitions(telestrat PRIVATE
     $<$<BOOL:${TELESTRAT_VIDEO_480}>:TELESTRAT_VIDEO_480>
     $<$<BOOL:${TELESTRAT_RAM64K}>:TELESTRAT_RAM64K>
     $<$<BOOL:${TELESTRAT_RAM64K}>:OSD_MENU_FILES=16>
-    $<$<BOOL:${TELESTRAT_RAM64K}>:DIAG_TX_SIZE=256>
+    $<$<BOOL:${TELESTRAT_RAM64K}>:DIAG_TX_SIZE=128>
     $<$<BOOL:${TELESTRAT_RAM64K}>:BYTE_FIFO_SIZE=64>
     $<$<BOOL:${TELESTRAT_RS232_UART}>:TELESTRAT_RS232_UART>
     $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:TELESTRAT_MAX_RAM_BANKS=1>
@@ -190,11 +201,7 @@ target_compile_definitions(telestrat_bench PRIVATE ${TELESTRAT_OSD_GRID})
 # Même VIA, même placement que le firmware (charge mesurée à l'identique)
 if(TELESTRAT_VIA6522)
     target_sources(telestrat_bench PRIVATE ${RELOAD_DIR}/src/chips/via6522.c)
-    if(TELESTRAT_VIA6522_FLASH)
-        target_compile_definitions(telestrat_bench PRIVATE TELESTRAT_VIA6522)
-    else()
-        target_compile_definitions(telestrat_bench PRIVATE TELESTRAT_VIA6522 "VIA6522_HOT=__attribute__((section(\".time_critical.via\")))")
-    endif()
+    target_compile_definitions(telestrat_bench PRIVATE ${TELESTRAT_VIA_DEFS})
 endif()
 target_link_libraries(telestrat_bench pico_stdlib)
 pico_set_float_implementation(telestrat_bench compiler)

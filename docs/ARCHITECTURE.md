@@ -531,9 +531,15 @@ avait une demi-période de N + 8 cycles au lieu de N + 2 (N = 25 : 32 ; 100 :
 108 ; 1 000 : 1 008), sons du timer trop graves, et la référence avait le même
 défaut (le rejeu ne pouvait pas le voir) ; trouvé par reload, vérifié ici.
 Charge (`make charge`) : 56 % en moyenne, 63 % au pire, contre 59 / 67 %.
-Firmware : VIA en RAM dans la variante standard, en flash dans la variante
-RAM 64 Ko (en RAM, elle déborde ; le modèle de charge suppose la flash dans
-le cache XIP : à mesurer sur carte). `TELESTRAT_VIA6522=OFF` garde l'ancienne
+Firmware (`TELESTRAT_VIA6522_PLACE`) : VIA en RAM dans la variante
+standard (sur carte : 59 %, contre 64 % en flash ; le modèle de `make charge`
+suppose la flash dans le cache XIP et sous-estime son coût) ; dans la variante
+RAM 64 Ko, où tout en RAM déborde et tout en flash ne tient pas le temps réel
+(113 %, 0,875 MHz sur carte), placement partiel depuis v0.16.30 : chemin de
+chaque pas en RAM (`VIA6522_HOT` : `via_advance`, `via_update`…), accès aux
+registres en flash (`VIA6522_HOT_ACCESS` vide), tampon audio de 1 Ko
+(`SAMPLES_BUFFER_SIZE`) et `DIAG_TX_SIZE` de 128 (364 octets de marge) ; les
+deux réglages ont été ajoutés au socle à notre demande. `TELESTRAT_VIA6522=OFF` garde l'ancienne
 `mos6522via` en repli. Instantanés (format 4) : les rappels et pointeurs de
 la VIA (`porta_read`… `irq_userdata`) ne sont pas repris de l'instantané.
 Banc : à 4 trames par touche, le second S d'« ESSAI » peut se perdre (la ROM
