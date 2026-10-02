@@ -470,6 +470,14 @@ cumule les hausses de ce compteur (`diag_late_total`, relevé deux fois par
 ligne rendue : un minimum) et `carte.py mesure` affiche les lignes rouges
 pendant la mesure et depuis le démarrage. Pas encore relevé sur carte.
 
+### RAM 64 Ko et RESET sur carte (v0.16.31, 2026-10-02)
+
+| Essai | Résultat |
+|---|---|
+| RAM 64 Ko, via6522 en RAM partielle (défaut) | 40 % en moyenne, 52 % au pire, 1,001 MHz, 0 ligne rouge (même boucle chaotique de la banque 5 vide que la mesure à 113 % en flash) |
+| standard v0.16.31 | 58 %, 1 MHz, 0 ligne rouge |
+| F12 (RESET cadencé, touche de commande en file) | `diag_last_key` = `0x145` reçu ; écran effacé par le RESET de la ROM, 65C02 à 1 MHz, programme BASIC gardé (RESET à chaud) ; l'ancien RESET sans horloge n'a jamais été essayé sur carte |
+
 ### VIA du socle sur carte (v0.16.29, 2026-10-02)
 
 | Firmware | Charge moyenne | Au pire | 65C02 | Lignes rouges (cumul) |

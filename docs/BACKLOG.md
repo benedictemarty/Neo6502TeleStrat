@@ -310,7 +310,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | Id | Récit / anomalie | État |
 |---|---|---|
-| US-182 | Les deux VIA du socle (`via6522`), référence comprise (étape 9 de la fusion, décision de bmarty) | ✅ `make test`, rejeu 3/3 ; ✅ carte, standard : 59 %, 0 ligne rouge ; ❌ carte, RAM 64 Ko (VIA en flash) : 113 %, 0,875 MHz ; v0.16.30 : placement partiel (chemin par pas en RAM, socle `-25`), 364 o de marge ; ⏳ mesure sur carte |
+| US-182 | Les deux VIA du socle (`via6522`), référence comprise (étape 9 de la fusion, décision de bmarty) | ✅ `make test`, rejeu 3/3 ; ✅ carte, standard : 59 %, 0 ligne rouge ; ❌ carte, RAM 64 Ko (VIA en flash) : 113 %, 0,875 MHz ; v0.16.30 : placement partiel (chemin par pas en RAM, socle `-25`), 364 o de marge ; ✅ carte : 40 % (52 % au pire), 1 MHz, 0 ligne rouge |
 | BUG-12 | Timer 1 en roue libre : demi-période N + 8 au lieu de N + 2 avec `mos6522via` par pas de 4 (trouvé par reload) | ✅ test `test_via_t1_period` (l'ancienne VIA y échoue) |
 | BUG-13 | Instantané repris : la structure brute de `via6522` écrasait ses rappels et pointeurs (adresses d'un autre lancement ou firmware) | ✅ rappels gardés à la reprise, test ; format 4 |
 | BUG-8 | (suite) Banc : touches perdues quand la frappe est trop rapide pour la ROM (système occupé par le disque ; même touche deux fois à 4 trames) : artefact de frappe, pas d'émulation | contourné dans `test_boot` (`-k 6`) |
@@ -319,7 +319,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | Id | Anomalie | État |
 |---|---|---|
-| BUG-14 | `neo6502bus_reset` : RESB bas 1 ms sans horloge ; le W65C02S demande 2 cycles d'horloge au moins : un RESET après le démarrage (F12) pouvait être ignoré (même défaut corrigé dans `wdc65C02cpu.h` du socle, constaté sur l'Apple IIe de reload) | ✅ 8 cycles d'horloge, OE3 haut ; ⏳ carte (F12) |
+| BUG-14 | `neo6502bus_reset` : RESB bas 1 ms sans horloge ; le W65C02S demande 2 cycles d'horloge au moins : un RESET après le démarrage (F12) pouvait être ignoré (même défaut corrigé dans `wdc65C02cpu.h` du socle, constaté sur l'Apple IIe de reload) | ✅ 8 cycles d'horloge, OE3 haut ; ✅ carte : F12 reçu, RESET à chaud pris en compte |
 
 ## Plus tard
 
