@@ -190,14 +190,11 @@ static inline bool telestrat_state_load_machine(telestrat_t* sys, telestrat_stat
     _TELESTRAT_IO(&r, sizeof(r));
     _TELESTRAT_IO(sys->ram, sizeof(sys->ram));
     _TELESTRAT_IO(sys->bank_ram, sizeof(sys->bank_ram));
-#ifdef TELESTRAT_VIA6522
     // Rappels et pointeurs de la VIA : ceux de ce programme, pas ceux de
     // l'instantané (adresses d'un autre lancement ou d'un autre firmware)
     const via6522_t keep[2] = {sys->via, sys->via2};
-#endif
     _TELESTRAT_IO(&sys->via, sizeof(sys->via));
     _TELESTRAT_IO(&sys->via2, sizeof(sys->via2));
-#ifdef TELESTRAT_VIA6522
     via6522_t* v[2] = {&sys->via, &sys->via2};
     for (int i = 0; i < 2; i++) {
         v[i]->porta_read = keep[i].porta_read;
@@ -208,7 +205,6 @@ static inline bool telestrat_state_load_machine(telestrat_t* sys, telestrat_stat
         v[i]->irq_callback = keep[i].irq_callback;
         v[i]->irq_userdata = keep[i].irq_userdata;
     }
-#endif
     // AY, ACIA : rappels de la plate-forme gardés
     const ay38910psg_t psg = sys->psg;
     _TELESTRAT_IO(&sys->psg, sizeof(sys->psg));

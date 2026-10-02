@@ -70,6 +70,8 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
 - v0.16.30 : `socle-2026-10-01-25` (`VIA6522_HOT_ACCESS` et
   `SAMPLES_BUFFER_SIZE` réglable, ajoutés à notre demande : VIA en RAM
   partielle dans la variante RAM 64 Ko).
+- v0.16.32 : plus aucune copie de reload dans le dépôt (`src/chips/` supprimé :
+  `mos6522via.h` et son option de repli `TELESTRAT_VIA6522` retirées).
 - v0.16.26 : `socle-2026-10-01-16` inchangé. Volume Réseau : `neo_tnfs.h`
   (client TNFS, volume 1), `neo_dgram_serial.h` et `neo_esp_at.h` (port TNFS
   du modem, activé par `AT$TNFSUSB=1`), `neo_cdc_serial.c` du socle à la
@@ -84,5 +86,6 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
   d'étiquette, vérifié ici.
 - Un correctif du socle (ex. verrous DVI, v0.16.11) doit être repris en changeant
   d'étiquette, ou recopié en attendant ; dans ce cas, le noter dans le CHANGELOG.
-- Les copies figées (`src/chips/`, `hid_app.c`) restent jusqu'à la décision de
-  bmarty (fusion dans reload ou projet séparé consommateur du socle).
+- Les copies figées (`src/chips/`, `hid_app.c`) ont toutes rejoint le socle
+  (dernière en v0.16.32) ; reste la décision de bmarty (fusion dans reload ou
+  projet séparé consommateur du socle).

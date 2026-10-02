@@ -68,10 +68,7 @@ static inline void replay_set_data(replaycpu_t* c, uint8_t d) {
 #define MOS6502CPU_SYNC(c)           (false)
 
 #include "chips/chips_common.h"
-#include "chips/mos6522via.h"
-#ifdef TELESTRAT_VIA6522
 #include "chips/via6522.h"
-#endif
 #include "chips/ay38910psg.h"
 #include "chips/kbd.h"
 #include "chips/clk.h"

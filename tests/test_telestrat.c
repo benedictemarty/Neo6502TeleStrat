@@ -14,16 +14,9 @@
 
 #include "chips/chips_common.h"
 #include "chips/w65c02cpu.h"
-#include "chips/mos6522via.h"
-#ifdef TELESTRAT_VIA6522
 #include "chips/via6522.h"
-#endif
-// Compteur de T1 lu sans effet de bord (VIA du socle ou mos6522via)
-#ifdef TELESTRAT_VIA6522
+// Compteur de T1 lu sans effet de bord (VIA du socle)
 #define TV_T1(v) ((uint16_t)(via_peek((v), 4) | via_peek((v), 5) << 8))
-#else
-#define TV_T1(v) ((uint16_t)(v)->t1.counter)
-#endif
 #include "chips/ay38910psg.h"
 #include "chips/kbd.h"
 #include "chips/clk.h"
@@ -1462,22 +1455,20 @@ static void test_hid_media(void) {
 // VIA : désactiver une source active par IER relâche l'IRQ (v0.16.13, correctif
 // de reload : IRQ = IFR & IER)
 static void test_via_ier(void) {
-    mos6522via_t v;
-    mos6522via_init(&v);
-    mos6522via_write(&v, MOS6522VIA_REG_IER, 0x80 | 0x40);  // T1 autorisé
-    mos6522via_write(&v, MOS6522VIA_REG_T1CL, 10);
-    mos6522via_write(&v, MOS6522VIA_REG_T1CH, 0);           // T1 lancé (un coup)
+    via6522_t v;
+    via_init(&v);
+    _tv_write(&v, VIA_IER, 0x80 | 0x40);  // T1 autorisé
+    _tv_write(&v, VIA_T1CL, 10);
+    _tv_write(&v, VIA_T1CH, 0);           // T1 lancé (un coup)
     bool irq = false;
-    for (int i = 0; i < 20 && !irq; i++) irq = mos6522via_tick(&v, 4);
-    for (int i = 0; i < 4; i++) irq = mos6522via_tick(&v, 4);  // IRQ au bout du pipeline
-    CHECK(irq && (mos6522via_read(&v, MOS6522VIA_REG_IFR) & 0xC0) == 0xC0, "T1 échu : IRQ, IFR = %02X",
-          mos6522via_read(&v, MOS6522VIA_REG_IFR));
-    mos6522via_write(&v, MOS6522VIA_REG_IER, 0x40);  // T1 interdit, drapeau T1 gardé
-    irq = mos6522via_tick(&v, 4);
-    const uint8_t ifr = mos6522via_read(&v, MOS6522VIA_REG_IFR);
+    for (int i = 0; i < 20 && !irq; i++) irq = _tv_tick4(&v);
+    CHECK(irq && (via_peek(&v, VIA_IFR) & 0xC0) == 0xC0, "T1 échu : IRQ, IFR = %02X", via_peek(&v, VIA_IFR));
+    _tv_write(&v, VIA_IER, 0x40);  // T1 interdit, drapeau T1 gardé
+    irq = _tv_tick4(&v);
+    const uint8_t ifr = via_peek(&v, VIA_IFR);
     CHECK(!irq && (ifr & 0x80) == 0 && (ifr & 0x40), "IER : T1 interdit relâche l'IRQ (IFR = %02X, bit 6 gardé)", ifr);
-    mos6522via_write(&v, MOS6522VIA_REG_IER, 0x80 | 0x40);  // réautorisé : le drapeau encore levé
-    CHECK(mos6522via_read(&v, MOS6522VIA_REG_IER) & 0x40, "IER relu");
+    _tv_write(&v, VIA_IER, 0x80 | 0x40);  // réautorisé : le drapeau encore levé
+    CHECK(via_peek(&v, VIA_IER) & 0x40, "IER relu");
 }
 
 // F3 (v0.16.22) : instantané à reprendre
@@ -1510,10 +1501,10 @@ static void test_via_t1_period(void) {
         telestrat_desc_t d = {0};
         d.banks[7] = (telestrat_bank_desc_t){TELESTRAT_BANK_ROM, rom7};
         telestrat_init(&sys, &d);
-        _tv_write(&sys.via, MOS6522VIA_REG_DDRB, 0x80);
-        _tv_write(&sys.via, MOS6522VIA_REG_ACR, 0xC0);  // T1 continu, sortie PB7
-        _tv_write(&sys.via, MOS6522VIA_REG_T1CL, (uint8_t)(n & 0xFF));
-        _tv_write(&sys.via, MOS6522VIA_REG_T1CH, (uint8_t)(n >> 8));
+        _tv_write(&sys.via, VIA_DDRB, 0x80);
+        _tv_write(&sys.via, VIA_ACR, 0xC0);  // T1 continu, sortie PB7
+        _tv_write(&sys.via, VIA_T1CL, (uint8_t)(n & 0xFF));
+        _tv_write(&sys.via, VIA_T1CH, (uint8_t)(n >> 8));
         int last = -1, prev = -1, cyc = 0, mes = 0, somme = 0;
         for (int i = 0; i < 400000 && mes < 40; i += 4) {
             _tv_tick4(&sys.via);
@@ -1547,18 +1538,14 @@ static void test_state(void) {
     static uint8_t buf[300000];
     mem_state_t m = {buf, 0, 0, sizeof(buf)};
     const char* err = "";
-#ifdef TELESTRAT_VIA6522
     // Rappels de la VIA faussés pendant l'enregistrement (comme un instantané
     // d'un autre lancement) : la reprise doit garder ceux de ce programme
     const via6522_t via_ok = sys.via;
     sys.via.portb_read = NULL;
     sys.via.userdata = (void*)&err;
-#endif
     CHECK(telestrat_state_save(&sys, "bank7=@essai\n", mem_state_write, &m, &err), "instantané enregistré (%s)", err);
-#ifdef TELESTRAT_VIA6522
     sys.via.portb_read = via_ok.portb_read;
     sys.via.userdata = via_ok.userdata;
-#endif
     CHECK(m.len > 0xC000, "instantané : %u octets", (unsigned)m.len);
     // Suite de référence
     run(7000);
@@ -1574,10 +1561,8 @@ static void test_state(void) {
     CHECK(telestrat_state_load_info(mem_state_read, &m, info, sizeof(info), &err) && !strcmp(info, "bank7=@essai\n"),
           "instantané : texte de la plate-forme relu (%s)", err);
     CHECK(telestrat_state_load_machine(&sys, mem_state_read, &m, &err), "instantané relu (%s)", err);
-#ifdef TELESTRAT_VIA6522
     CHECK(sys.via.portb_read == via_ok.portb_read && sys.via.userdata == (void*)&sys,
           "instantané relu : rappels de la VIA de ce programme gardés");
-#endif
     run(7000);
     CHECK(!memcmp(ram_ref, sys.ram, sizeof(ram_ref)) && sys.cpu.A == a && sys.cpu.X == x && sys.cpu.Y == y &&
               TV_T1(&sys.via) == t1,

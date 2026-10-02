@@ -89,10 +89,7 @@ static inline void bench_set_data(uint8_t d) {
 #define MOS6502CPU_SYNC(c)           (false)
 
 #include "chips/chips_common.h"
-#include "chips/mos6522via.h"
-#ifdef TELESTRAT_VIA6522
 #include "chips/via6522.h"
-#endif
 // AY en flash (appelé tous les 64 cycles) : en RAM, +1 Ko sans gain de charge mesuré
 #define AY38910_HOT
 #include "chips/ay38910psg.h"

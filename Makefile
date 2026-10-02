@@ -26,12 +26,11 @@ CPPFLAGS += -Isrc -I$(RELOAD_DIR)/src
 # Menu à l'écran : osd.h du socle, grille du Telestrat (960 x 544 : 120 x 34 cases)
 CPPFLAGS += -DOSD_COLS=120 -DOSD_ROWS=34
 # VIA du socle (via6522, v0.16.29) : compilé avec chaque programme du système
-CPPFLAGS += -DTELESTRAT_VIA6522
 VIA_SRC := $(RELOAD_DIR)/src/chips/via6522.c
 
 BUILD := build
 ROMS_H := src/roms/telestrat_roms.h
-HEADERS := $(RELOAD_DIR)/src/devices/oric_tape.h $(RELOAD_DIR)/src/devices/oric_tape_rec.h $(RELOAD_DIR)/src/devices/oric_tape_turbo.h src/systems/telestrat.h $(RELOAD_DIR)/src/devices/wd1793.h $(RELOAD_DIR)/src/devices/oric_dsk.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h $(RELOAD_DIR)/src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/byte_fifo.h src/osd/rom_builtin.h src/devices/printer_out.h src/devices/printer_fx80.h src/devices/plotter_mcp40.h platforms/pc/printer_files.h src/systems/telestrat_state.h $(wildcard src/chips/*.h) $(RELOAD_DIR)/src/chips/ay38910psg.h $(RELOAD_DIR)/src/chips/w65c02cpu.h $(RELOAD_DIR)/src/chips/kbd.h $(RELOAD_DIR)/src/chips/clk.h $(RELOAD_DIR)/src/chips/chips_common.h $(RELOAD_DIR)/src/devices/neo_storage.h $(RELOAD_DIR)/platforms/pc/neo_storage_posix.h src/devices/neo_writer.h $(RELOAD_DIR)/src/devices/neo_tnfs.h $(RELOAD_DIR)/platforms/pc/neo_tnfs_udp.h
+HEADERS := $(RELOAD_DIR)/src/devices/oric_tape.h $(RELOAD_DIR)/src/devices/oric_tape_rec.h $(RELOAD_DIR)/src/devices/oric_tape_turbo.h src/systems/telestrat.h $(RELOAD_DIR)/src/devices/wd1793.h $(RELOAD_DIR)/src/devices/oric_dsk.h src/devices/telestrat_fdc.h src/devices/mos6551acia.h $(ROMS_H) src/devices/minitel_port.h platforms/pc/line_tcp.h platforms/pc/menu_pc.h src/devices/hayes_line.h src/devices/modem_mux.h src/devices/drive_set.h $(RELOAD_DIR)/src/osd/osd.h src/osd/osd_menu.h src/osd/osd_font.h src/osd/osd_config.h src/osd/rom_pool.h src/devices/byte_fifo.h src/osd/rom_builtin.h src/devices/printer_out.h src/devices/printer_fx80.h src/devices/plotter_mcp40.h platforms/pc/printer_files.h src/systems/telestrat_state.h $(RELOAD_DIR)/src/chips/via6522.h $(RELOAD_DIR)/src/chips/ay38910psg.h $(RELOAD_DIR)/src/chips/w65c02cpu.h $(RELOAD_DIR)/src/chips/kbd.h $(RELOAD_DIR)/src/chips/clk.h $(RELOAD_DIR)/src/chips/chips_common.h $(RELOAD_DIR)/src/devices/neo_storage.h $(RELOAD_DIR)/platforms/pc/neo_storage_posix.h src/devices/neo_writer.h $(RELOAD_DIR)/src/devices/neo_tnfs.h $(RELOAD_DIR)/platforms/pc/neo_tnfs_udp.h
 # Banc PC : fichiers par neo_storage du socle, pilote POSIX (neo_storage_posix.h)
 PC_STORAGE := -I$(RELOAD_DIR)/platforms/pc
 

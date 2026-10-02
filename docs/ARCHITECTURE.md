@@ -35,8 +35,10 @@ compilée avec `CHIPS_IMPL`, une fois par programme ; v0.16.15, socle
 (l'AY reste en flash : `AY38910_HOT` vide, socle `-2` ; +1 Ko de RAM
 sinon, sans gain de charge) ; l'AY produit à la cadence réelle du PWM
 (`audio_pwm_rate_q8(22050)`, 22 017 Hz à 372 MHz : diviseur au 1/16) ; sans
-disque, un type II/III rend `$80` seul (fiche FD179X). Seule copie gardée :
-`src/chips/mos6522via.h` (`src/chips/README.md`). Firmware : le rendu du menu du socle est compilé hors ligne
+disque, un type II/III rend `$80` seul (fiche FD179X). Depuis v0.16.32, plus
+aucune copie de reload : la dernière, `src/chips/mos6522via.h`, est supprimée
+(VIA du socle `via6522` validée sur carte dans les deux variantes ; le code
+de l'ancienne VIA, encore lié au firmware, libère 1,6 Ko de RAM). Firmware : le rendu du menu du socle est compilé hors ligne
 (`OSD_NOINLINE`, `OSD_HOT` = section en RAM) ; en ligne, il était recopié dans
 `core1_main` (+1,4 Ko de RAM). Le cœur `w65c02cpu.h` du socle `-5` est commun
 avec la NES : IRQ et NMI scrutées à l'avant-dernier cycle, avec le drapeau I
@@ -546,8 +548,8 @@ RAM 64 Ko, où tout en RAM déborde et tout en flash ne tient pas le temps réel
 chaque pas en RAM (`VIA6522_HOT` : `via_advance`, `via_update`…), accès aux
 registres en flash (`VIA6522_HOT_ACCESS` vide), tampon audio de 1 Ko
 (`SAMPLES_BUFFER_SIZE`) et `DIAG_TX_SIZE` de 128 (364 octets de marge) ; les
-deux réglages ont été ajoutés au socle à notre demande. `TELESTRAT_VIA6522=OFF` garde l'ancienne
-`mos6522via` en repli. Instantanés (format 4) : les rappels et pointeurs de
+deux réglages ont été ajoutés au socle à notre demande. (v0.16.32 : l'ancienne `mos6522via`
+et son option de repli sont supprimées.) Instantanés (format 4) : les rappels et pointeurs de
 la VIA (`porta_read`… `irq_userdata`) ne sont pas repris de l'instantané.
 Banc : à 4 trames par touche, le second S d'« ESSAI » peut se perdre (la ROM
 ne voit pas le relâchement ; phase changée par le minutage juste des IRQ) :

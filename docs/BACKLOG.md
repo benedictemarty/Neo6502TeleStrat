@@ -321,6 +321,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | BUG-14 | `neo6502bus_reset` : RESB bas 1 ms sans horloge ; le W65C02S demande 2 cycles d'horloge au moins : un RESET après le démarrage (F12) pouvait être ignoré (même défaut corrigé dans `wdc65C02cpu.h` du socle, constaté sur l'Apple IIe de reload) | ✅ 8 cycles d'horloge, OE3 haut ; ✅ carte : F12 reçu, RESET à chaud pris en compte |
 
+## v0.16.32 — plus aucune copie de reload ✅ (2026-10-02)
+
+| Id | Récit | État |
+|---|---|---|
+| US-183 | Dernière copie (`src/chips/mos6522via.h`) et option de repli `TELESTRAT_VIA6522` supprimées ; `test_via_ier` porté sur via6522 | ✅ `make test` entier ; RAM −1 648 o (standard), −1 680 o (RAM 64 Ko : 2 044 o de marge) ; charge 56 / 65 % |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
