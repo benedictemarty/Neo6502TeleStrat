@@ -310,7 +310,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | Id | Récit / anomalie | État |
 |---|---|---|
-| US-182 | Les deux VIA du socle (`via6522`), référence comprise (étape 9 de la fusion, décision de bmarty) | ✅ `make test`, rejeu 3/3 ; ✅ carte, standard : 59 %, 0 ligne rouge ; ❌ carte, RAM 64 Ko (VIA en flash) : 113 %, 0,875 MHz : à corriger |
+| US-182 | Les deux VIA du socle (`via6522`), référence comprise (étape 9 de la fusion, décision de bmarty) | ✅ `make test`, rejeu 3/3 ; ✅ carte, standard : 59 %, 0 ligne rouge ; ❌ carte, RAM 64 Ko (VIA en flash) : 113 %, 0,875 MHz : à corriger (demandé au socle : `VIA6522_HOT` scindé pour mettre en RAM le seul chemin par pas, ~1,7 Ko, et tampon audio réglable, -1 Ko) |
 | BUG-12 | Timer 1 en roue libre : demi-période N + 8 au lieu de N + 2 avec `mos6522via` par pas de 4 (trouvé par reload) | ✅ test `test_via_t1_period` (l'ancienne VIA y échoue) |
 | BUG-13 | Instantané repris : la structure brute de `via6522` écrasait ses rappels et pointeurs (adresses d'un autre lancement ou firmware) | ✅ rappels gardés à la reprise, test ; format 4 |
 | BUG-8 | (suite) Banc : touches perdues quand la frappe est trop rapide pour la ROM (système occupé par le disque ; même touche deux fois à 4 trames) : artefact de frappe, pas d'émulation | contourné dans `test_boot` (`-k 6`) |
