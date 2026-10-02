@@ -34,7 +34,7 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
 | Règle (stratégie, section 3) | Écart | Raison | Fin prévue |
 |---|---|---|---|
 | ~~7 : `CFG_TUH_ENUMERATION_BUFSIZE` 512~~ | ~~256 dans la variante RAM 64 Ko~~ | levé en v0.16.20 : 512 dans les deux variantes (place regagnée par les composants du socle) | fait |
-| 6 : bus du W65C02 en PIO par défaut | pilote SIO/GPIO intégré au tick (`platforms/rp2040/src/neo6502_bus.h`) | éprouvé sur carte (v0.4.1 à v0.16.4), charge mesurée par `make charge` | étape 5 du plan (le Telestrat reprend le pilote du socle) |
+| 6 : bus du W65C02 en PIO par défaut | pilote du socle (`wdc65C02bus.h`, v0.16.33) en mode SIO, pas PIO : mesurable par `make charge` (le modèle n'émule pas la PIO) | le mode PIO (`WDC65C02_BUS_PIO`) reste à mesurer sur carte | essai du mode PIO sur carte |
 
 ## Suivi
 
@@ -70,6 +70,9 @@ fonctionne aussi, mais écrit dans le dépôt d'un autre projet.
 - v0.16.30 : `socle-2026-10-01-25` (`VIA6522_HOT_ACCESS` et
   `SAMPLES_BUFFER_SIZE` réglable, ajoutés à notre demande : VIA en RAM
   partielle dans la variante RAM 64 Ko).
+- v0.16.33 : `socle-2026-10-01-26` ; pilote de bus du socle (`wdc65C02cpu.h`,
+  `wdc65C02bus.h` en mode SIO) à la place de `neo6502_bus.h` (étape 5 du plan) ;
+  IRQ réécrite seulement au changement ; `make charge` 47 / 56 % (56 / 65 avant).
 - v0.16.32 : plus aucune copie de reload dans le dépôt (`src/chips/` supprimé :
   `mos6522via.h` et son option de repli `TELESTRAT_VIA6522` retirées).
 - v0.16.26 : `socle-2026-10-01-16` inchangé. Volume Réseau : `neo_tnfs.h`

@@ -124,7 +124,7 @@ banc PC ; section « Menu à l'écran et clé USB »).
 | Images disque | `devices/oric_dsk.h` du socle. PC : image entière en mémoire ; Neo6502 : clé USB, piste courante (6400 o) dans le cache de piste du WD1793, réécrite à la fin de chaque commande d'écriture (`WD1793_FLUSH_AT_END`, défaut du socle) | 1 Mo ne tient pas dans les 264 Ko du RP2040 ; le 65C02 attend pendant l'accès USB (le RP2040 fournit son horloge) |
 | Imprimante | option : octet sur front descendant de STROBE, ACK de 40 cycles sur CA1 (retenu si l'imprimante est occupée) ; niveau de CA1 redonné à chaque pas | le VIA de reload ne détecte un front qu'entre deux appels de `set_ca1` ; TELEMON n'affiche « Imprimante » que si l'ACK répond (toujours branchée sur le Neo6502 depuis v0.9.0) |
 | Code chaud | `telestrat_tick`, VIA et cœur 65C02 en RAM (`.time_critical`) | comme le BBC de reload : depuis la flash, le cache XIP de 16 Ko déborde |
-| Bus du 65C02 (`neo6502_bus.h`) | séquence GPIO de reload, intégrée ; **impulsion OE3 renvoyée juste avant le front descendant** après une lecture | sur carte, la donnée d'une lecture suivie d'une pause (fin de tranche ou de trame, plusieurs ms horloge haute) fuyait : TELEMON lisait `$FF4E` de la banque 3 (`$00`) autrement à la relecture, banque déclarée invalide (« 48 Ko ROM »), titre corrompu ; défaut latent aussi dans reload |
+| Bus du 65C02 (v0.16.33 : `chips/wdc65C02bus.h` du socle, mode SIO intégré au tick ; avant : `neo6502_bus.h`) | séquence GPIO de reload, intégrée ; après une lecture, la donnée reste présentée (OE3 bas) jusqu'à la descente de PHI2 (socle ; notre pilote renvoyait une impulsion OE3 juste avant) | sur carte, la donnée d'une lecture suivie d'une pause (fin de tranche ou de trame, plusieurs ms horloge haute) fuyait : TELEMON lisait `$FF4E` de la banque 3 (`$00`) autrement à la relecture, banque déclarée invalide (« 48 Ko ROM »), titre corrompu ; défaut latent aussi dans reload |
 | Clavier : PB3 | touche dans la ligne sélectionnée parmi les colonnes actives (`scan & ligne`) | `oric.h` testait l'égalité (`scan == ligne`), fausse dès que deux touches de lignes différentes sont enfoncées : SHIFT + 8 (« * ») donnait « 8 » sur carte ; aussi dans reload |
 | Clavier : CTRL | pas de CTRL+H ni CTRL+M déclarés | ils écrasaient DEL et RETURN (RETURN arrivait comme « M » sur carte) |
 | Affichage (cœur 1) | image -> 3 plans 1 bpp (`telestrat_video.h`) -> 3 encodages TMDS 1 bpp ; 960x544 à 372 MHz (1,30 V) ; priorité bus au cœur 1 et au DMA | l'encodage à palette prend 72 µs par ligne pour 59-63 (mesure du BBC) ; mesuré sur carte : 35 µs par ligne, 0 retard |
@@ -511,7 +511,8 @@ clé, 0 ligne DVI en retard.
 
 ## Premiers essais sur carte depuis la v0.4.2 (sprint 16)
 
-**RESET du 65C02 cadencé** (v0.16.31, `neo6502_bus.h`) : le W65C02S ne prend
+**RESET du 65C02 cadencé** (v0.16.31, `neo6502_bus.h` ; depuis v0.16.33,
+`wdc65C02cpu_reset` du socle, même séquence) : le W65C02S ne prend
 RESB en compte que s'il reste bas 2 cycles d'horloge au moins ; l'horloge
 n'avançant que dans `neo6502bus_tick`, le RESET lui donne 8 cycles, bus de
 données non piloté (OE3 haut). Avant : RESB bas 1 ms sans horloge ; un RESET

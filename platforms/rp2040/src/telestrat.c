@@ -79,7 +79,24 @@ volatile uint32_t diag_io_n;
     } while (0)
 #endif
 #include "chips/chips_common.h"
-#include "neo6502_bus.h"  // bus du vrai 65C02 intégré au tick (Olimex Neo6502)
+// Bus du vrai 65C02 (Olimex Neo6502) : pilote du socle (v0.16.33, étape 5 de
+// la fusion), cycle en accès SIO directs intégré au tick (wdc65C02bus.h ;
+// WDC65C02_BUS_PIO : par la PIO, à mesurer sur carte)
+#include "chips/wdc65C02cpu.h"
+#include "chips/wdc65C02bus.h"
+#define MOS6502CPU_DESC_T int
+// IRQ demandée à chaque pas de 4 cycles : la broche n'est réécrite qu'au
+// changement (wdc65C02cpu_set_irq, une fonction, l'écrirait à chaque fois)
+static bool bus_irq;
+#undef MOS6502CPU_SET_IRQ
+#define MOS6502CPU_SET_IRQ(c, state)          \
+    do {                                      \
+        const bool s_ = (state);              \
+        if (s_ != bus_irq) {                  \
+            bus_irq = s_;                     \
+            gpio_put(_IRQ_PIN, !s_);          \
+        }                                     \
+    } while (0)
 #include "chips/via6522.h"
 // AY en flash (appelé tous les 64 cycles) : en RAM, +1 Ko sans gain de charge mesuré
 #define AY38910_HOT
@@ -1872,16 +1889,16 @@ void __not_in_flash_func(core1_main()) {
 // Sondes de mesure (tools/rp2040_load.py) : un cycle de lecture et un cycle
 // d'écriture complets du pilote de bus, pour en compter les cycles
 __attribute__((noinline, section(".time_critical.telestrat"))) void telestrat_bus_probe_read(void) {
-    static neo6502bus_t c;
-    neo6502bus_tick(&c);
-    neo6502bus_set_data(&c, (uint8_t)c.addr);
+    static wdc6502cpu_t c;
+    bus_tick(&c);
+    bus_set_data((uint8_t)c.addr);
 }
 
 __attribute__((noinline, section(".time_critical.telestrat"))) void telestrat_bus_probe_write(void) {
-    static neo6502bus_t c;
+    static wdc6502cpu_t c;
     static volatile uint8_t sink __attribute__((unused));
-    neo6502bus_tick(&c);
-    sink = neo6502bus_get_data();
+    bus_tick(&c);
+    sink = bus_get_data();
 }
 
 int main() {

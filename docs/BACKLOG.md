@@ -327,6 +327,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-183 | Dernière copie (`src/chips/mos6522via.h`) et option de repli `TELESTRAT_VIA6522` supprimées ; `test_via_ier` porté sur via6522 | ✅ `make test` entier ; RAM −1 648 o (standard), −1 680 o (RAM 64 Ko : 2 044 o de marge) ; charge 56 / 65 % |
 
+## v0.16.33 — pilote de bus du socle ✅ compilé (2026-10-02)
+
+| Id | Récit | État |
+|---|---|---|
+| US-184 | Pilote de bus du 65C02 du socle (`wdc65C02bus.h`, mode SIO) à la place de `neo6502_bus.h` (étape 5 de la fusion) | ✅ `make test`, deux variantes ; `make charge` 47 / 56 % (56 / 65 avant) ; ⏳ carte (démarrage, banques, disquettes, F12 ; puis mode PIO) |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
