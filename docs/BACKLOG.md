@@ -339,6 +339,13 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-185 | Les trois cartouches STRATORIC, ORIC BASIC 1.1 et 1.0 hors de la flash de la version slot (`TELESTRAT_ROMS_CLE`, `make uf2 ROMS_CLE=1`, implicite avec `NEO_SLOT_TELESTRAT`) : elles viennent de la clé | ✅ `make test` entier ; ✅ lié pour le slot 2 : 453 684 o pour 491 520 (505 860 avant, 14 340 o de trop) ; ⏳ carte : `.rom` de la clé dans les banques 7, 6, 5 |
 
+## v0.16.37 — TinyUSB amont (HardFault USB sur carte) ✅ carte (2026-10-26)
+
+| Id | Récit | État |
+|---|---|---|
+| US-186 | Le cœur 0 ne meurt plus en HardFault dans l'IRQ USB : `third_party/tinyusb` passe de `dae3f9a` (30 juin) à `3174e76` (11 oct., abandon des transferts EPX, hathach/tinyusb#4166) ; avant, `epx_save_context` retranchait 0x80 à un `user_buf` nul (`0xffffff80`, lu par SWD) | ✅ `make test` entier ; ✅ carte : pas de HardFault pendant 80 s (Télestrat seul, 456 284 o) ; ⏳ avec seconde clé et lecteur de disquettes |
+| US-187 | Image qui devient noire environ 5 s après le démarrage (cœur 1 figé dans `dvi_dma_irq_handler`, canal DMA 5 à `TRANS_COUNT` 0x160 fixe) | ⏳ cause non trouvée ; état figé retrouvé sur carte, indépendant du plantage USB |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

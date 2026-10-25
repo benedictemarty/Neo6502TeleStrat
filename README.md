@@ -72,7 +72,7 @@ Carte des banques : notice « Extension RAM 64 Ko pour Oric Telestrat »
 
 ## Construction
 
-`git submodule update --init` (TinyUSB 0.21.0 dans `third_party/tinyusb`),
+`git submodule update --init` (TinyUSB 0.21.0 dans `third_party/tinyusb`, commit `3174e76`),
 puis `make` (banc et tests) et `make uf2` (firmware).
 
 ## Recette sur carte par sonde SWD
