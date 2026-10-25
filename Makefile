@@ -93,7 +93,7 @@ uf2: $(ROMS_H)
 	@# compris) gardent l'ancien chemin ; dossier recréé (témoin .reload_dir)
 	@if [ -d $(BUILD)/rp2040 ] && [ "$$(cat $(BUILD)/rp2040/.reload_dir 2>/dev/null)" != "$(RELOAD_DIR)" ]; then \
 	    echo "uf2 : socle changé, $(BUILD)/rp2040 recréé"; rm -rf $(BUILD)/rp2040; fi
-	cmake -S platforms/rp2040 -B $(BUILD)/rp2040 -DRELOAD_DIR=$(RELOAD_DIR) $(if $(NEO_SLOT_TELESTRAT),-DNEO_MULTIBOOT_DIR=$(NEO_MULTIBOOT_DIR) -DNEO_SLOT_TELESTRAT=$(NEO_SLOT_TELESTRAT))
+	cmake -S platforms/rp2040 -B $(BUILD)/rp2040 -DRELOAD_DIR=$(RELOAD_DIR) $(if $(or $(NEO_SLOT_TELESTRAT),$(ROMS_CLE)),-DTELESTRAT_ROMS_CLE=ON,-DTELESTRAT_ROMS_CLE=OFF) $(if $(NEO_SLOT_TELESTRAT),-DNEO_MULTIBOOT_DIR=$(NEO_MULTIBOOT_DIR) -DNEO_SLOT_TELESTRAT=$(NEO_SLOT_TELESTRAT))
 	echo '$(RELOAD_DIR)' > $(BUILD)/rp2040/.reload_dir
 	$(MAKE) -C $(BUILD)/rp2040 -j8 telestrat
 	@ls -l $(BUILD)/rp2040/telestrat.uf2

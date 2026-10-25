@@ -333,6 +333,12 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 |---|---|---|
 | US-184 | Pilote de bus du 65C02 du socle (`wdc65C02bus.h`, mode SIO) à la place de `neo6502_bus.h` (étape 5 de la fusion) | ✅ `make test`, deux variantes ; ✅ carte (v0.16.34) : banques, DIR, SAVE, 54 % au repos, 53 / 62 % pendant DIR, 0 ligne rouge ; PIO mesurée plus lente (57 %) ; ⏳ F12 avec ce pilote |
 
+## v0.16.36 — image sous 480 Kio (slot multi-boot) ✅ compilé (2026-10-25)
+
+| Id | Récit | État |
+|---|---|---|
+| US-185 | Les trois cartouches STRATORIC, ORIC BASIC 1.1 et 1.0 hors de la flash de la version slot (`TELESTRAT_ROMS_CLE`, `make uf2 ROMS_CLE=1`, implicite avec `NEO_SLOT_TELESTRAT`) : elles viennent de la clé | ✅ `make test` entier ; ✅ lié pour le slot 2 : 453 684 o pour 491 520 (505 860 avant, 14 340 o de trop) ; ⏳ carte : `.rom` de la clé dans les banques 7, 6, 5 |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

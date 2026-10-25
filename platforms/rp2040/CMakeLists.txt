@@ -36,6 +36,10 @@ pico_sdk_init()
 
 option(TELESTRAT_RAM64K "Cartouche RAM 64 Ko (banques 1-4) à la place de TELE-ASS/TELEMATIC" OFF)
 
+# Sans STRATORIC, ORIC BASIC 1.1 et 1.0 en flash (48 Ko) : version slot, elles
+# viennent de la clé USB (.rom dans TELESTRA.CFG)
+option(TELESTRAT_ROMS_CLE "Cartouches STRATORIC/Atmos/Oric-1 hors de la flash" OFF)
+
 # Multi-boot Neo6502 (Neo6502firmware/multiboot), comme reload-emulator
 set(NEO_MULTIBOOT_DIR "" CACHE PATH "Neo6502firmware/multiboot (memmap_slot_N.ld)")
 set(NEO_SLOT_TELESTRAT "" CACHE STRING "Slot de flash multi-boot (vide = image seule)")
@@ -78,6 +82,9 @@ option(TELESTRAT_VIDEO_480 "800x480 à 295,2 MHz (1,20 V) au lieu de 960x544 à 
 
 # Version affichée par le menu (fichier VERSION du dépôt)
 file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION TELESTRAT_VER LIMIT_COUNT 1)
+if(TELESTRAT_ROMS_CLE)
+    target_compile_definitions(telestrat PRIVATE TELESTRAT_ROMS_CLE=1)
+endif()
 target_compile_definitions(telestrat PRIVATE TELESTRAT_VERSION="v${TELESTRAT_VER}")
 # Menu à l'écran : osd.h du socle, grille du Telestrat (960 x 544 : 120 x 34 cases)
 set(TELESTRAT_OSD_GRID OSD_COLS=120 OSD_ROWS=34)

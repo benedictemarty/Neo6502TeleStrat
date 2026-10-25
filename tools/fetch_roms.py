@@ -49,6 +49,11 @@ ROMS = [
 ]
 
 
+# Cartouches optionnelles : absentes de la flash avec TELESTRAT_ROMS_CLE (version
+# slot du firmware, elles viennent alors de la clé USB : .rom dans TELESTRA.CFG)
+OPTIONNELLES = ("telestrat_atmos", "telestrat_stratoric", "telestrat_basic10")
+
+
 def load(local, url, offline):
     if os.path.isfile(local):
         with open(local, "rb") as f:
@@ -81,11 +86,15 @@ def main():
         bank = bytearray(0x4000)
         for base in range(0, 0x4000, size):
             bank[base:base + size] = data
+        if name in OPTIONNELLES:
+            lines.append("#ifndef TELESTRAT_ROMS_CLE")
         lines.append(f"// {src} (md5 {md5}, {size} octets en +${offset:04X})")
         lines.append(f"const uint8_t TELESTRAT_ROM_SECTION(\"{name}\") {name}[0x4000] = {{")
         for i in range(0, 0x4000, 16):
             lines.append("    " + ", ".join(f"0x{b:02X}" for b in bank[i:i + 16]) + ",")
         lines.append("};")
+        if name in OPTIONNELLES:
+            lines.append("#endif")
         lines.append("")
         print(f"{name:22s} <- {src}")
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)

@@ -1056,7 +1056,7 @@ static void menu_action(osd_action_t a) {
             osd_menu_message(&menu, false, "Cassette éjectée");
             break;
         case OSD_ACT_LOAD_BUILTIN:
-            if (a.file < ROM_BUILTINS &&
+            if (a.file >= 0 && a.file < ROM_BUILTINS &&
                 rom_pool_load_builtin(&pool, &state.telestrat, a.target, &rom_builtins[a.file], &err)) {
                 snprintf(msg, sizeof(msg), "Banque %d : %s — RESET conseillé", a.target, rom_builtins[a.file].label);
                 osd_menu_message(&menu, false, msg);

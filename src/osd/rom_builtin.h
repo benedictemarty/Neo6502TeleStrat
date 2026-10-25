@@ -24,6 +24,11 @@ typedef struct {
 // STRATORIC (manuel du développeur Telestrat) : banque 7 SEDORIC + démarrage,
 // 6 ORIC BASIC V1.1, 5 ORIC BASIC V1.0 — mode Atmos avec disquettes SEDORIC et
 // cassettes. ORIC BASIC 1.1 seul en banque 7 : mode Atmos simple (cassettes).
+#ifdef TELESTRAT_ROMS_CLE
+// Version slot du firmware : aucune cartouche en flash (elles viennent de la clé)
+static const rom_builtin_t rom_builtins[] = {{NULL, NULL, NULL, NULL, {{0, NULL}, {0, NULL}}}};
+#define ROM_BUILTINS 0
+#else
 static const rom_builtin_t rom_builtins[] = {
     {"@stratoric", "STRATORIC 4.0 (+ BASIC 1.1 en 6, 1.0 en 5)", "STRATORIC 4.0", telestrat_stratoric,
      {{6, "@atmos"}, {5, "@basic10"}}},
@@ -31,6 +36,7 @@ static const rom_builtin_t rom_builtins[] = {
     {"@basic10", "ORIC BASIC 1.0 (Oric-1)", "ORIC BASIC 1.0", telestrat_basic10, {{0, NULL}, {0, NULL}}},
 };
 #define ROM_BUILTINS ((int)(sizeof(rom_builtins) / sizeof(rom_builtins[0])))
+#endif
 
 // Par identifiant ou libellé ; NULL si inconnue
 static inline const rom_builtin_t* rom_builtin_find(const char* name) {

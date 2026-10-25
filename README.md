@@ -47,6 +47,10 @@ cmake -S platforms/rp2040 -B build/rp2040-ram64k -DTELESTRAT_RAM64K=ON && make -
 `RELOAD_SOCLE=socle-…` change d'étiquette ; `RELOAD_DIR=...` vise un autre
 arbre de reload (par exemple `~/reload-emulator` pour essayer sa tête). Pour un slot
 multi-boot : `make uf2 NEO_MULTIBOOT_DIR=~/Neo6502firmware/multiboot NEO_SLOT_TELESTRAT=3`.
+Un slot fait 480 Kio : la version slot (ou `make uf2 ROMS_CLE=1`) n'embarque pas
+STRATORIC, ORIC BASIC 1.1 ni 1.0 (48 Ko de flash, `-DTELESTRAT_ROMS_CLE=ON`) ;
+elles viennent de la clé (`.rom`, `TELESTRA.CFG`). Le menu n'offre alors aucune
+ROM intégrée.
 
 ## ROM
 
