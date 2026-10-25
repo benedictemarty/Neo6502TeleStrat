@@ -545,6 +545,34 @@ Méthode de diagnostic : journal des 1024 premiers accès en `$03xx` sur la cart
 (`diag_io`) comparé à la trace du banc PC — c'est ce qui a localisé le défaut
 de maintien de la donnée sur le bus.
 
+## Essais sur carte restants (état au 2026-10-25, v0.16.36)
+
+Liste tirée de docs/BACKLOG.md après relecture de la recette ci-dessus : seuls
+les ⏳ non couverts par un relevé sont gardés (30 lignes, regroupées par
+câblage). Rien de ce qui suit n'est établi : « essayé » veut dire relevé dans
+cette page.
+
+| # | Câblage | Essai | US |
+|---|---|---|---|
+| 1 | clé seule | version slot lancée par le multi-boot (`NEO_SLOT_TELESTRAT`, image de 453 684 o) | US-05, US-185 |
+| 2 | clé seule | `.rom` de la clé dans les banques 7, 6, 5 (STRATORIC, BASIC 1.1, 1.0), version slot | US-185, US-62, US-152 |
+| 3 | clé seule | menu F1 : rendu, sélecteur, noms longs, lecteurs B à D, écriture de `TELESTRA.CFG` | US-60, US-61, US-63 |
+| 4 | clé seule | profils de démarrage et page « Démarrer sur… » | US-150, US-152 |
+| 5 | clé seule | F2 (instantané) et F3 (reprise du dernier) ; F12 avec le pilote de bus du socle | US-179, US-184 |
+| 6 | clé seule | montage de la clé par `msc_app.c` : 8 essais (clé retirée/rebranchée, etc.) | US-178 |
+| 7 | clé seule | touches multimédia à descripteur HID > 256 octets, variante RAM 64 Ko | US-177 |
+| 8 | clavier, manette | clavier Oric (ESC, FUNCT, CTRL+lettre), joysticks par manette | US-06, US-45 |
+| 9 | son | écoute des aigus de l'AY (socle `-4`) | US-176 |
+| 10 | bus | OE3 maintenu bas jusqu'après la descente de PHI2 | US-47 |
+| 11 | câble DIN | cassette : ligne du menu, bandeau, `CSAVE` vers `NOM.TAP`, moteur toujours en marche | US-72, US-73, US-80, US-131 |
+| 12 | clé seule | imprimante vers `IMPRIM.TXT` ; menu imprimante/modem activé ou coupé (`impression=`, `modem=`) | US-90, US-110, US-111 |
+| 13 | modem USB | PicoWiFiModemUSB : ligne Hayes, RS232 partagée avec la prise Minitel (PA4), modem sur carte | US-23, US-52, US-45, US-169 |
+| 14 | UEXT | prise RS232 sur l'UART0 de l'UEXT (`rs232=uext`) | US-51 |
+| 15 | modem Neo6502picowifi | fichiers du réseau TNFS : 5 essais (`AT$TNFSUSB=1`, puis `AT+RST`) | US-181 |
+| 16 | matériel d'origine | MCP-40 ou CGP-115 (pointillés) ; banque 5 vide sur un vrai Telestrat | US-121, US-102 |
+
+Sans objet : US-35 (rendu sur le cœur 1, pas nécessaire : cœur 0 à 45-62 %).
+
 ## Firmware
 
 `make uf2` doit compiler sans erreur (prise RS232 sur le modem USB, ou sur

@@ -16,7 +16,7 @@ HYPER-BASIC, TELE-ASS, TELEMATIC en serveur Minitel par le modem Wi-Fi.
 | US-02 | La banque de `$C000` suit V2DRA (`$0321`), banque 7 au RESET | ✅ tests unitaires |
 | US-03 | Les ROM et la RAM des banques suivent la notice Extension RAM 64 Ko | ✅ « 64 Ko RAM, 56 Ko ROM » |
 | US-04 | Variante cartouche RAM 64 Ko | ✅ « 128 Ko RAM, 32 Ko ROM », `$0201-$0204` = `$0F` |
-| US-05 | Firmware `telestrat.uf2` compilé, multi-boot possible | ✅ compilé, ⏳ essai sur carte |
+| US-05 | Firmware `telestrat.uf2` compilé, multi-boot possible | ✅ compilé, ✅ carte (image seule, depuis 2026-09-29) ; ⏳ lancé depuis le multi-boot (slot) |
 | US-06 | Clavier Oric (dont ESC, FUNCT, CTRL+lettre) et joysticks par manette | ✅ code, ⏳ essai sur carte |
 
 ## Sprint 2 — v0.2.0 — « Disquettes » ✅ (2026-09-29)
@@ -24,7 +24,7 @@ HYPER-BASIC, TELE-ASS, TELEMATIC en serveur Minitel par le modem Wi-Fi.
 | US | Récit | État |
 |---|---|---|
 | US-10 | WD1793 complet (types I à IV, DRQ, INTRQ) sur images `.dsk` (MFM_DISK) | ✅ 24 tests unitaires FDC |
-| US-11 | Images sur clé USB, lues et écrites piste par piste ; F1 = image suivante | ✅ code, ⏳ essai sur carte |
+| US-11 | Images sur clé USB, lues et écrites piste par piste ; F1 = image suivante | ✅ code ; ✅ carte (2026-09-29, v0.16.0) : `DIR` 88 fichiers, `SAVE "CARTE"` relu |
 | US-12 | Démarrage STRATSED V2.0c puis HYPER-BASIC ; DIR, SAVE, LOAD | ✅ banc PC |
 | US-13 | Même écran qu'Oricutron sur la même disquette | ✅ (« Votre choix: ») |
 | US-14 | Imprimante sur le port parallèle (LPRINT) | ✅ banc PC (option `-P`) |
@@ -51,9 +51,9 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-30 | Puces de reload figées dans le projet (`src/chips`, 462372a) | ✅ |
 | US-31 | Modèle de référence figé + rejeu exact (bus, IRQ, audio, série, image) | ✅ 2 traces, 0 différence |
 | US-32 | Pas de 4 cycles au repos sautés et rattrapés, chemin court RAM/ROM | ✅ 314 → 102 cycles |
-| US-33 | Pilote de bus intégré (même séquence GPIO que reload) | ✅ 84 → 68 cycles, ⏳ carte |
+| US-33 | Pilote de bus intégré (même séquence GPIO que reload) | ✅ 84 → 68 cycles ; ✅ carte (remplacé par US-184, validé v0.16.34) |
 | US-34 | Rendu de l'écran par table | ✅ 1,35 → 0,92 Mcycle au pire |
-| US-35 | Rendu de l'écran sur le cœur 1 | ⏳ pas nécessaire (cœur 0 à 45-62 % sur carte) |
+| US-35 | Rendu de l'écran sur le cœur 1 | sans objet (cœur 0 à 45-62 % sur carte) |
 
 ## v0.4.1 — recette sur carte ✅ (2026-09-29)
 
@@ -64,7 +64,7 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US-42 | Disquette intégrée en flash (`TELESTRAT_FLASH_DISK`) | ✅ |
 | US-43 | Maintien de la donnée sur le bus après une pause | ✅ corrigé (banque 3, titre) |
 | US-44 | Clavier : SHIFT et CTRL combinés, RETURN | ✅ corrigé |
-| US-45 | Clé USB, modem PicoWiFiModemUSB, son, manette | ⏳ matériel non branché lors de la recette |
+| US-45 | Clé USB, modem PicoWiFiModemUSB, son, manette | ✅ clé (2026-09-29) et son (2026-10-01) ; ⏳ modem et manette (matériel non branché) |
 | US-46 | TELEMATIC serveur sur carte (ligne de recette SWD à la place du modem) | ✅ v0.4.2 : appel, pages, ENVOI, MENU, raccrochage, second appel |
 | US-47 | Bus : OE3 maintenu bas jusqu'après la descente de PHI2 (solution de la session BBC, reload dfc1584) au lieu du renvoi d'impulsion | ⏳ à évaluer sur carte |
 | US-48 | Raccrochage du correspondant : TELEMATIC ne revient en attente qu'à son délai d'inactivité (banc et carte) ; vérifier sur la documentation si un autre signal (DCD de l'ACIA ?) est attendu | ✅ v0.4.3 : comportement d'origine — TELEMATIC termine sur `SEP $49` (Connexion/Fin), pas sur la perte de porteuse ; testé |
@@ -82,9 +82,9 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 | US | Récit | État |
 |---|---|---|
 | US-60 | Menu à l'écran (F1), moderne : police originale, panneaux tramés, sélecteur de fichiers | ✅ banc PC (captures), ⏳ carte |
-| US-61 | Disquettes des lecteurs A à D depuis la clé, noms longs, une image par lecteur | ✅ banc, ⏳ carte |
+| US-61 | Disquettes des lecteurs A à D depuis la clé, noms longs, une image par lecteur | ✅ banc ; ✅ carte : lecteur A (STRATSED.DSK) ; ⏳ lecteurs B à D |
 | US-62 | Cartouches `.rom` de la clé dans les banques (deux emplacements en RAM), contenu d'origine | ✅ banc, ⏳ carte |
-| US-63 | `TELESTRA.CFG` : `a=` … `d=`, `bank1=` … `bank7=` appliqués au montage, écrits par le menu | ✅ banc, ⏳ carte |
+| US-63 | `TELESTRA.CFG` : `a=` … `d=`, `bank1=` … `bank7=` appliqués au montage, écrits par le menu | ✅ banc ; ✅ carte (2026-09-29) : appliqué au montage ; ⏳ écriture par le menu |
 | US-64 | RESET à froid (TELEMON n'inventorie les cartouches qu'à froid) | ✅ |
 | US-65 | Banc : `-U` (répertoire = clé), `-M` (touches du menu), `-O` (image du menu) ; `tests/test_menu.sh` | ✅ 9/9 |
 | US-66 | Coût du menu sur le cœur 1 mesuré sans carte (`make charge-menu`) | ✅ ≈ 48 µs sur 59,35 (estimation) |
@@ -95,7 +95,7 @@ Arrivée : 170 cycles, charge 59-68 % en moyenne, 76 % au pire, 0 trame hors bud
 
 | US | Récit | État |
 |---|---|---|
-| US-70 | Cartouche Atmos (BASIC 1.1) intégrée au firmware, proposée par le menu (`bank7=@atmos`) | ✅ banc, ⏳ carte |
+| US-70 | Cartouche Atmos (BASIC 1.1) intégrée au firmware, proposée par le menu (`bank7=@atmos`) | ✅ banc ; ✅ carte (2026-09-29) : BASIC 1.1, cassette rapide, instantané |
 | US-71 | Lecteur de cassette `.tap` en temps réel (CB1 / PB6 du VIA 1), implémentation propre | ✅ banc : CLOAD, « L'Aigle d'Or » |
 | US-72 | Menu : ligne Cassette, sélecteur des `.tap`, éjection, position, moteur | ✅ banc, ⏳ carte |
 | US-73 | Bandeau de la cassette sous l'image pendant la lecture | ✅ banc (`-D`), ⏳ carte |
@@ -139,8 +139,8 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | US | Récit | État |
 |---|---|---|
-| US-120 | Epson FX-80 : pages PNG écrites au fil de l'eau (bande de 32 lignes), modes de caractères, interlignes, marges, tabulations, graphiques | ✅ banc (`test_telestrat`, `test_printer`), ⏳ carte |
-| US-121 | MCP-40 : tracés SVG 4 couleurs (texte, D J M R H I C L P Q S X A) | ✅ banc, ⏳ carte, ⏳ vraie MCP-40 (pointillés) |
+| US-120 | Epson FX-80 : pages PNG écrites au fil de l'eau (bande de 32 lignes), modes de caractères, interlignes, marges, tabulations, graphiques | ✅ banc (`test_telestrat`, `test_printer`) ; ✅ carte (2026-09-29) : `LPRINT` → `IMPR0001.PNG` valide |
+| US-121 | MCP-40 : tracés SVG 4 couleurs (texte, D J M R H I C L P Q S X A) | ✅ banc ; ✅ carte (2026-09-29) : `IMPR0005.SVG` valide ; ⏳ vraie MCP-40 (pointillés) |
 | US-125 | MCP-40 revue avec le manuel français et celui du Tandy CGP-115 (même mécanisme) : ordre des couleurs tranché, origine en entrant en mode graphique, taille S gardée en mode texte, interligne mesuré (v0.12.1) | ✅ banc |
 | US-122 | Menu et `TELESTRA.CFG` : Texte → FX-80 → MCP-40 → coupée (`imprimante_type=`) | ✅ banc |
 | US-123 | Pas de perte : ACK retenu tant que la file est presque pleine | ✅ code, rejeu identique |
