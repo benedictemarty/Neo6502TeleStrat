@@ -344,7 +344,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | Id | Récit | État |
 |---|---|---|
 | US-186 | Le cœur 0 ne meurt plus en HardFault dans l'IRQ USB : `third_party/tinyusb` passe de `dae3f9a` (30 juin) à `3174e76` (11 oct., abandon des transferts EPX, hathach/tinyusb#4166) ; avant, `epx_save_context` retranchait 0x80 à un `user_buf` nul (`0xffffff80`, lu par SWD) | ✅ `make test` entier ; ✅ carte : pas de HardFault pendant 80 s (Télestrat seul, 456 284 o) ; ⏳ avec seconde clé et lecteur de disquettes |
-| US-187 | Image noire environ 5 s après le démarrage (cœur 1 figé dans `dvi_dma_irq_handler`, canal DMA 5 arrêté en plein bloc) | ✅ non reproduit sans arrêt de cœur : Télestrat seul v0.16.37 flashé, DMA en marche plus de 3 min, `FDEBUG` 0, écran affiché (bmarty, 2026-10-26). L'état figé n'est apparu qu'après `halt`/`resume` des cœurs par SWD (cœur 1 privé de son IRQ DMA) ; mesure de l'autre session peut-être faussée de même. ⏳ à revoir sur le Vic-20 avec clé + lecteur de disquettes, sans halt |
+| US-187 | Image noire environ 5 s après le démarrage (cœur 1 figé dans `dvi_dma_irq_handler`, canal DMA 5 arrêté en plein bloc) | ✅ non reproduit sans arrêt de cœur : Télestrat seul v0.16.37 flashé, DMA en marche plus de 3 min, `FDEBUG` 0, écran affiché (bmarty, 2026-10-26). L'état figé n'est apparu qu'après `halt`/`resume` des cœurs par SWD (cœur 1 privé de son IRQ DMA) ; mesure de l'autre session peut-être faussée de même. Clé + lecteur de disquettes USB branchés (2026-10-26) : l'écran affiche bien l'image (bmarty) ; sonde injoignable à ce moment (« Failed to connect multidrop »), donc pas de mesure SWD ni durée relevée ; ⏳ à revoir sur le Vic-20 |
 
 ## Plus tard
 
