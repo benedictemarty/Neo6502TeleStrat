@@ -66,6 +66,14 @@ variables `volatile`.
    hypothèse non vérifiée : n'attacher que le cœur 0 laisserait le cœur 1 sur
    l'ancien firmware.
 7. Une seule session OpenOCD à la fois.
+8. **Ne pas arrêter les cœurs pour une mesure du DVI** (vu 2026-10-26) : un
+   `halt`/`resume` du cœur 1 lui fait manquer l'IRQ DMA du DVI ; le canal DMA
+   reste ensuite figé en plein bloc (FIFO PIO vides, `FDEBUG` TXSTALL) et
+   l'image noircit. Lire la mémoire sans arrêter (`mdw`) ne perturbe pas.
+9. **`reset run` peut laisser le cœur 0 en lockup** (« clearing lockup after
+   double fault », pc 0xfffffffe) : le firmware ne redémarre pas. Remède :
+   `program … verify reset`. Un reset de cœur ne réinitialise pas le DMA : les
+   registres DMA relus juste après sont ceux du run précédent.
 
 ## Pièges du firmware vus sur la carte (pas sur le banc PC)
 
