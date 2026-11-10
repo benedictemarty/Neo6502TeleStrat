@@ -54,6 +54,13 @@ $(BUILD)/replay: tests/replay.c $(VIA_SRC) $(HEADERS) | $(BUILD)
 $(BUILD)/test_telestrat: tests/test_telestrat.c $(VIA_SRC) $(HEADERS) platforms/rp2040/src/telestrat_video.h | $(BUILD)
 	$(CC) $(CPPFLAGS) -Iplatforms/rp2040/src $(CFLAGS) -o $@ $< $(VIA_SRC)
 
+# Tests de la revue de code (docs/CRITIQUE.md) : un programme par zone,
+# tests/test_revue_<zone>.c, même environnement que test_telestrat
+REVUE_SRC := $(wildcard tests/test_revue_*.c)
+REVUE_BIN := $(patsubst tests/%.c,$(BUILD)/%,$(REVUE_SRC))
+$(BUILD)/test_revue_%: tests/test_revue_%.c $(VIA_SRC) $(HEADERS) platforms/rp2040/src/telestrat_video.h | $(BUILD)
+	$(CC) $(CPPFLAGS) -Iplatforms/rp2040/src $(CFLAGS) -o $@ $< $(VIA_SRC)
+
 # SingleStepTests de Tom Harte (docs/TESTS.md) sur le cœur du socle
 # ($(RELOAD_DIR)/src/chips/w65c02cpu.h) ; ignorés sans données
 # ($(RELOAD_DIR)/tools/cputest/fetch_harte.sh).
@@ -71,8 +78,9 @@ $(BUILD):
 
 headless: $(BUILD)/telestrat_headless
 
-test: cpu_harte $(BUILD)/test_telestrat $(BUILD)/telestrat_headless $(BUILD)/telestrat_headless_ref $(BUILD)/replay $(BUILD)/printer_render
+test: cpu_harte $(BUILD)/test_telestrat $(REVUE_BIN) $(BUILD)/telestrat_headless $(BUILD)/telestrat_headless_ref $(BUILD)/replay $(BUILD)/printer_render
 	$(BUILD)/test_telestrat
+	@set -e; for t in $(REVUE_BIN); do $$t; done
 	sh tests/test_boot.sh $(BUILD)/telestrat_headless
 	sh tests/test_telematic.sh $(BUILD)/telestrat_headless
 	sh tests/test_minitel_emul.sh $(BUILD)/telestrat_headless
