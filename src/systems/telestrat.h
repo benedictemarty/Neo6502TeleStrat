@@ -272,9 +272,85 @@ void telestrat_screen_update(telestrat_t* sys);
 // Sélectionne la banque de $C000-$FFFF (0..7), comme le fait V2DRA
 void telestrat_select_bank(telestrat_t* sys, uint8_t bank);
 // État d'un joystick (0 = droit, 1 = gauche), bits TELESTRAT_JOY_*
-bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect) {
-    return wd1793_insert_mem(&sys->fdc.wd, drive, image, (uint32_t)size, write_protect);
-}
+void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state);
+// Niveau du détecteur de sonnerie (CB1 du VIA 2 ; TELEMON XRING attend des
+// impulsions à 50 Hz en rafales)
+void telestrat_set_ring(telestrat_t* sys, bool level);
+// Clavier : passer par ces fonctions (et non par kbd_*) pour que le système
+// voie le changement
+void telestrat_key_down(telestrat_t* sys, int key_code);
+void telestrat_key_up(telestrat_t* sys, int key_code);
+void telestrat_kbd_update(telestrat_t* sys, uint32_t micro_seconds);
+// Prise sélectionnée pour l'ACIA (PA4 du VIA 2)
+bool telestrat_serial_is_rs232(telestrat_t* sys);
+// Cartouche changée à chaud (menu) : ROM de 16 Ko en lecture seule, NULL =
+// banque vide ; telestrat_restore_bank remet le contenu du descripteur
+void telestrat_set_bank_rom(telestrat_t* sys, int bank, const uint8_t* rom);
+void telestrat_restore_bank(telestrat_t* sys, int bank);
+// Cassette (.tap) lue par read(ctx, …), rembobinée ; len = 0 : éjectée
+void telestrat_tape_insert(telestrat_t* sys, uint32_t len, oric_tape_read_t read, void* ctx);
+// Enregistreur (CSAVE) : fichiers .tap par ces rappels ; NULL : aucun
+void telestrat_tape_recorder(telestrat_t* sys, const oric_tape_rec_out_t* out);
+// Options de la cassette : lecture accélérée (registres $03FE et $03FF pour
+// la ROM patchée par la plate-forme, oric_tape_turbo.h) ; moteur toujours en
+// marche (câble sans relais : PB6 ignoré)
+void telestrat_tape_options(telestrat_t* sys, bool turbo, bool motor_always);
+// Imprimante de nouveau prête : envoie l'ACK retenu (voir telestrat_printer_t)
+void telestrat_printer_resume(telestrat_t* sys);
+// Insère une image MFM_DISK dans le lecteur 0..3 (false si invalide)
+bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect);
+// Lecture « système » (sans effet de bord sur les E/S) pour les tests
+uint8_t telestrat_peek(telestrat_t* sys, uint16_t addr);
+
+// Registres du processeur (instantanés, telestrat_state.h) : capture par un
+// NMI détourné (le programme reprend aussitôt), restitution sur une machine
+// déjà chargée ; false si le NMI n'a pas été pris. Voir « Registres du
+// processeur » dans la partie implémentation.
+typedef struct {
+    uint8_t a, x, y, s, p;
+    uint16_t pc;
+} telestrat_regs_t;
+bool telestrat_cpu_capture(telestrat_t* sys, telestrat_regs_t* r);
+bool telestrat_cpu_restore(telestrat_t* sys, const telestrat_regs_t* r);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
+
+/*-- IMPLEMENTATION ----------------------------------------------------------*/
+#ifdef CHIPS_IMPL
+#include <string.h>
+#ifndef CHIPS_ASSERT
+#include <assert.h>
+#define CHIPS_ASSERT(c) assert(c)
+#endif
+
+// Section du code exécuté à chaque cycle (le RP2040 le place en RAM)
+#ifndef TELESTRAT_HOT
+#define TELESTRAT_HOT
+#endif
+// Pas d'inlining (GCC, Clang ; ailleurs, MSVC ou compilateur inconnu : sans effet)
+#if defined(__GNUC__) || defined(__clang__)
+#define TELESTRAT_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define TELESTRAT_NOINLINE __declspec(noinline)
+#else
+#define TELESTRAT_NOINLINE
+#endif
+// Chemins moins fréquents, hors de telestrat_tick pour qu'il reste court
+// (peu de registres à sauver) mais en RAM eux aussi
+#define TELESTRAT_SLOW TELESTRAT_HOT TELESTRAT_NOINLINE
+// Chemins rares (lecture accélérée de la cassette) : hors de la RAM (flash)
+#define TELESTRAT_COLD TELESTRAT_NOINLINE
+
+#define TELESTRAT_PATTR_HIRES (0x04)
+#define TELESTRAT_LATTR_ALT   (0x01)
+#define TELESTRAT_LATTR_DSIZE (0x02)
+#define TELESTRAT_LATTR_BLINK (0x04)
+
+static void _telestrat_init_key_map(telestrat_t* sys);
+static void _telestrat_init_pair_lut(void);
+static inline void _telestrat_catch_up(telestrat_t* sys);
 
 // Entrée extérieure changée : pas complet au prochain multiple de 4, même au
 // milieu d'une fenêtre de repos
@@ -303,62 +379,9 @@ void telestrat_kbd_update(telestrat_t* sys, uint32_t micro_seconds) {
     _telestrat_input_changed(sys);
 }
 
-void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state);
-// Niveau du détecteur de sonnerie (CB1 du VIA 2 ; TELEMON XRING attend des
-// impulsions à 50 Hz en rafales)
-void telestrat_set_ring(telestrat_t* sys, bool level);
-// Clavier : passer par ces fonctions (et non par kbd_*) pour que le système
-// voie le changement
-void telestrat_key_down(telestrat_t* sys, int key_code);
-void telestrat_key_up(telestrat_t* sys, int key_code);
-void telestrat_kbd_update(telestrat_t* sys, uint32_t micro_seconds);
-// Prise sélectionnée pour l'ACIA (PA4 du VIA 2)
-bool telestrat_serial_is_rs232(telestrat_t* sys);
-// Cartouche changée à chaud (menu) : ROM de 16 Ko en lecture seule, NULL =
-// banque vide ; telestrat_restore_bank remet le contenu du descripteur
-void telestrat_set_bank_rom(telestrat_t* sys, int bank, const uint8_t* rom);
-// Cassette (.tap) lue par read(ctx, …), rembobinée ; len = 0 : éjectée
-void telestrat_tape_insert(telestrat_t* sys, uint32_t len, oric_tape_read_t read, void* ctx);
-// Enregistreur (CSAVE) : fichiers .tap par ces rappels ; NULL : aucun
-void telestrat_tape_recorder(telestrat_t* sys, const oric_tape_rec_out_t* out);
-// Options de la cassette : lecture accélérée (registres $03FE et $03FF pour
-// la ROM patchée par la plate-forme, oric_tape_turbo.h) ; moteur toujours en
-// marche (câble sans relais : PB6 ignoré)
-void telestrat_tape_options(telestrat_t* sys, bool turbo, bool motor_always);
-void telestrat_restore_bank(telestrat_t* sys, int bank);
-// Insère une image MFM_DISK dans le lecteur 0..3 (false si invalide)
-bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect);
-// Lecture « système » (sans effet de bord sur les E/S) pour les tests
-uint8_t telestrat_peek(telestrat_t* sys, uint16_t addr);
-
-#ifdef __cplusplus
-}  // extern "C"
-#endif
-
-/*-- IMPLEMENTATION ----------------------------------------------------------*/
-#ifdef CHIPS_IMPL
-#include <string.h>
-#ifndef CHIPS_ASSERT
-#include <assert.h>
-#define CHIPS_ASSERT(c) assert(c)
-#endif
-
-// Section du code exécuté à chaque cycle (le RP2040 le place en RAM)
-#ifndef TELESTRAT_HOT
-#define TELESTRAT_HOT
-#endif
-// Chemins moins fréquents, hors de telestrat_tick pour qu'il reste court
-// (peu de registres à sauver) mais en RAM eux aussi
-#define TELESTRAT_SLOW TELESTRAT_HOT __attribute__((noinline))
-// Chemins rares (lecture accélérée de la cassette) : hors de la RAM (flash)
-#define TELESTRAT_COLD __attribute__((noinline))
-
-#define TELESTRAT_PATTR_HIRES (0x04)
-#define TELESTRAT_LATTR_ALT   (0x01)
-#define TELESTRAT_LATTR_DSIZE (0x02)
-#define TELESTRAT_LATTR_BLINK (0x04)
-
-static void _telestrat_init_key_map(telestrat_t* sys);
+bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect) {
+    return wd1793_insert_mem(&sys->fdc.wd, drive, image, (uint32_t)size, write_protect);
+}
 
 // Port A de l'AY : colonnes du clavier (comme oric.h)
 static void _telestrat_psg_out(int port_id, uint8_t data, void* user_data) {
@@ -452,17 +475,26 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     sys->debug = desc->debug;
     sys->audio_callback = desc->audio.callback;
     sys->sample_rate = (uint32_t)CHIPS_DEFAULT(desc->audio.sample_rate, 22050);
+    // Au plus un échantillon par cycle (au-delà, _telestrat_next_sample ne
+    // ferait plus avancer l'échéance) ; la référence est bornée de même
+    if (sys->sample_rate > TELESTRAT_FREQUENCY) sys->sample_rate = TELESTRAT_FREQUENCY;
     // Comme si un échantillon avait été émis au cycle -1, horloge à 0
     sys->psg_next_sample = (uint32_t)-1;
     _telestrat_next_sample(sys);
 
-    MOS6502CPU_INIT(&sys->cpu, &(MOS6502CPU_DESC_T){0});
+    // Descripteurs en variables locales (les littéraux composés ne sont pas du C++)
+    MOS6502CPU_DESC_T cpu_desc;
+    memset(&cpu_desc, 0, sizeof(cpu_desc));
+    MOS6502CPU_INIT(&sys->cpu, &cpu_desc);
     _tv_init(sys);
-    ay38910psg_init(&sys->psg, &(ay38910psg_desc_t){.type = AY38910PSG_TYPE_8912,
-                                                    .in_cb = _telestrat_psg_in,
-                                                    .out_cb = _telestrat_psg_out,
-                                                    .magnitude = CHIPS_DEFAULT(desc->audio.volume, 1.0f),
-                                                    .user_data = sys});
+    ay38910psg_desc_t psg_desc;
+    memset(&psg_desc, 0, sizeof(psg_desc));
+    psg_desc.type = AY38910PSG_TYPE_8912;
+    psg_desc.in_cb = _telestrat_psg_in;
+    psg_desc.out_cb = _telestrat_psg_out;
+    psg_desc.magnitude = CHIPS_DEFAULT(desc->audio.volume, 1.0f);
+    psg_desc.user_data = sys;
+    ay38910psg_init(&sys->psg, &psg_desc);
     telestrat_fdc_init(&sys->fdc);
     mos6551acia_reset(&sys->acia);
 
@@ -497,6 +529,7 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     telestrat_select_bank(sys, TELESTRAT_BOOT_BANK);
 
     _telestrat_init_key_map(sys);
+    _telestrat_init_pair_lut();  // table vidéo prête avant la première trame
     sys->joy[0] = sys->joy[1] = 0;
     sys->printer = desc->printer.func;
     sys->printer_busy = desc->printer.busy;
@@ -531,21 +564,33 @@ void telestrat_cold_reset(telestrat_t* sys) {
 
 void telestrat_reset(telestrat_t* sys) {
     CHIPS_ASSERT(sys && sys->valid);
+    // Durée des pas sautés appliquée avant le RESET : les compteurs des VIA
+    // (gardés par le RESET) et le contrôleur de disquettes restent exacts
+    _telestrat_catch_up(sys);
     _tv_reset(&sys->via);
     _tv_reset(&sys->via2);
     ay38910psg_reset(&sys->psg);
     telestrat_fdc_reset(&sys->fdc);
     mos6551acia_reset(&sys->acia);
+    // Imprimante : le RESET met PB4 en entrée ; un STROBE resté à 1 serait
+    // pris pour un front descendant (octet imprimé en trop)
+    sys->strobe = false;
+    sys->printer_ack = 0;
     sys->printer_wait = false;
     sys->quiet_until = sys->system_ticks;
     sys->deferred = 0;
     // Au RESET, le port A du VIA 2 est en entrée (tiré à 1) : banque 7
+    // (non vérifié sur matériel : voir _telestrat_update_bank pour le
+    // comportement des lignes repassées en entrée)
     telestrat_select_bank(sys, TELESTRAT_BOOT_BANK);
     MOS6502CPU_RESET(&sys->cpu);
 }
 
 // Banque = PA0-PA2 du VIA 2 ; une ligne en entrée garde la valeur précédente
-// (comme via_tele_w_iora d'Oricutron).
+// (comme via_tele_w_iora d'Oricutron). Non vérifié sur matériel : le
+// commentaire du RESET ci-dessus les dit « tirées à 1 » ; seul le RESET est
+// supposé les tirer à 1, une ligne repassée en entrée ensuite garde ici sa
+// valeur.
 static inline void _telestrat_update_bank(telestrat_t* sys) {
     uint8_t ddr = _tv_pa_ddr(&sys->via2) & 7;
     uint8_t bank = (sys->bank & ~ddr) | (_tv_pa_outr(&sys->via2) & ddr);
@@ -607,14 +652,15 @@ static inline void _telestrat_io_rw(telestrat_t* sys, uint16_t addr, bool rw) {
             return;
         }
     }
-    // VIA 1 et ses reflets
+    // VIA 1 et ses reflets (Oricutron). Non vérifié sur matériel : les
+    // reflets $0315-$0317 et $0319-$031B que le Microdisc intégré ne prend pas
+    // tombent ici sur le VIA 1 ; le décodage réel n'est pas établi
     if (rw) {
         MOS6502CPU_SET_DATA(&sys->cpu, _tv_read(&sys->via, reg & 0xF));
     } else {
         _tv_write(&sys->via, reg & 0xF, MOS6502CPU_GET_DATA(&sys->cpu));
     }
 }
-
 
 void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state) {
     if (port >= 0 && port < 2 && sys->joy[port] != (state & 0x1F)) {
@@ -623,18 +669,17 @@ void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state) {
     }
 }
 
-// Port B du VIA 2 : PB7 sélectionne le port droit, PB6 le gauche ; les
-// directions arrivent sur PB0-PB4 actives à 0 (joystick.c d'Oricutron).
-static inline void _telestrat_update_joysticks(telestrat_t* sys) {
-    (void)sys;   // Lu par le rappel du port B du VIA 2 (_tv_joy_read)
-}
+// Joysticks : port B du VIA 2, PB7 sélectionne le port droit, PB6 le gauche ;
+// les directions arrivent sur PB0-PB4 actives à 0 (joystick.c d'Oricutron).
+// Lus par le rappel du port B du VIA 2 (_tv_joy_read), rien à faire à chaque pas.
 
-// Imprimante de nouveau prête : ACK retenu envoyé
-static inline void telestrat_printer_resume(telestrat_t* sys) {
+// Imprimante de nouveau prête : ACK retenu envoyé. Pas complet tout de suite
+// (même au milieu d'une fenêtre de repos), sinon l'ACK serait retardé d'autant.
+void telestrat_printer_resume(telestrat_t* sys) {
     if (!sys->printer_wait) return;
     sys->printer_wait = false;
     sys->printer_ack = 40;
-    sys->inputs_dirty = true;
+    _telestrat_input_changed(sys);
 }
 
 static inline void _telestrat_update_printer(telestrat_t* sys, uint8_t pb) {
@@ -656,24 +701,25 @@ static inline void _telestrat_update_printer(telestrat_t* sys, uint8_t pb) {
 // Les pas de 4 cycles « au repos » ne changent que des compteurs : ils sont
 // sautés (quiet_until) et leur durée cumulée (deferred) est appliquée d'un
 // coup avant le prochain accès en $03xx ou le prochain pas complet. Le
-// résultat est identique, cycle pour cycle, au modèle de référence
-// (systems/telestrat_ref.h, vérifié par tests/replay.c).
+// résultat vise à être identique au modèle de référence (systems/telestrat_ref.h),
+// cycle pour cycle, ce que vérifie tests/replay.c sur trois scénarios
+// (disquette et sons, serveur TELEMATIC avec liaison série, démarrage à
+// froid). Ne sont PAS couverts par le rejeu : la cassette (lecture, turbo,
+// enregistreur), l'imprimante occupée (printer_wait, telestrat_printer_resume,
+// absents de la référence) et la capture des registres par NMI.
 
 #define TELESTRAT_QUIET_MAX 4096  // pas sautés au plus d'affilée
 
 // Applique aux compteurs la durée des pas sautés (aucune échéance franchie :
-// garanti par _telestrat_quiet_steps)
-// Effet de d/4 pas au repos sur un VIA (voir _telestrat_via_quiet)
-static inline void _telestrat_via_skip(via6522_t* c, uint32_t d) { via_advance(c, (int)d); }
-
+// garanti par _telestrat_quiet_steps) ; d cycles = d/4 pas au repos
 static inline void _telestrat_catch_up(telestrat_t* sys) {
     uint32_t d = sys->deferred;
     if (!d) return;
     sys->deferred = 0;
     telestrat_fdc_tick(&sys->fdc, d);
     mos6551acia_tick(&sys->acia, (int)d);
-    _telestrat_via_skip(&sys->via, d);
-    _telestrat_via_skip(&sys->via2, d);
+    via_advance(&sys->via, (int)d);
+    via_advance(&sys->via2, (int)d);
 }
 
 // Pas au repos pour un VIA : cycles sans événement de via6522 (mode
@@ -711,7 +757,7 @@ static inline void _telestrat_update_tape(telestrat_t* sys) {
 }
 
 // Pas avant qu'un compte à rebours (décrémenté de 4 par pas) n'atteigne 0
-static inline uint32_t _telestrat_delay_quiet(int32_t d) { return d > 0 ? (uint32_t)(d + 3) / 4 - 1 : UINT32_MAX; }
+static inline uint32_t _telestrat_delay_quiet(int32_t d) { return d > 0 ? ((uint32_t)d + 3) / 4 - 1 : UINT32_MAX; }
 
 // Nombre de pas (à partir du prochain, qui suit le cycle t) qui ne peuvent
 // rien changer d'autre que les compteurs
@@ -766,13 +812,16 @@ TELESTRAT_SLOW static void _telestrat_step(telestrat_t* sys) {
             ay38910psg_write(&sys->psg, psg_data);
         }
     } else {
+        // Non vérifié sur matériel : l'AY est posé sur IRA dès que CB2 = 0,
+        // même au repos (BDIR = BC1 = 0) où le bus devrait flotter ; câblage
+        // d'oric.h repris tel quel
         _tv_psg_in(&sys->via, ay38910psg_read(&sys->psg));
     }
 
     // PB0-PB2 : ligne du clavier ; PB3 : touche enfoncée
-    const uint8_t pb = _tv_pb_outr(&sys->via) & _tv_pb_ddr(&sys->via);   // Clavier : rappel du port B
+    // (lecture des touches : rappel du port B, _tv_kbd_read)
+    const uint8_t pb = _tv_pb_outr(&sys->via) & _tv_pb_ddr(&sys->via);
 
-    _telestrat_update_joysticks(sys);
     _telestrat_update_printer(sys, pb);
     if (sys->tape.inserted || sys->tape_rec.enabled) _telestrat_update_tape(sys);
 
@@ -780,9 +829,6 @@ TELESTRAT_SLOW static void _telestrat_step(telestrat_t* sys) {
     sys->quiet_until = sys->system_ticks + 4 * (_telestrat_quiet_steps(sys, sys->system_ticks) + 1);
 }
 
-// Accès en $03xx : périphériques à jour, puis pas complet au prochain multiple
-// de 4 ; sauf pour le FDC et l'ACIA quand la ligne IRQ ne change pas (lecture
-// de DRQ, de données...) : seul l'horizon de repos est recalculé
 // Lecture accélérée (ROM BASIC 1.1 patchée) : $03FE octet suivant, $03FF synchro
 TELESTRAT_COLD static void _telestrat_tape_turbo_read(telestrat_t* sys, uint8_t reg) {
     uint8_t data;
@@ -792,6 +838,9 @@ TELESTRAT_COLD static void _telestrat_tape_turbo_read(telestrat_t* sys, uint8_t 
     sys->quiet_until = sys->system_ticks;
 }
 
+// Accès en $03xx : périphériques à jour, puis pas complet au prochain multiple
+// de 4 ; sauf pour le FDC et l'ACIA quand la ligne IRQ ne change pas (lecture
+// de DRQ, de données...) : seul l'horizon de repos est recalculé
 TELESTRAT_SLOW static void _telestrat_io_access(telestrat_t* sys, uint16_t addr) {
 #ifdef TELESTRAT_IO_HOOK
     // Journal de diagnostic de la plate-forme (cycle, adresse, sens, donnée écrite)
@@ -807,9 +856,10 @@ TELESTRAT_SLOW static void _telestrat_io_access(telestrat_t* sys, uint16_t addr)
     if (!fdc_acia) {
         _telestrat_io_rw(sys, addr, sys->cpu.rw);
         // Lecture d'un registre de VIA sans effet de bord (DDR, T1CH, latches,
-        // T2CH, SR, ACR, PCR, IFR, IER, RA sans poignée de main) : rien ne
-        // change, la fenêtre de repos reste valable (ex. : XRING qui scrute l'IFR)
-        if (sys->cpu.rw && ((0xFEEC >> (reg & 15)) & 1)) return;
+        // T2CH, ACR, PCR, IFR, IER, RA sans poignée de main) : rien ne change,
+        // la fenêtre de repos reste valable (ex. : XRING qui scrute l'IFR).
+        // Pas SR (registre 10) : sa lecture efface IFR.SR et lance un décalage.
+        if (sys->cpu.rw && ((0xFAEC >> (reg & 15)) & 1)) return;
         sys->quiet_until = sys->system_ticks;
         return;
     }
@@ -902,10 +952,8 @@ TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
 //     lectures de la pile sont servies (P, PCL, PCH de l'instantané), les
 //     écritures jetées, la machine chargée n'est pas touchée.
 // Même code au banc PC (65C02 émulé cycle à cycle) : il y est testé.
-typedef struct {
-    uint8_t a, x, y, s, p;
-    uint16_t pc;
-} telestrat_regs_t;
+// (telestrat_regs_t et les prototypes de capture / restitution sont dans la
+// partie publique de l'en-tête.)
 
 #define TELESTRAT_STUB     0xFF00
 #define TELESTRAT_STUB_LEN 12
@@ -934,11 +982,17 @@ TELESTRAT_COLD static void _telestrat_tick_snoop(telestrat_t* sys, _telestrat_sn
     const bool rd = sys->cpu.rw;
     bool served = false;
     if (sn->phase == 0) {
+        // Non vérifié sur matériel : toute lecture de $FFFA / $FFFB en phase 0
+        // est détournée, y compris celle d'un LDA $FFFA du programme lui-même
+        // qui tomberait dans la fenêtre (rare : au plus ~10 cycles)
         if (rd && (addr == 0xFFFA || addr == 0xFFFB)) {
             if (addr == 0xFFFA) {
                 // Empilements : PCH, PCL, P aux trois dernières écritures
-                const bool pushes = sn->waddr[0] >> 8 == 1 && sn->waddr[1] == sn->waddr[0] - 1 &&
-                                    sn->waddr[2] == sn->waddr[0] - 2;
+                // (octets bas comparés sur 8 bits : la pile reboucle dans la
+                // page 1 quand S vaut $00 ou $01)
+                const bool pushes = sn->waddr[0] >> 8 == 1 && sn->waddr[1] >> 8 == 1 && sn->waddr[2] >> 8 == 1 &&
+                                    (uint8_t)sn->waddr[1] == (uint8_t)(sn->waddr[0] - 1) &&
+                                    (uint8_t)sn->waddr[2] == (uint8_t)(sn->waddr[0] - 2);
                 if (!sn->restore) {
                     sn->ok = pushes;
                     sn->r.s = (uint8_t)sn->waddr[0];
@@ -1029,6 +1083,7 @@ TELESTRAT_COLD bool telestrat_cpu_restore(telestrat_t* sys, const telestrat_regs
 // modèle de référence par tests/replay.c), avec une table pour les pixels :
 // deux pixels (2 bits du motif) et les couleurs d'encre et de papier donnent
 // directement l'octet du tampon (deux pixels de 4 bits).
+// Initialisée par telestrat_init.
 static uint8_t telestrat_pair_lut[256];
 
 static void _telestrat_init_pair_lut(void) {
@@ -1044,7 +1099,6 @@ TELESTRAT_HOT void telestrat_screen_update(telestrat_t* sys) {
     if (!sys->screen_dirty && (sys->blink_counter & 0x1F) != 0) {
         return;
     }
-    if (!telestrat_pair_lut[0xFF]) _telestrat_init_pair_lut();
     const uint8_t* lut = telestrat_pair_lut;
     const uint8_t* ram = sys->ram;
 

@@ -4,12 +4,21 @@
 
 // telestrat_ref.h — MODÈLE DE RÉFÉRENCE (ne pas optimiser)
 //
-// Copie figée de systems/telestrat.h tel qu'au sprint 3 (v0.3.2 + réception
-// série interrogée tous les 64 cycles) : tous les périphériques avancent tous
-// les 4 cycles, simplement. Il sert d'oracle : le banc compilé avec
+// Version simple de systems/telestrat.h (reprise du sprint 3, v0.3.2, puis
+// tenue à jour sur les points communs : VIA du socle, RESET, bornage du
+// débit audio) : tous les périphériques avancent tous les 4 cycles,
+// simplement, sans fenêtres de repos. Il sert d'oracle : le banc compilé avec
 // -DTELESTRAT_REF enregistre des traces (telestrat_headless_ref -B), que le
 // système optimisé doit rejouer à l'identique (tests/replay.c : données du
 // bus, ligne IRQ, échantillons audio, octets série).
+//
+// Limites de l'oracle : il utilise les mêmes puces du socle que le système
+// optimisé, en mode paresseux (via_advance, tampon quiet/pending de
+// via6522) : un défaut éventuel de ce mode est donc commun aux deux modèles
+// et le rejeu ne le voit pas. Il ne couvre pas non plus la cassette,
+// l'imprimante occupée ni la capture des registres par NMI (absentes ici).
+// Les tables copiées de telestrat.h (_tv_*, palette, clavier) sont comparées
+// au texte par tests/test_revue_noyau.c.
 
 // telestrat.h
 //
@@ -249,12 +258,6 @@ void telestrat_screen_update(telestrat_t* sys);
 // Sélectionne la banque de $C000-$FFFF (0..7), comme le fait V2DRA
 void telestrat_select_bank(telestrat_t* sys, uint8_t bank);
 // État d'un joystick (0 = droit, 1 = gauche), bits TELESTRAT_JOY_*
-bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect) {
-    return wd1793_insert_mem(&sys->fdc.wd, drive, image, (uint32_t)size, write_protect);
-}
-
-void telestrat_set_ring(telestrat_t* sys, bool level) { sys->ring = level; }
-
 void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state);
 // Niveau du détecteur de sonnerie (CB1 du VIA 2 ; TELEMON XRING attend des
 // impulsions à 50 Hz en rafales)
@@ -306,6 +309,12 @@ static uint8_t _telestrat_psg_in(int port_id, void* user_data) {
 
 void telestrat_select_bank(telestrat_t* sys, uint8_t bank) { sys->bank = bank & 7; }
 
+void telestrat_set_ring(telestrat_t* sys, bool level) { sys->ring = level; }
+
+bool telestrat_insert_disk(telestrat_t* sys, int drive, uint8_t* image, size_t size, bool write_protect) {
+    return wd1793_insert_mem(&sys->fdc.wd, drive, image, (uint32_t)size, write_protect);
+}
+
 // PA4 du VIA 2 : prise RS232 (1) ou Minitel (0)
 bool telestrat_serial_is_rs232(telestrat_t* sys) { return (_tv_pa_pins(&sys->via2) & 0x10) != 0; }
 
@@ -335,14 +344,22 @@ void telestrat_init(telestrat_t* sys, const telestrat_desc_t* desc) {
     sys->debug = desc->debug;
     sys->audio_callback = desc->audio.callback;
     sys->sample_rate = (uint32_t)CHIPS_DEFAULT(desc->audio.sample_rate, 22050);
+    // Au plus un échantillon par cycle (bornage identique à telestrat.h)
+    if (sys->sample_rate > TELESTRAT_FREQUENCY) sys->sample_rate = TELESTRAT_FREQUENCY;
 
-    MOS6502CPU_INIT(&sys->cpu, &(MOS6502CPU_DESC_T){0});
+    // Descripteurs en variables locales (les littéraux composés ne sont pas du C++)
+    MOS6502CPU_DESC_T cpu_desc;
+    memset(&cpu_desc, 0, sizeof(cpu_desc));
+    MOS6502CPU_INIT(&sys->cpu, &cpu_desc);
     _tv_init(sys);
-    ay38910psg_init(&sys->psg, &(ay38910psg_desc_t){.type = AY38910PSG_TYPE_8912,
-                                                    .in_cb = _telestrat_psg_in,
-                                                    .out_cb = _telestrat_psg_out,
-                                                    .magnitude = CHIPS_DEFAULT(desc->audio.volume, 1.0f),
-                                                    .user_data = sys});
+    ay38910psg_desc_t psg_desc;
+    memset(&psg_desc, 0, sizeof(psg_desc));
+    psg_desc.type = AY38910PSG_TYPE_8912;
+    psg_desc.in_cb = _telestrat_psg_in;
+    psg_desc.out_cb = _telestrat_psg_out;
+    psg_desc.magnitude = CHIPS_DEFAULT(desc->audio.volume, 1.0f);
+    psg_desc.user_data = sys;
+    ay38910psg_init(&sys->psg, &psg_desc);
     telestrat_fdc_init(&sys->fdc);
     mos6551acia_reset(&sys->acia);
 
@@ -410,6 +427,10 @@ void telestrat_reset(telestrat_t* sys) {
     ay38910psg_reset(&sys->psg);
     telestrat_fdc_reset(&sys->fdc);
     mos6551acia_reset(&sys->acia);
+    // Imprimante : le RESET met PB4 en entrée ; un STROBE resté à 1 serait
+    // pris pour un front descendant (comme telestrat.h)
+    sys->strobe = false;
+    sys->printer_ack = 0;
     // Au RESET, le port A du VIA 2 est en entrée (tiré à 1) : banque 7
     telestrat_select_bank(sys, TELESTRAT_BOOT_BANK);
     MOS6502CPU_RESET(&sys->cpu);
@@ -506,11 +527,9 @@ void telestrat_set_joystick(telestrat_t* sys, int port, uint8_t state) {
     if (port >= 0 && port < 2) sys->joy[port] = state & 0x1F;
 }
 
-// Port B du VIA 2 : PB7 sélectionne le port droit, PB6 le gauche ; les
-// directions arrivent sur PB0-PB4 actives à 0 (joystick.c d'Oricutron).
-static inline void _telestrat_update_joysticks(telestrat_t* sys) {
-    (void)sys;   // Rappel du port B du VIA 2 (_tv_joy_read)
-}
+// Joysticks : port B du VIA 2, PB7 sélectionne le port droit, PB6 le gauche ;
+// les directions arrivent sur PB0-PB4 actives à 0 (joystick.c d'Oricutron).
+// Lus par le rappel du port B du VIA 2 (_tv_joy_read), rien à faire à chaque pas.
 
 static inline void _telestrat_update_printer(telestrat_t* sys, uint8_t pb) {
     if (!sys->printer) return;
@@ -574,9 +593,9 @@ TELESTRAT_HOT void telestrat_tick(telestrat_t* sys) {
         }
 
         // PB0-PB2 : ligne du clavier ; PB3 : touche enfoncée
-        const uint8_t pb = _tv_pb_outr(&sys->via) & _tv_pb_ddr(&sys->via);   // Clavier : rappel du port B
+        // (lecture des touches : rappel du port B, _tv_kbd_read)
+        const uint8_t pb = _tv_pb_outr(&sys->via) & _tv_pb_ddr(&sys->via);
 
-        _telestrat_update_joysticks(sys);
         _telestrat_update_printer(sys, pb);
     }
 
