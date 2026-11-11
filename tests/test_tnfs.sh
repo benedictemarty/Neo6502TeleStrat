@@ -18,10 +18,12 @@
 #   TELESTRAT_TNFSD_SRC sources, à fournir explicitement pour qu'elles soient
 #                     compilées (rien n'est compilé par défaut : du code tiers
 #                     n'est pas exécuté sans demande)
-# Le binaire et les sources doivent appartenir à l'utilisateur courant. Les
-# sources de tnfsd ne sont pas dans ce dépôt (absentes de cette machine) : si
-# tnfsd offre une option d'adresse d'écoute, elle n'est pas vérifiée ici ; le test
-# signale seulement (ss) un serveur à l'écoute sur une adresse non locale.
+# Le binaire et les sources doivent appartenir à l'utilisateur courant. Binaire
+# connu sur cette machine : ~/neo-carte/tnfs-essai/tnfsd (sources absentes). Son
+# usage est « tnfsd <répertoire> [-c <utilisateur>] » : aucune option d'adresse
+# d'écoute, et il écoute sur 0.0.0.0 (UDP et TCP, vérifié avec ss). On ne peut donc
+# pas le limiter à 127.0.0.1 depuis le test ; il ne tourne que le temps du test, dans
+# un répertoire temporaire, et le test signale (ss) cette écoute sur toutes les interfaces.
 set -u
 . "$(dirname "$0")/lib.sh"
 BIN=${1:-build/telestrat_headless}

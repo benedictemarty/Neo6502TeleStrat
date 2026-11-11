@@ -305,7 +305,7 @@ connu**. Le cas `ram64k` (celui du firmware RAM 64 Ko) reste ouvert.
 
 | Fichier | Rôle |
 |---|---|
-| `osd_font.h` | police 8 x 8 générée par `tools/gen_osd_font.py` : texte en **unscii-8** de Viznut (domaine public, `tools/fonts`), ASCII et Latin-1 ; filets arrondis et icônes dessinés pour le projet. Pixels deux fois plus hauts que larges (lignes répétées par PicoDVI), comme le texte CGA |
+| `osd_font.h` (socle) | police 8 x 8 du socle (`$(RELOAD_DIR)/src/osd/osd_font.h`) : texte en **unscii-8** de Viznut (domaine public), ASCII et Latin-1 ; filets arrondis et icônes. Le projet n'en garde plus de copie ni de générateur depuis la v0.17.0 (revue F-31 : la copie était identique). Pixels deux fois plus hauts que larges (lignes répétées par PicoDVI), comme le texte CGA |
 | `osd.h` | surface de 120 x 34 cellules (caractère, encre, fond, fond tramé, grandes lettres) ; `osd_render_line` : une ligne de tampon dans les 3 plans 1 bpp |
 | `osd_menu.h` | état, navigation (touches -> actions) et dessin : lecteurs, banques, clé, boutons, sélecteur de fichiers défilant |
 | `osd_config.h` | `.rom` dans une banque, fusion de `TELESTRA.CFG` (lignes du menu remplacées, autres gardées) |

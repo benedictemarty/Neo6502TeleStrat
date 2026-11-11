@@ -1195,7 +1195,7 @@ static void test_byte_fifo(void) {
     CHECK(n == 10 && p[0] == 0xAA, "retour au début du tampon");
     byte_fifo_drop(&f, n);
     for (int i = 0; i < BYTE_FIFO_SIZE + 5; i++) byte_fifo_push(&f, 1);
-    CHECK(byte_fifo_count(&f) == BYTE_FIFO_SIZE && f.lost == 5, "pleine : 5 octets perdus, comptés");
+    CHECK(byte_fifo_count(&f) == BYTE_FIFO_SIZE && f.r.lost == 5, "pleine : 5 octets perdus, comptés");
 }
 
 // --- Cassette (oric_tape.h) -------------------------------------------------------
@@ -1479,29 +1479,6 @@ static void test_hid_media(void) {
     static const uint8_t kbd[] = {0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7,
                                   0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0xC0};
     CHECK(!hid_media_parse(&m, kbd, sizeof(kbd)), "clavier ordinaire : aucune touche multimédia");
-
-    // Volume
-    hid_volume_t v;
-    hid_volume_init(&v);
-    CHECK(v.level == HID_VOLUME_MAX && hid_volume_apply(&v, 200) == 200, "volume au maximum : échantillon inchangé");
-    CHECK(!hid_volume_keys(&v, HID_MEDIA_VOL_UP), "Volume + au maximum : sans effet");
-    CHECK(hid_volume_keys(&v, HID_MEDIA_VOL_DOWN) && v.level == HID_VOLUME_MAX - 1 &&
-          hid_volume_apply(&v, 200) == 141, "Volume - : un pas (200 -> %d)", hid_volume_apply(&v, 200));
-    CHECK(hid_volume_keys(&v, HID_MEDIA_MUTE) && v.muted && hid_volume_apply(&v, 255) == 0, "Muet : silence");
-    CHECK(hid_volume_keys(&v, HID_MEDIA_VOL_UP) && !v.muted && v.level == HID_VOLUME_MAX, "Volume + lève la coupure");
-    hid_volume_keys(&v, HID_MEDIA_MUTE);
-    CHECK(hid_volume_keys(&v, HID_MEDIA_MUTE) && !v.muted && v.level == HID_VOLUME_MAX, "Muet deux fois : rétabli");
-    for (int i = 0; i < 20; i++) hid_volume_keys(&v, HID_MEDIA_VOL_DOWN);
-    CHECK(v.level == 0 && hid_volume_apply(&v, 255) == 0 && !hid_volume_keys(&v, HID_MEDIA_VOL_DOWN),
-          "Volume - jusqu'à 0 : silence, puis sans effet");
-    uint16_t prev = 0;
-    bool rising = true;
-    for (int i = 1; i <= HID_VOLUME_MAX; i++) {
-        hid_volume_keys(&v, HID_MEDIA_VOL_UP);
-        rising &= hid_volume_gain(&v) > prev;
-        prev = hid_volume_gain(&v);
-    }
-    CHECK(rising && prev == 256, "gain croissant à chaque pas, 256 au maximum");
 }
 
 // VIA : désactiver une source active par IER relâche l'IRQ (v0.16.13, correctif
@@ -1737,6 +1714,28 @@ static void test_oric_tape_rec(void) {
 static osd_surface_t osd_s;
 static osd_menu_t osd_m;
 
+// Recherche d'un texte (octets Latin-1 de la grille) dans la ligne `row` : colonne
+// du premier octet, ou -1. Évite de figer les coordonnées d'écran dans les tests.
+static int osd_at_row(const osd_surface_t* s, int row, const char* text) {
+    const int n = (int)strlen(text);
+    for (int c = 0; c + n <= OSD_COLS; c++)
+        if (!memcmp(&s->ch[row][c], text, (size_t)n)) return c;
+    return -1;
+}
+
+// Première occurrence du texte sur l'écran (parcours de haut en bas) : ligne en
+// retour, colonne en valeur ; -1 si absent
+static int osd_find(const osd_surface_t* s, const char* text, int* row) {
+    for (int r = 0; r < OSD_ROWS; r++) {
+        const int c = osd_at_row(s, r, text);
+        if (c >= 0) {
+            if (row) *row = r;
+            return c;
+        }
+    }
+    return -1;
+}
+
 static void test_osd_render(void) {
     const char* p = "é—x\xC3";
     CHECK(osd_next_char(&p) == 0xE9 && osd_next_char(&p) == OSD_EMDASH && osd_next_char(&p) == 'x',
@@ -1823,7 +1822,7 @@ static void test_osd_tape_menu(void) {
         CHECK(pa.type == OSD_ACT_PROFILE && pa.file == 1, "démarrage : deuxième profil (%d)", pa.file);
         osd_menu_open_boot(&osd_m);
         osd_menu_draw(&osd_m, &osd_s);
-        CHECK(!memcmp(&osd_s.ch[6][28], "D\xe9marrer sur", 12), "démarrage : titre de la page");
+        CHECK(osd_find(&osd_s, "D\xe9marrer sur", NULL) >= 0, "démarrage : titre de la page");
         CHECK(osd_menu_key(&osd_m, OSD_KEY_ESC).type == OSD_ACT_RESUME && osd_m.page == OSD_PAGE_MAIN,
               "démarrage : Échap garde la configuration");
         osd_m.cursor = cursor;
@@ -1849,22 +1848,26 @@ static void test_osd_tape_menu(void) {
     osd_m.modem_on = true;
     osd_m.modem_state = "en ligne";
     osd_menu_draw(&osd_m, &osd_s);
-    CHECK(!memcmp(&osd_s.ch[25][20], "coup", 4) && !memcmp(&osd_s.ch[25][72], "activ", 5) &&
-              !memcmp(&osd_s.ch[25][99], "en ligne", 8),
+    int pr = -1;
+    const int pc = osd_find(&osd_s, "coup", &pr);
+    CHECK(pc >= 0 && osd_at_row(&osd_s, pr, "activ") > pc && osd_at_row(&osd_s, pr, "en ligne") > pc,
           "panneau : imprimante coupée, modem activé, état");
     osd_m.tape_turbo = true;
     osd_m.tape_motor_always = true;
     osd_menu_draw(&osd_m, &osd_s);
-    CHECK(!memcmp(&osd_s.ch[26][6], "Cassette", 8) && !memcmp(&osd_s.ch[26][20], "rapide", 6) &&
-              !memcmp(&osd_s.ch[26][72], "toujours", 8),
+    int tr = -1;
+    const int tc = osd_find(&osd_s, "rapide", &tr);
+    CHECK(tc >= 0 && osd_at_row(&osd_s, tr, "Cassette") >= 0 && osd_at_row(&osd_s, tr, "Cassette") < tc &&
+              osd_at_row(&osd_s, tr, "toujours") > tc,
           "panneau : cassette rapide, moteur toujours en marche");
     osd_m.tape_turbo = osd_m.tape_motor_always = false;
     osd_m.printer_on = true;
     osd_m.printer_model = osd_printer_names[OSD_PRINTER_FX80];
     strcpy(osd_m.printer_file, "IMPR0003.PNG");
     osd_menu_draw(&osd_m, &osd_s);
-    CHECK(!memcmp(&osd_s.ch[25][20], "Epson FX-80", 11) && osd_s.ch[25][32] == OSD_ARROW_R &&
-              !memcmp(&osd_s.ch[25][34], "IMPR0003.PNG", 12),
+    int er = -1;
+    const int ec = osd_find(&osd_s, "Epson FX-80", &er);
+    CHECK(ec >= 0 && osd_s.ch[er][ec + 12] == OSD_ARROW_R && osd_at_row(&osd_s, er, "IMPR0003.PNG") == ec + 14,
           "panneau : modèle d'imprimante et dernière page");
     osd_m.printer_on = false;
     osd_m.printer_model = NULL;
@@ -1872,8 +1875,11 @@ static void test_osd_tape_menu(void) {
     osd_m.tape_percent = 50;
     osd_m.tape_motor = true;
     osd_menu_draw(&osd_m, &osd_s);
-    CHECK(osd_s.ch[15][6] == OSD_TAPE_L && osd_s.ch[15][41] == OSD_TRI_R && osd_s.ch[15][49] == OSD_FULL &&
-              osd_s.ch[15][54] == OSD_SHADE,
+    const char tape_icon[2] = {(char)OSD_TAPE_L, 0};
+    int kr = -1;
+    const int kc = osd_find(&osd_s, tape_icon, &kr);
+    CHECK(kc >= 0 && osd_s.ch[kr][kc + 35] == OSD_TRI_R && osd_s.ch[kr][kc + 43] == OSD_FULL &&
+              osd_s.ch[kr][kc + 48] == OSD_SHADE,
           "ligne Cassette : icône, moteur, barre à moitié");
     static osd_row_t row;
     osd_tape_banner(&row, "Lecture", "AIGLE.TAP", 40);
@@ -1894,11 +1900,8 @@ static void test_osd_tape_menu(void) {
 }
 
 static void test_osd_config(void) {
-    static uint8_t bank[OSD_BANK_BYTES], img[0x2000];
-    for (int i = 0; i < 0x2000; i++) img[i] = (uint8_t)i;
-    CHECK(osd_rom_fill(bank, img, 0x2000) && bank[0x2005] == 5 && bank[0x3FFF] == 0xFF && bank[0x0005] == 5,
-          ".rom de 8 Ko répétée dans la banque");
-    CHECK(!osd_rom_fill(bank, img, 0x1234) && !osd_rom_size_ok(0x8000), "taille refusée (0x1234, 32 Ko)");
+    CHECK(osd_rom_size_ok(0x2000) && osd_rom_size_ok(0x400) && !osd_rom_size_ok(0x1234) && !osd_rom_size_ok(0x8000),
+          "tailles .rom acceptées (1 à 16 Ko), refusées (0x1234, 32 Ko)");
     CHECK(osd_config_value("bank5=ORIX.ROM", "bank5") && !strcmp(osd_config_value("bank5=ORIX.ROM", "bank5"), "ORIX.ROM") &&
               !osd_config_value("bank51=X", "bank5") && !osd_config_value("a=X", "b"),
           "lecture d'une clé de réglage");
@@ -1906,11 +1909,11 @@ static void test_osd_config(void) {
     const char* drives[4] = {"STRATSED.DSK", NULL, "", "Jeux 1987.dsk"};
     const char* banks[8] = {NULL, NULL, NULL, NULL, NULL, "orix.rom", NULL, NULL};
     char out[512];
-    size_t n = osd_config_merge(old, drives, banks, out, sizeof(out));
+    size_t n = osd_config_merge_ex(old, drives, banks, NULL, out, sizeof(out));
     CHECK(n == strlen(out) && !strcmp(out, "dial=go.minipavi.fr:516\nlisten=3615\nrs232=uext\na=STRATSED.DSK\n"
                                            "d=Jeux 1987.dsk\nbank5=orix.rom\n"),
           "TELESTRA.CFG fusionné :\n%s", out);
-    CHECK(osd_config_merge(old, drives, banks, out, 20) == 0, "tampon trop petit : 0");
+    CHECK(osd_config_merge_ex(old, drives, banks, NULL, out, 20) == 0, "tampon trop petit : 0");
     // Options du menu : impression, modem
     const char* old2 = "impression=oui\nmodem=oui\ndial=x:1\n";
     const osd_options_t opt2 = {false, -1, true, false, false, -1};
@@ -1918,7 +1921,7 @@ static void test_osd_config(void) {
     CHECK(strstr(out, "impression=non\n") && strstr(out, "modem=oui\n") && !strstr(out, "impression=oui") &&
               strstr(out, "dial=x:1"),
           "impression=non, modem=oui écrits, anciennes lignes remplacées :\n%s", out);
-    n = osd_config_merge(old2, drives, banks, out, sizeof(out));
+    n = osd_config_merge_ex(old2, drives, banks, NULL, out, sizeof(out));
     CHECK(strstr(out, "impression=oui\n") && strstr(out, "modem=oui\n"), "sans options : lignes gardées");
     const char* old3 = "impression=oui\nimprimante_type=texte\n";
     const osd_options_t opt3 = {true, OSD_PRINTER_MCP40, false, true, true, -1};
@@ -2027,7 +2030,7 @@ static void test_osd_menu(void) {
     strcpy(osd_m.drive[1], "IMG00.DSK");
     osd_menu_key(&osd_m, OSD_KEY_HOME);
     osd_menu_draw(&osd_m, &osd_s);
-    CHECK(!memcmp(&osd_s.ch[9][22 + 76 - 18], "en B", 4), "image déjà en B signalée");
+    CHECK(osd_find(&osd_s, "en B", NULL) >= 0, "image déjà en B signalée");
 }
 
 // Volume Réseau (v0.16.26) : choix de la source, fichiers « net:/NOM »,
@@ -2058,7 +2061,9 @@ static void test_osd_net(void) {
     CHECK(a.type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_SOURCE && osd_m.source_cursor == 0,
           "réseau prêt : choix de la source, curseur sur la clé (image en place de la clé)");
     osd_menu_draw(&osd_m, &osd_s);
-    CHECK(!memcmp(&osd_s.ch[8][26], "Cl", 2) && !memcmp(&osd_s.ch[9][26], "R", 1) && !memcmp(&osd_s.ch[9][38], "192.168", 7),
+    int sr = -1;
+    const int sc = osd_find(&osd_s, "R\xe9seau", &sr);
+    CHECK(osd_find(&osd_s, "Cl\xe9", NULL) >= 0 && sc >= 0 && osd_at_row(&osd_s, sr, "192.168") > sc,
           "page de la source : Clé USB, Réseau et son serveur");
     a = osd_menu_key(&osd_m, OSD_KEY_ESC);
     CHECK(a.type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_MAIN, "Échap : retour à la page principale");
@@ -2074,7 +2079,8 @@ static void test_osd_net(void) {
               osd_m.browse_count == 1 && osd_m.browse_list[0] == 5,
           "source Réseau : la seule .dsk du réseau (%d)", osd_m.browse_count);
     osd_menu_draw(&osd_m, &osd_s);
-    CHECK(!memcmp(&osd_s.ch[9][26], "ZORGON.DSK", 10), "sélecteur du réseau : nom sans préfixe");
+    CHECK(osd_find(&osd_s, "ZORGON.DSK", NULL) >= 0 && osd_find(&osd_s, "net:/ZORGON", NULL) < 0,
+          "sélecteur du réseau : nom sans préfixe");
     osd_menu_key(&osd_m, OSD_KEY_HOME);
     osd_menu_key(&osd_m, 'z');
     a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
@@ -2102,7 +2108,9 @@ static void test_osd_net(void) {
     // Panneau de la clé : ses seuls fichiers comptés ; réseau signalé
     osd_menu_key(&osd_m, OSD_KEY_ESC);
     osd_menu_draw(&osd_m, &osd_s);
-    CHECK(!memcmp(&osd_s.ch[20][5], "3 .dsk   0 .tap   2 .rom", 24) && !memcmp(&osd_s.ch[19][32], "R", 1),
+    int fr = -1;
+    const int fc = osd_find(&osd_s, "3 .dsk   0 .tap   2 .rom", &fr);
+    CHECK(fc >= 0 && fr > 0 && osd_at_row(&osd_s, fr - 1, "R\xe9seau") >= 0,
           "panneau Clé USB : fichiers de la clé seulement, réseau signalé");
     // F3 : instantané le plus récent de la clé ; celui du réseau s'il est le dernier repris
     strcpy(osd_m.files[7].name, "net:/ETAT0099.STA");
@@ -2129,7 +2137,7 @@ static void test_osd_config_net(void) {
     const char* drives[4] = {"net:/STRATSED.DSK", "JEUX.DSK", NULL, NULL};
     const char* banks[8] = {NULL, NULL, NULL, NULL, NULL, "net:/ORIX.ROM", NULL, NULL};
     char out[256];
-    osd_config_merge(old, drives, banks, out, sizeof(out));
+    osd_config_merge_ex(old, drives, banks, NULL, out, sizeof(out));
     CHECK(!strcmp(out, "reseau=192.168.1.10\na=net:/STRATSED.DSK\nb=JEUX.DSK\nbank5=net:/ORIX.ROM\n"),
           "TELESTRA.CFG : net:/ gardé, reseau= gardé, nom sans préfixe inchangé :\n%s", out);
     char host[16];
@@ -2554,47 +2562,77 @@ static void test_plotter_mcp40(void) {
     CHECK(m.opens == 0, "déplacements seuls : pas de fichier");
 }
 
-int main(void) {
-    test_reset_bank();
-    test_bank_hot_swap();
-    test_rom_pool();
-    test_rom_builtin();
-    test_bank_switch_and_ram();
-    test_bank_ddr_keeps_inputs();
-    test_fdc_no_disk();
-    test_fdc_disk();
-    test_fdc_write_track();
-    test_fdc_streamed();
-    test_neo_storage_files();
-    test_fdc_quiet_steps();
-    test_acia();
-    test_screen_render();
-    test_video_planes();
-    test_acia_serial();
-    test_acia_format();
-    test_minitel_port();
-    test_hayes_line();
-    test_modem_mux();
-    test_drive_set();
-    test_byte_fifo();
-    test_printer_fx80();
-    test_plotter_mcp40();
-    test_oric_tape();
-    test_tape_turbo();
-    test_cpu_snapshot();
-    test_state();
-    test_audio();
-    test_via_ier();
-    test_via_t1_period();
-    test_hid_media();
-    test_state_latest();
-    test_oric_tape_rec();
-    test_osd_render();
-    test_osd_menu();
-    test_osd_config();
-    test_osd_tape_menu();
-    test_osd_net();
-    test_osd_config_net();
+// Groupes de vérifications. Chacun remet à zéro l'état global qu'il utilise
+// (`sys` par boot()/telestrat_init, `osd_m` par osd_sample()/osd_menu_init) :
+// « --inverse » les exécute dans l'ordre contraire, « --melange=N » dans un ordre
+// pseudo-aléatoire (graine N) pour vérifier qu'aucun ne dépend d'un autre.
+static void (*const groupes[])(void) = {
+    test_reset_bank,
+    test_bank_hot_swap,
+    test_rom_pool,
+    test_rom_builtin,
+    test_bank_switch_and_ram,
+    test_bank_ddr_keeps_inputs,
+    test_fdc_no_disk,
+    test_fdc_disk,
+    test_fdc_write_track,
+    test_fdc_streamed,
+    test_neo_storage_files,
+    test_fdc_quiet_steps,
+    test_acia,
+    test_screen_render,
+    test_video_planes,
+    test_acia_serial,
+    test_acia_format,
+    test_minitel_port,
+    test_hayes_line,
+    test_modem_mux,
+    test_drive_set,
+    test_byte_fifo,
+    test_printer_fx80,
+    test_plotter_mcp40,
+    test_oric_tape,
+    test_tape_turbo,
+    test_cpu_snapshot,
+    test_state,
+    test_audio,
+    test_via_ier,
+    test_via_t1_period,
+    test_hid_media,
+    test_state_latest,
+    test_oric_tape_rec,
+    test_osd_render,
+    test_osd_menu,
+    test_osd_config,
+    test_osd_tape_menu,
+    test_osd_net,
+    test_osd_config_net,
+};
+#define NB_GROUPES ((int)(sizeof(groupes) / sizeof(groupes[0])))
+
+int main(int argc, char** argv) {
+    int ordre[NB_GROUPES];
+    for (int i = 0; i < NB_GROUPES; i++) ordre[i] = i;
+    for (int a = 1; a < argc; a++) {
+        if (!strcmp(argv[a], "--inverse")) {
+            for (int i = 0; i < NB_GROUPES; i++) ordre[i] = NB_GROUPES - 1 - i;
+        } else if (!strncmp(argv[a], "--melange=", 10)) {
+            uint32_t graine = (uint32_t)strtoul(argv[a] + 10, NULL, 10) * 2654435761u + 1;
+            for (int i = NB_GROUPES - 1; i > 0; i--) {
+                graine = graine * 1664525u + 1013904223u;
+                const int j = (int)((graine >> 8) % (uint32_t)(i + 1)), t = ordre[i];
+                ordre[i] = ordre[j];
+                ordre[j] = t;
+            }
+        }
+    }
+    for (int i = 0; i < NB_GROUPES; i++) {
+        // État global remis à zéro avant chaque groupe : aucun n'hérite du précédent
+        memset(&sys, 0, sizeof(sys));
+        memset(&osd_m, 0, sizeof(osd_m));
+        memset(&osd_s, 0, sizeof(osd_s));
+        groupes[ordre[i]]();
+    }
     printf("test_telestrat : %d/%d vérifications réussies\n", checks - failures, checks);
     return failures ? 1 : 0;
 }

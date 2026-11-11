@@ -27,7 +27,7 @@
 // minitel_port_reset() pour effacer SEP et séquences périmés.
 //
 // Réception RS232 : file de MODEM_MUX_RXQ octets ; pleine, les octets sont
-// jetés et comptés (`rx_lost`) ; modem_mux_rx_room() donne la place libre pour
+// jetés et comptés (`rx.lost`) ; modem_mux_rx_room() donne la place libre pour
 // ne pas lire plus d'octets du CDC. Cadence réelle du modem : non établie
 // (à vérifier).
 //
@@ -72,8 +72,7 @@ typedef struct {
     bool hanging;   // raccrochage en cours après une bascule en pleine communication
     // Octets du modem vers la prise RS232
     uint8_t rxq[MODEM_MUX_RXQ];
-    int rx_head, rx_count;
-    uint32_t rx_lost;  // octets du modem jetés, file RS232 pleine
+    byte_ring_t rx;  // rx.lost : octets du modem jetés, file RS232 pleine
 } modem_mux_t;
 
 static inline void modem_mux_init(modem_mux_t* m, hayes_line_t* h) {
@@ -102,7 +101,7 @@ static inline void modem_mux_detach(modem_mux_t* m) {
     m->attached = false;
     m->hanging = false;
     memset(m->hayes, 0, sizeof(*m->hayes));
-    m->rx_count = 0;
+    byte_ring_clear(&m->rx);
 }
 
 // Ligne Minitel au repos (plus de sonnerie ni de porteuse), écriture conservée
@@ -118,7 +117,7 @@ static inline void modem_mux_hayes_idle_(modem_mux_t* m) {
 static inline void modem_mux_select(modem_mux_t* m, bool rs232) {
     if (rs232 == m->rs232) return;
     m->rs232 = rs232;
-    m->rx_count = 0;
+    byte_ring_clear(&m->rx);
     if (rs232) {
         // Communication Minitel en cours : raccrochée par hayes_line (garde en cours : poursuivie)
         if (m->hayes->state != HAYES_COMMAND) {
@@ -137,17 +136,12 @@ static inline void modem_mux_feed(modem_mux_t* m, uint8_t b) {
         hayes_line_feed(m->hayes, b);
         return;
     }
-    if (m->rx_count >= MODEM_MUX_RXQ) {
-        m->rx_lost++;
-        return;
-    }
-    m->rxq[(m->rx_head + m->rx_count) % MODEM_MUX_RXQ] = b;
-    m->rx_count++;
+    byte_ring_push(&m->rx, m->rxq, MODEM_MUX_RXQ, b);
 }
 
 // Place libre pour les octets du modem (contrôle de flux côté hôte)
 static inline int modem_mux_rx_room(const modem_mux_t* m) {
-    return (m->rs232 && !m->hanging ? MODEM_MUX_RXQ - m->rx_count : hayes_line_rx_room(m->hayes));
+    return (m->rs232 && !m->hanging ? (int)byte_ring_room(&m->rx, MODEM_MUX_RXQ) : hayes_line_rx_room(m->hayes));
 }
 
 static inline void modem_mux_tick(modem_mux_t* m, uint32_t us) {
@@ -167,9 +161,6 @@ static inline void modem_mux_rs232_send(modem_mux_t* m, uint8_t data) {
 
 // Prise RS232 : octet reçu du modem, -1 s'il n'y en a pas
 static inline int modem_mux_rs232_recv(modem_mux_t* m) {
-    if (!m->rs232 || !m->rx_count) return -1;
-    uint8_t b = m->rxq[m->rx_head];
-    m->rx_head = (m->rx_head + 1) % MODEM_MUX_RXQ;
-    m->rx_count--;
-    return b;
+    if (!m->rs232) return -1;
+    return byte_ring_pop(&m->rx, m->rxq, MODEM_MUX_RXQ);
 }

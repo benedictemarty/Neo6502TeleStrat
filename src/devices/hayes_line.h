@@ -23,7 +23,7 @@
 //              visible par hayes_line_pending() (le Minitel n'attend pas 40 s)
 //
 // Réception : file de HAYES_RXQ octets. Pleine, les octets suivants sont jetés
-// et comptés dans `rx_lost` ; l'appelant lit hayes_line_rx_room() avant de
+// et comptés dans `rx.lost` ; l'appelant lit hayes_line_rx_room() avant de
 // vider le CDC du modem, pour ne rien perdre. Cadence réelle du
 // PicoWiFiModem : non établie (à vérifier).
 //
@@ -85,8 +85,7 @@ typedef struct {
     uint32_t ring_age_us;
     uint32_t timer_us;
     uint8_t rxq[HAYES_RXQ];
-    int rx_head, rx_count;
-    uint32_t rx_lost;  // octets du modem jetés, file pleine
+    byte_ring_t rx;  // rx.lost : octets du modem jetés, file pleine
 } hayes_line_t;
 
 static inline void hayes_puts_(hayes_line_t* h, const char* s) {
@@ -111,17 +110,12 @@ static inline void hayes_line_init(hayes_line_t* h, void (*write)(void*, const u
 }
 
 static inline void hayes_rx_push_(hayes_line_t* h, uint8_t b) {
-    if (h->rx_count >= HAYES_RXQ) {
-        h->rx_lost++;
-        return;
-    }
-    h->rxq[(h->rx_head + h->rx_count) % HAYES_RXQ] = b;
-    h->rx_count++;
+    byte_ring_push(&h->rx, h->rxq, HAYES_RXQ, b);
 }
 
 // Place libre dans la file de réception : l'appelant ne doit pas lire plus
 // d'octets du modem (contrôle de flux côté hôte)
-static inline int hayes_line_rx_room(const hayes_line_t* h) { return HAYES_RXQ - h->rx_count; }
+static inline int hayes_line_rx_room(const hayes_line_t* h) { return (int)byte_ring_room(&h->rx, HAYES_RXQ); }
 
 static inline bool hayes_starts_(const char* s, const char* prefix) { return strncmp(s, prefix, strlen(prefix)) == 0; }
 
@@ -270,11 +264,7 @@ static inline bool hayes_line_pending(void* ctx) {
 
 static inline int hayes_line_recv(void* ctx) {
     hayes_line_t* h = (hayes_line_t*)ctx;
-    if (!h->rx_count) return -1;
-    uint8_t b = h->rxq[h->rx_head];
-    h->rx_head = (h->rx_head + 1) % HAYES_RXQ;
-    h->rx_count--;
-    return b;
+    return byte_ring_pop(&h->rx, h->rxq, HAYES_RXQ);
 }
 
 static inline void hayes_line_send(void* ctx, uint8_t data) {

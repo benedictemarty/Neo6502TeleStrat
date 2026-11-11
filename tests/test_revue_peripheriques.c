@@ -119,8 +119,8 @@ static void test_hayes_rx_lost(void) {
     hayes_online(&h);
     CHECK(hayes_line_rx_room(&h) == HAYES_RXQ, "file vide : toute la place");
     for (int i = 0; i < HAYES_RXQ + 88; i++) hayes_line_feed(&h, 'A');
-    CHECK(h.rx_count == HAYES_RXQ && h.rx_lost == 88 && hayes_line_rx_room(&h) == 0,
-          "file pleine : pertes comptées (%u)", (unsigned)h.rx_lost);
+    CHECK(byte_ring_count(&h.rx) == HAYES_RXQ && h.rx.lost == 88 && hayes_line_rx_room(&h) == 0,
+          "file pleine : pertes comptées (%u)", (unsigned)h.rx.lost);
     CHECK(hayes_line_recv(&h) == 'A' && hayes_line_rx_room(&h) == 1, "place rendue par la lecture");
 
     // Prise RS232 du multiplexeur
@@ -130,7 +130,7 @@ static void test_hayes_rx_lost(void) {
     modem_mux_select(&m, true);
     modem_mux_attach(&m, modem_write, NULL, "h:1", 0);
     for (int i = 0; i < MODEM_MUX_RXQ + 5; i++) modem_mux_feed(&m, 'B');
-    CHECK(m.rx_count == MODEM_MUX_RXQ && m.rx_lost == 5 && modem_mux_rx_room(&m) == 0, "RS232 : pertes comptées");
+    CHECK(byte_ring_count(&m.rx) == MODEM_MUX_RXQ && m.rx.lost == 5 && modem_mux_rx_room(&m) == 0, "RS232 : pertes comptées");
     modem_mux_rs232_recv(&m);
     CHECK(modem_mux_rx_room(&m) == 1, "RS232 : place libre après lecture");
 }
@@ -142,13 +142,13 @@ static void test_minitel_queue_lost(void) {
     const uint8_t oppo[] = {0x1B, 0x39, 0x6F};
     for (int i = 0; i < 10; i++)
         for (int k = 0; k < 3; k++) minitel_port_from_telestrat(&p, oppo[k]);
-    CHECK(p.q_count == MINITEL_QUEUE && p.q_lost == 4, "file Minitel pleine : 4 octets perdus comptés (%u)",
-          (unsigned)p.q_lost);
+    CHECK(byte_ring_count(&p.q) == MINITEL_QUEUE && p.q.lost == 4, "file Minitel pleine : 4 octets perdus comptés (%u)",
+          (unsigned)p.q.lost);
 
     // P-03 : minitel_port_reset efface SEP et séquence périmés
     minitel_port_from_telestrat(&p, 0x1B);  // séquence commencée
     minitel_port_reset(&p);
-    CHECK(p.q_count == 0 && p.seq_need == 0 && p.state == MINITEL_IDLE && !p.opposition &&
+    CHECK(byte_ring_count(&p.q) == 0 && p.seq_need == 0 && p.state == MINITEL_IDLE && !p.opposition &&
               minitel_port_to_telestrat(&p) == -1,
           "minitel_port_reset : file et séquence effacées");
 

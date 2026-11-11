@@ -64,6 +64,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "devices/byte_fifo.h"
+
 #define MINITEL_ESC       0x1B
 #define MINITEL_PRO1      0x39
 #define MINITEL_PRO2      0x3A
@@ -115,8 +117,7 @@ typedef struct {
     bool opposition;
     // Réponses du Minitel vers le Telestrat
     uint8_t queue[MINITEL_QUEUE];
-    int q_head, q_count;
-    uint32_t q_lost;      // octets de réponse jetés, file pleine
+    byte_ring_t q;        // q.lost : octets de réponse jetés, file pleine
     uint32_t connect_us;  // temps écoulé depuis CONNEXION
     // Sonnerie
     uint32_t ring_us;
@@ -139,19 +140,14 @@ static inline void minitel_port_reset(minitel_port_t* p) {
     p->state = MINITEL_IDLE;
     p->seq_len = p->seq_need = 0;
     p->opposition = false;
-    p->q_head = p->q_count = 0;
+    byte_ring_clear(&p->q);
     p->connect_us = 0;
     p->ring_us = 0;
     p->ring_level = false;
 }
 
 static inline void minitel_push_(minitel_port_t* p, uint8_t b) {
-    if (p->q_count >= MINITEL_QUEUE) {
-        p->q_lost++;
-        return;
-    }
-    p->queue[(p->q_head + p->q_count) % MINITEL_QUEUE] = b;
-    p->q_count++;
+    byte_ring_push(&p->q, p->queue, MINITEL_QUEUE, b);
 }
 
 static inline void minitel_sep_(minitel_port_t* p, uint8_t code) {
@@ -239,12 +235,8 @@ static inline void minitel_port_from_telestrat(minitel_port_t* p, uint8_t data) 
 
 // Octet à présenter à l'ACIA du Telestrat, ou -1
 static inline int minitel_port_to_telestrat(minitel_port_t* p) {
-    if (p->q_count) {
-        uint8_t b = p->queue[p->q_head];
-        p->q_head = (p->q_head + 1) % MINITEL_QUEUE;
-        p->q_count--;
-        return b;
-    }
+    const int q = byte_ring_pop(&p->q, p->queue, MINITEL_QUEUE);
+    if (q >= 0) return q;
     if (p->state == MINITEL_ONLINE && p->line.recv) return p->line.recv(p->line.ctx);
     return -1;
 }

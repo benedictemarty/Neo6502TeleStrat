@@ -180,42 +180,6 @@ static inline uint8_t hid_media_keys(const hid_media_t* m, const uint8_t* report
     return keys;
 }
 
-// Volume de sortie : niveaux 0 à HID_VOLUME_MAX (gain en 256es, progression
-// d'environ 3 dB par pas), coupure à part (Muet, puis Volume + ou − la lève)
+// Niveaux de volume 0 à HID_VOLUME_MAX (le volume, son gain et ses touches sont
+// ceux de audio.c du socle ; ici seule la borne, pour le bandeau et TELESTRA.CFG)
 #define HID_VOLUME_MAX 8
-
-typedef struct {
-    uint8_t level;
-    bool muted;
-} hid_volume_t;
-
-static inline void hid_volume_init(hid_volume_t* v) {
-    v->level = HID_VOLUME_MAX;
-    v->muted = false;
-}
-
-static inline uint16_t hid_volume_gain(const hid_volume_t* v) {
-    static const uint16_t gain[HID_VOLUME_MAX + 1] = {0, 23, 32, 45, 64, 91, 128, 181, 256};
-    return v->muted ? 0 : gain[v->level];
-}
-
-// Applique les touches nouvellement enfoncées ; rend true si le volume a changé
-static inline bool hid_volume_keys(hid_volume_t* v, uint8_t pressed) {
-    const hid_volume_t old = *v;
-    if (pressed & HID_MEDIA_MUTE) v->muted = !v->muted;
-    if (pressed & HID_MEDIA_VOL_UP) {
-        v->muted = false;
-        if (v->level < HID_VOLUME_MAX) v->level++;
-    }
-    if (pressed & HID_MEDIA_VOL_DOWN) {
-        v->muted = false;
-        if (v->level > 0) v->level--;
-    }
-    return old.level != v->level || old.muted != v->muted;
-}
-
-// Gain appliqué à un échantillon (hid_volume_gain en 256es). Le firmware
-// applique le gain dans sa boucle audio ; cette forme sert aux tests.
-static inline uint8_t hid_volume_apply(const hid_volume_t* v, uint8_t sample) {
-    return (uint8_t)((sample * hid_volume_gain(v)) >> 8);
-}

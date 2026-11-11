@@ -37,6 +37,7 @@
 #include "osd/rom_pool.h"
 #include "roms/telestrat_roms.h"
 #include "osd/rom_builtin.h"
+#include "telestrat_frame.h"
 
 static int failures = 0, checks = 0;
 #define CHECK(cond, ...)                                  \
@@ -452,7 +453,106 @@ static void test_menu_key_split(void) {
           "source Réseau choisie");
 }
 
+/*-- O-29 : telestrat_frame.h (ligne de tampon DVI : menu, image, bandeau, marges) --*/
+
+static int plane_bit(const uint32_t* pl, int x) { return (pl[x >> 5] >> (x & 31)) & 1; }
+
+static void test_frame_line(void) {
+    telestrat_video_init();
+    enum { W = 960, L = 272, WORDS = W / 32 };
+    static uint8_t fb[224 * TELESTRAT_VIDEO_BYTES_PER_LINE];
+    static osd_surface_t menu;
+    static osd_row_t banner;
+    uint32_t r[WORDS], g[WORDS], b[WORDS], r2[WORDS], g2[WORDS], b2[WORDS];
+#define VIDE(x) memset(x, 0xA5, sizeof(x))
+
+    // Image blanche (couleur 7, deux pixels par octet) : 720 pixels centrés dans 960
+    memset(fb, 0x77, sizeof(fb));
+    const int top = (L - 224) / 2;
+    VIDE(r), VIDE(g), VIDE(b);
+    telestrat_frame_line(top, W, L, fb, NULL, NULL, r, g, b);
+    CHECK(plane_bit(r, 119) == 0 && plane_bit(r, 120) == 1 && plane_bit(r, 839) == 1 && plane_bit(r, 840) == 0 &&
+              plane_bit(g, 120) == 1 && plane_bit(b, 839) == 1 && plane_bit(b, 119) == 0,
+          "image : 720 pixels de x = 120 à 839, marges noires");
+    // Bords de l'image : première et dernière ligne source, au-delà bordure noire
+    memset(&fb[223 * TELESTRAT_VIDEO_BYTES_PER_LINE], 0x11, TELESTRAT_VIDEO_BYTES_PER_LINE);  // rouge seul
+    VIDE(r), VIDE(g), VIDE(b);
+    telestrat_frame_line(top + 223, W, L, fb, NULL, NULL, r, g, b);
+    CHECK(plane_bit(r, 120) == 1 && plane_bit(g, 120) == 0 && plane_bit(b, 120) == 0,
+          "dernière ligne de l'image (rouge) à y = %d", top + 223);
+    VIDE(r), VIDE(g), VIDE(b);
+    telestrat_frame_line(top + 224, W, L, fb, NULL, NULL, r, g, b);
+    int zero = 1;
+    for (int i = 0; i < WORDS; i++) zero &= !r[i] && !g[i] && !b[i];
+    CHECK(zero, "sous l'image : bordure noire, les %d mots écrits", WORDS);
+    VIDE(r), VIDE(g), VIDE(b);
+    telestrat_frame_line(top - 1, W, L, fb, NULL, NULL, r, g, b);
+    zero = 1;
+    for (int i = 0; i < WORDS; i++) zero &= !r[i] && !g[i] && !b[i];
+    CHECK(zero, "au-dessus de l'image : bordure noire");
+
+    // Bandeau : 8 lignes, 16 lignes avant le bas ; ailleurs l'image (ou la bordure)
+    osd_row_clear(&banner, OSD_ATTR(OSD_WHITE, OSD_BLUE));
+    osd_row_puts(&banner, 0, "BANDEAU", OSD_ATTR(OSD_WHITE, OSD_BLUE));
+    const int bl = L - 16;
+    for (int k = 0; k < 8; k += 7) {  // première et dernière lignes du bandeau
+        VIDE(r), VIDE(g), VIDE(b), VIDE(r2), VIDE(g2), VIDE(b2);
+        telestrat_frame_line(bl + k, W, L, fb, NULL, &banner, r, g, b);
+        osd_render_cells(banner.ch, banner.attr, banner.big, k, (bl + k) & 1, r2, g2, b2);
+        CHECK(!memcmp(r, r2, sizeof(r)) && !memcmp(g, g2, sizeof(g)) && !memcmp(b, b2, sizeof(b)),
+              "bandeau : ligne %d du bandeau rendue comme osd_render_cells", k);
+    }
+    VIDE(r), VIDE(g), VIDE(b);
+    telestrat_frame_line(bl - 1, W, L, fb, NULL, &banner, r, g, b);
+    zero = 1;
+    for (int i = 0; i < WORDS; i++) zero &= !r[i] && !g[i] && !b[i];
+    CHECK(zero, "ligne juste au-dessus du bandeau : marge sous l'image (noire)");
+    VIDE(r), VIDE(g), VIDE(b);
+    telestrat_frame_line(top + 223, W, L, fb, NULL, &banner, r, g, b);
+    CHECK(plane_bit(r, 120) == 1, "bandeau affiché : dernière ligne de l'image inchangée");
+    VIDE(r), VIDE(g), VIDE(b);
+    telestrat_frame_line(bl + 8, W, L, fb, NULL, &banner, r, g, b);
+    zero = 1;
+    for (int i = 0; i < WORDS; i++) zero &= !r[i] && !g[i] && !b[i];
+    CHECK(zero, "ligne juste sous le bandeau : bordure noire");
+    VIDE(r), VIDE(g), VIDE(b);
+    telestrat_frame_line(bl, W, L, fb, NULL, NULL, r, g, b);
+    zero = 1;
+    for (int i = 0; i < WORDS; i++) zero &= !r[i] && !g[i] && !b[i];
+    CHECK(zero, "sans bandeau : la zone du bandeau reste une bordure noire");
+
+    // Menu : prioritaire sur l'image et sur le bandeau, rendu par osd_render_line
+    osd_clear(&menu, OSD_ATTR(OSD_WHITE, OSD_BLACK));
+    osd_putc(&menu, 0, 0, 'M', OSD_ATTR(OSD_WHITE, OSD_BLACK));
+    for (int y = 0; y < L; y += 3) {
+        VIDE(r), VIDE(g), VIDE(b), VIDE(r2), VIDE(g2), VIDE(b2);
+        telestrat_frame_line(y, W, L, fb, &menu, &banner, r, g, b);
+        osd_render_line(&menu, y, r2, g2, b2);
+        if (memcmp(r, r2, sizeof(r)) || memcmp(g, g2, sizeof(g)) || memcmp(b, b2, sizeof(b))) {
+            CHECK(0, "menu : ligne %d différente de osd_render_line", y);
+            break;
+        }
+    }
+
+    // 800 x 480 (lines = 240) : 25 mots par plan seulement, image à x = 40
+    enum { W8 = 800, L8 = 240, WORDS8 = W8 / 32 };
+    uint32_t pr[WORDS8 + 2], pg[WORDS8 + 2], pb[WORDS8 + 2];
+    memset(pr, 0xA5, sizeof(pr)), memset(pg, 0xA5, sizeof(pg)), memset(pb, 0xA5, sizeof(pb));
+    telestrat_frame_line((L8 - 224) / 2, W8, L8, fb, NULL, NULL, pr, pg, pb);
+    CHECK(plane_bit(pr, 39) == 0 && plane_bit(pr, 40) == 1 && plane_bit(pr, 759) == 1 && plane_bit(pr, 760) == 0,
+          "800 x 480 : image de x = 40 à 759");
+    CHECK(pr[WORDS8] == 0xA5A5A5A5u && pg[WORDS8 + 1] == 0xA5A5A5A5u && pb[WORDS8] == 0xA5A5A5A5u,
+          "800 x 480 : rien écrit au-delà de width / 32 mots");
+    memset(pr, 0xA5, sizeof(pr)), memset(pg, 0xA5, sizeof(pg)), memset(pb, 0xA5, sizeof(pb));
+    telestrat_frame_line(0, W8, L8, fb, NULL, NULL, pr, pg, pb);
+    zero = 1;
+    for (int i = 0; i < WORDS8; i++) zero &= !pr[i] && !pg[i] && !pb[i];
+    CHECK(zero && pr[WORDS8] == 0xA5A5A5A5u, "800 x 480 : bordure noire sur width / 32 mots exactement");
+#undef VIDE
+}
+
 int main(void) {
+    test_frame_line();
     test_config_merge_long();
     test_config_line();
     test_config_port();

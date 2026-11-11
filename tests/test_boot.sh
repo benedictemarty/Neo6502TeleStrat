@@ -80,13 +80,36 @@ fi
 # caractère qui en a besoin ; pressé avec la touche, il manquait parfois
 # (« A95) » pour « A(5) ») ; lignes à parenthèses et guillemets, -k 10 (le
 # banc d'avant y perdait SHIFT ; à -k 8, une lettre tapée juste après une
-# ligne longue à exécuter peut encore se perdre : autre cause, non examinée)
+# ligne longue à exécuter peut encore se perdre : propriété de la ROM, voir
+# plus bas et docs/TESTS.md)
 n=$((n + 1))
 FRAPPE=$(banc -c atmos -f 2200 -w 150 -k 10 \
     -t 'DIM A(9)\nA(1)=1:A(2)=2\nA(3)=(4)\nA(5)=(6)\nA(7)=(8)\nPRINT "(OK)";A(5)\nB$="()"\nA(9)=(1)\nPRINT A(1)+A(9)\n' -s 2>&1)
 if echo "$FRAPPE" | grep -q 'SYNTAX' || ! echo "$FRAPPE" | grep -q '(OK) 6'; then
     fail=$((fail + 1))
     echo "ÉCHEC [frappe] : SHIFT perdu ? $(echo "$FRAPPE" | grep -v '^ *$' | tail -6 | tr '\n' '|')"
+fi
+
+# Touche pressée pendant l'exécution d'une ligne (O-08) : la ROM Atmos remet à
+# zéro son tampon clavier ($02DF, STX en $C994) en revenant à « Ready ». Une
+# touche dont l'IRQ arrive entre RETURN et ce retour est donc effacée, sur la
+# machine réelle comme dans l'émulation. À -k 8, le « A » de « A(3)=(4) », tapé
+# 8 trames après le RETURN de « A(1)=1:A(2)=2 » (≈ 9 trames d'exécution), est
+# perdu ; un « ~ » (trame sans touche) avant lui le rend à la ROM après le
+# retour. Comportement exact et déterministe, vérifié des deux côtés.
+LIGNES='DIM A(9)\nA(1)=1:A(2)=2\n%sA(3)=(4)\nA(5)=(6)\n'
+n=$((n + 1))
+PERTE=$(banc -c atmos -f 700 -w 150 -k 8 -t "$(printf "$LIGNES" '')" -s 2>&1)
+if ! echo "$PERTE" | grep -q '^  (3)=(4)$' || echo "$PERTE" | grep -q '^  A(3)=(4)$' ||
+   ! echo "$PERTE" | grep -q '^  A(5)=(6)$' || [ "$(echo "$PERTE" | grep -c 'SYNTAX')" -ne 1 ]; then
+    fail=$((fail + 1))
+    echo "ÉCHEC [touche perdue] : « A » de A(3) attendu perdu, le reste intact : $(echo "$PERTE" | grep -v '^ *$' | tail -8 | tr '\n' '|')"
+fi
+n=$((n + 1))
+SANS=$(banc -c atmos -f 700 -w 150 -k 8 -t "$(printf "$LIGNES" '~')" -s 2>&1)
+if ! echo "$SANS" | grep -q '^  A(3)=(4)$' || echo "$SANS" | grep -q 'SYNTAX'; then
+    fail=$((fail + 1))
+    echo "ÉCHEC [touche perdue] : avec « ~ » avant A(3), aucune perte attendue : $(echo "$SANS" | grep -v '^ *$' | tail -8 | tr '\n' '|')"
 fi
 
 # Options du banc : validation des arguments (codes de retour : 0 réussite, 1

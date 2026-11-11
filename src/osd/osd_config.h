@@ -2,9 +2,9 @@
 
 // osd_config.h — cartouches (.rom) et réglages du menu dans TELESTRA.CFG
 //
-// osd_rom_fill : une image .rom de 16, 8, 4, 2 ou 1 Ko remplit une banque de
-// 16 Ko, répétée comme une EPROM plus petite dans le support (même règle que
-// tools/fetch_roms.py pour TELEMATIC, 8 Ko).
+// Une image .rom de 16, 8, 4, 2 ou 1 Ko (osd_rom_size_ok) remplit une banque de
+// 16 Ko, répétée comme une EPROM plus petite dans le support (rom_pool.h ; même
+// règle que tools/fetch_roms.py pour TELEMATIC, 8 Ko).
 //
 // TELESTRA.CFG (une clé par ligne) : « a=NOM.DSK » … « d=NOM.DSK » (lecteurs),
 // « bank1=NOM.ROM » … « bank7=NOM.ROM » (cartouches de la clé), « volume=0 »
@@ -46,14 +46,6 @@
 // Taille acceptée pour une image .rom
 static inline bool osd_rom_size_ok(size_t size) {
     return size == 0x4000 || size == 0x2000 || size == 0x1000 || size == 0x800 || size == 0x400;
-}
-
-// Remplit la banque (répétition des images plus petites) ; false si la taille ne va pas
-// (utilisé par les tests seulement : le firmware passe par rom_pool.h)
-static inline bool osd_rom_fill(uint8_t bank[OSD_BANK_BYTES], const uint8_t* data, size_t size) {
-    if (!osd_rom_size_ok(size)) return false;
-    for (size_t base = 0; base < OSD_BANK_BYTES; base += size) memcpy(bank + base, data, size);
-    return true;
 }
 
 // Clé de réglage d'une ligne (« a », « bank5 »…) ; retourne la valeur ou NULL
@@ -259,10 +251,4 @@ static inline size_t osd_config_merge_ex(const char* old, const char* const driv
 #undef _OSD_APPEND
 #undef _OSD_APPEND_N
     return len;
-}
-
-// Sans options du menu (tests seulement : le firmware passe par osd_config_merge_ex)
-static inline size_t osd_config_merge(const char* old, const char* const drive[4], const char* const bank[8], char* out,
-                                      size_t cap) {
-    return osd_config_merge_ex(old, drive, bank, NULL, out, cap);
 }

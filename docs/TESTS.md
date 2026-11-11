@@ -63,8 +63,8 @@ Aucun port n'est choisi à l'avance : le banc ouvre `listen:0` et annonce
 touches sur contenu reçu (`TOUCHE?MARQUEUR`), plus sur une durée de silence. Reste
 dépendant du temps réel : la fenêtre de 40 s des clients et, dans test_rs232.sh, le
 mode écoute qui tourne en temps réel (`-R`, ≈ 23 s) ; le banc ne cadence les autres
-tests que par trames. Une touche perdue « non examinée » à `-k 8` (test_boot, frappe
-rapide) n'a pas été étudiée : `-k 10` y est utilisé.
+tests que par trames. Une touche perdue à `-k 8` (test_boot, frappe rapide) est étudiée :
+voir « Touche perdue pendant l'exécution d'une ligne » plus bas.
 
 ## Cœur 65C02 du PC — `make cpu_harte` (2 540 000 tests)
 
@@ -249,12 +249,29 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   sur 600 écrans aléatoires : texte, HIRES, attributs série, double hauteur,
   jeu alternatif, inversion, clignotement.
 
-## Tests de démarrage — `tests/test_boot.sh` (54 vérifications)
+## Tests de démarrage — `tests/test_boot.sh` (56 vérifications)
 
 Vraies ROM (`tools/fetch_roms.py`), 300 trames (6 s émulées), 4 configurations.
 Plus (v0.16.24) la frappe du banc : lignes à parenthèses et guillemets en mode
 Atmos (`-k 10`) sans `?SYNTAX ERROR` ; le banc d'avant y perdait SHIFT
 (« A99)=(10 »).
+
+Touche perdue pendant l'exécution d'une ligne (O-08, constat). Avec
+`-t 'DIM A(9)\nA(1)=1:A(2)=2\nA(3)=(4)\n…' -c atmos -w 150 -k 8`, le « A » de
+« A(3)=(4) » est perdu (`(3)=(4)` puis `?SYNTAX ERROR`). Mesure : l'IRQ de la
+ROM écrit la touche dans `$02DF` à la trame 335 (RETURN pressé trame 326, « A »
+trame 334) ; 1,8 ms plus tard, l'instruction `STX $02DF` en `$C994` (routine de
+BASIC 1.1 qui écrit aussi `$02F1`, atteinte en revenant à « Ready ») remet ce
+tampon à zéro, avant que la boucle de lecture du clavier ne l'ait pris. Ce
+n'est pas un défaut du banc ni de l'émulation du clavier ou du VIA : c'est le
+code de la ROM, qui s'exécute à l'identique, et la durée d'exécution de la
+ligne (≈ 9 trames) est déterministe. Toute touche dont l'IRQ tombe entre
+RETURN et ce retour est effacée ; avec `-k 10` aucune ne tombe dans la
+fenêtre pour ce texte, et un `~` (trame sans touche) avant le caractère la
+décale après le retour. Je n'ai pas comparé à une machine réelle. test_boot
+vérifie les deux comportements exacts : perte du seul « A » à `-k 8`, aucune
+perte avec le `~`.
+
 Écran texte attendu : « TELEMON V2.4 », « (c) 1986 ORIC International »,
 « Drive:A-B-C-D », « Inserez une disquette », et la ligne mémoire propre à
 chaque configuration :
@@ -400,6 +417,15 @@ Le banc de référence (`build/telestrat_headless_ref`, compilé avec
 et exige 0 différence : octet placé sur le bus et ligne IRQ à chaque cycle,
 échantillons audio, octets série et leur cycle, empreinte de l'image par trame.
 
+Format des traces (O-18) : `.trace` 4 octets par cycle (80 Ko par trame, 8 Mo
+mesurés pour 100 trames), `.ev` mot de 32 bits dont la trame occupe 16 bits,
+`.ser` et `.ring` mots de 32 bits. Le cycle de `.ser` est `system_ticks`, un
+`uint32_t` de `src/systems` : le passer à 64 bits dans les trois lecteurs
+n'aurait rien changé, la source restant tronquée. Limites réelles : 65536
+trames pour `.ev` (5,2 Go de `.trace`), 2³² cycles pour `.ser` (17 Go).
+Format gardé ; le banc avertit à 65536 trames (touches suivantes non
+enregistrées, au lieu d'une trame fausse) et à 2³² cycles.
+
 | Trace | Contenu |
 |---|---|
 | A (20 M cycles, config. `oricutron`) | démarrage STRATSED, HYPER-BASIC, PING, ZAP, DIR |
@@ -442,7 +468,13 @@ une copie de ses sources (`TELESTRAT_TNFSD_SRC=…`, défaut : le répertoire
 parent du binaire) est compilée dans le répertoire temporaire pour un port
 libre (sans optimisation : avec `_FORTIFY_SOURCE`, `tnfsd` s'arrête sur
 « buffer overflow »). Ignoré sans `tnfsd` ni sources, ou si le serveur
-n'écoute pas.
+n'écoute pas. Binaire connu sur cette machine :
+`~/neo-carte/tnfs-essai/tnfsd` (sources absentes ; 12/12 avec
+`TELESTRAT_TNFSD=` ce chemin). Son usage est `tnfsd <répertoire> [-c <utilisateur>]` :
+aucune option d'adresse d'écoute, et `ss` le montre à l'écoute sur `0.0.0.0` (UDP et
+TCP). Le test ne peut donc pas le limiter à `127.0.0.1` (O-10) : il le signale par
+un avertissement, et le serveur ne vit que le temps du test, dans un répertoire
+temporaire.
 
 | Étape | Vérifié |
 |---|---|

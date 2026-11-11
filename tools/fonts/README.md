@@ -6,5 +6,5 @@
 sous GPL, non utilisée). Format : `CODE:HEX`, 8 octets par glyphe 8 x 8, bit 7
 = pixel de gauche.
 
-Utilisée par `tools/gen_osd_font.py` pour le texte du menu (ASCII et Latin-1) ;
+Source de la police du menu (désormais fournie par `osd_font.h` du socle reload ; le générateur du projet a été supprimé en v0.17.0) pour le texte du menu (ASCII et Latin-1) ;
 les filets arrondis et les icônes du menu sont un dessin du projet.

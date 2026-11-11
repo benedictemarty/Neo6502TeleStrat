@@ -248,7 +248,12 @@ static void bench_serial(uint32_t cycle, int dir, uint8_t data) {
 
 static void bench_key(int frame, int down, int code) {
     if (!bench_trace) return;
-    if (bench_event_count < BENCH_EVENTS_MAX) {
+    // Le numéro de trame tient sur 16 bits dans le mot d'événement : au-delà
+    // de 65535 trames (≈ 21,8 min émulées, soit 5,2 Go de .trace) la touche
+    // est perdue et signalée, plutôt que codée avec une trame fausse
+    if (frame > 0xFFFF) {
+        bench_events_lost = true;
+    } else if (bench_event_count < BENCH_EVENTS_MAX) {
         bench_events[bench_event_count++] = ((uint32_t)frame << 16) | (down ? 0x8000u : 0) | (uint32_t)(code & 0x7FFF);
     } else {
         bench_events_lost = true;
@@ -842,8 +847,12 @@ int main(int argc, char** argv) {
             }
         }
         current_frame = frame;
-        // Cycles de la trace sur 32 bits (system_ticks aussi) : au-delà de 2^32 la
-        // comparaison de tests/replay.c diverge ; signalé une fois (O-18)
+        // Format de trace (O-18) : 4 octets par cycle dans .trace (80 Ko par trame),
+        // trame sur 16 bits dans .ev (limite à 65536 trames = 5,2 Go), cycle sur 32 bits
+        // dans .ser parce que system_ticks (src/systems) est lui-même un uint32_t ;
+        // au-delà de 2^32 cycles (17 Go de .trace) tests/replay.c diverge. Signalé une fois.
+        if (bench_prefix && frame == 65536)
+            fprintf(stderr, "avertissement : 65536 trames dépassées, événements clavier suivants non enregistrés (.ev)\n");
         if (bench_prefix && frame == 214748)
             fprintf(stderr, "avertissement : 2^32 cycles dépassés (≈ 72 min émulées), cycles de la trace tronqués\n");
         if (frame == cold_frame) telestrat_cold_reset(&sys);
@@ -988,7 +997,7 @@ int main(int argc, char** argv) {
             exit_code = 1;
         }
         if (bench_events_lost)
-            fprintf(stderr, "avertissement : plus de %d événements clavier, la suite n'est pas enregistrée\n",
+            fprintf(stderr, "avertissement : plus de %d événements clavier ou trame > 65535, la suite n'est pas enregistrée\n",
                     BENCH_EVENTS_MAX);
     }
     if (ramfile) {
