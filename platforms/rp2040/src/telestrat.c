@@ -154,12 +154,7 @@ extern const neo_storage_ops_t neo_storage_fatfs_ops;  // neo_storage_fatfs.c du
 // place : client, trames et dialogue AT, ~3 Ko ; un seul port série USB)
 #ifndef TELESTRAT_RAM64K
 #define TELESTRAT_NET 1
-#define NEO_TNFS_IMPL
-#include "devices/neo_tnfs.h"
-#define NEO_ESP_AT_IMPL
-#include "devices/neo_esp_at.h"
-#define NEO_DGRAM_SERIAL_IMPL
-#include "devices/neo_dgram_serial.h"
+#include "neo_net.h"   // montage commun du socle (porte les implémentations de TNFS, du modem AT et du relais série)
 #endif
 // Modem sur le hub USB : ports série de neo_cdc_serial.c (socle), numérotés par
 // interface : 0 = le modem AT (ligne Minitel, RS232), 1 = son port TNFS
@@ -1510,11 +1505,9 @@ static void usb_unplugged(void) {
 // Pas de repli sur l'UDP du port AT (choix de l'Oric pour un modem sans
 // second port) : il prendrait la ligne Minitel. Une tentative par branchement
 // du modem ; l'émulation attend pendant ce temps (jusqu'à ~35 s sans Wi-Fi).
-static neo_esp_t net_esp;
-static neo_dgram_t net_dgram;
-static neo_tnfs_t net_tnfs;      // volume NEO_VOL_NET, prêt quand monté
-static uint32_t net_tried;       // neo_cdc_mount_count() de la dernière tentative
-static bool net_usb_enabled;     // AT$TNFSUSB=1 envoyé une fois
+// Le montage est neo_net.c du socle (relais seul, essai seulement ligne au repos : options relay_only et can_try) ;
+// ici seulement les réactions de la machine à ses événements
+static neo_net_t net;            // volume NEO_VOL_NET (net.tnfs), prêt quand monté
 static bool net_first_mount = true;
 
 // Source Réseau choisie dans le menu : ses fichiers relus à la suite de ceux
@@ -1531,7 +1524,7 @@ static void net_scan(int item) {
 // Lecteurs du réseau de TELESTRA.CFG (a=net:/… ), dans les lecteurs vides
 static bool net_cfg_drives(void) {
     bool any = false;
-    for (int d = 0; d < 4 && net_tnfs.mounted; d++) {
+    for (int d = 0; d < 4 && neo_net_mounted(&net); d++) {
         if (!osd_is_net(cfg_drive[d]) || (drive_name[d][0] && strcmp(drive_name[d], FLASH_NAME))) continue;
         if (drive_insert(d, cfg_drive[d])) any = true;
         else printf("TELESTRA.CFG : %s illisible\n", cfg_drive[d]);
@@ -1539,62 +1532,60 @@ static bool net_cfg_drives(void) {
     return any;
 }
 
-static void net_poll(void) {
-    if (net_tnfs.mounted && !neo_cdc_port_ready(1)) {
-        net_tnfs.mounted = false;  // modem retiré : volume plus prêt
-        files_dropped(OSD_VOL_NET);
-        menu_drop_net_files();  // plus de fichier du réseau à choisir (F-16)
-        osd_menu_message(&menu, true, "Réseau : modem retiré");
-        menu_files_changed();
-        printf("Réseau : modem retiré\n");
-        return;
-    }
-    if (!cfg_net[0] || net_tnfs.mounted || !modem_present || neo_cdc_mount_count() == net_tried) return;
-    if (osd_open || mux.rs232 || modem.state != HAYES_COMMAND || modem.ringing) return;  // ligne occupée
-    net_tried = neo_cdc_mount_count();
-    char host[48];
-    uint16_t port;
-    if (!osd_config_server(cfg_net, host, sizeof(host), &port, NEO_TNFS_PORT)) {
-        printf("TELESTRA.CFG : reseau=%s invalide\n", cfg_net);
-        return;
-    }
-    const bool relay = neo_cdc_port_ready(1);
-    neo_esp_init(&net_esp, neo_cdc_write, neo_cdc_read_byte, (void *)0);
-    bool ok = neo_esp_prepare(&net_esp, NULL, NULL);
-    if (ok && !relay) {
-        const int usb = neo_esp_tnfs_usb(&net_esp);
-        if (usb == 0 && !net_usb_enabled) {
-            net_usb_enabled = true;
-            if (neo_esp_enable_tnfs_usb(&net_esp)) {
-                printf("Réseau : port TNFS du modem activé, redémarrage du modem\n");
-                return;  // nouvelle tentative à sa nouvelle énumération
+// Essai seulement ligne au repos : ni menu ouvert, ni prise RS232, ni appel, ni sonnerie
+static bool net_can_try(void *user) {
+    (void)user;
+    return !(osd_open || mux.rs232 || modem.state != HAYES_COMMAND || modem.ringing);
+}
+
+static void net_event(neo_net_event_t ev, void *user) {
+    (void)user;
+    switch (ev) {
+        case NEO_NET_CONNECTING:
+            break;
+        case NEO_NET_TNFS_PORT_ENABLED:
+            printf("Réseau : port TNFS du modem activé, redémarrage du modem\n");   // nouvelle tentative à sa nouvelle énumération
+            break;
+        case NEO_NET_REMOVED:
+            files_dropped(OSD_VOL_NET);
+            menu_drop_net_files();  // plus de fichier du réseau à choisir (F-16)
+            osd_menu_message(&menu, true, "Réseau : modem retiré");
+            menu_files_changed();
+            printf("Réseau : modem retiré\n");
+            break;
+        case NEO_NET_FAILED:
+            if (net.server_invalid) {
+                printf("TELESTRA.CFG : reseau=%s invalide\n", cfg_net);
+                break;
             }
+            // Ligne Minitel réinitialisée (ATE0V1, ATS0=0… après le dialogue AT)
+            modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
+            printf("Réseau : %s:%u injoignable\n", net.host, (unsigned)net.port);
+            break;
+        case NEO_NET_MOUNTED: {
+            modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
+            printf("Réseau : %s:%u monté\n", net.host, (unsigned)net.port);
+            snprintf(net_label, sizeof(net_label), "%s:%u", net.host, (unsigned)net.port);
+            // Fichiers du réseau de TELESTRA.CFG : lecteurs ; au premier montage,
+            // cartouches aussi (puis démarrage à froid, comme celles de la clé)
+            bool cold = net_cfg_drives() && net_first_mount;
+            for (int b = 1; b < 8 && net_first_mount; b++) {
+                const char *err = "";
+                if (!osd_is_net(cfg_bank[b])) continue;
+                if (bank_load(b, cfg_bank[b], &err)) cold = true;
+                else printf("TELESTRA.CFG : %s : %s\n", cfg_bank[b], err);
+            }
+            net_first_mount = false;
+            tape_options_apply();
+            if (cold) telestrat_cold_reset(&state.telestrat);
+            break;
         }
-        printf("Réseau : %s\n", usb < 0 ? "modem sans port TNFS" : "port TNFS du modem non monté");
-        ok = false;
     }
-    if (ok) {
-        neo_dgram_init(&net_dgram, neo_cdc_write, neo_cdc_read_byte, (void *)1);
-        neo_tnfs_init(&net_tnfs, neo_dgram_xfer, &net_dgram);
-        ok = neo_esp_tnfs_server(&net_esp, host, port) && neo_tnfs_mount(&net_tnfs, "/", NULL, NULL);
-    }
-    // Ligne Minitel réinitialisée (ATE0V1, ATS0=0… après le dialogue AT)
-    modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
-    printf("Réseau : %s:%u %s\n", host, (unsigned)port, ok ? "monté" : "injoignable");
-    if (!ok) return;
-    snprintf(net_label, sizeof(net_label), "%s:%u", host, (unsigned)port);
-    // Fichiers du réseau de TELESTRA.CFG : lecteurs ; au premier montage,
-    // cartouches aussi (puis démarrage à froid, comme celles de la clé)
-    bool cold = net_cfg_drives() && net_first_mount;
-    for (int b = 1; b < 8 && net_first_mount; b++) {
-        const char *err = "";
-        if (!osd_is_net(cfg_bank[b])) continue;
-        if (bank_load(b, cfg_bank[b], &err)) cold = true;
-        else printf("TELESTRA.CFG : %s : %s\n", cfg_bank[b], err);
-    }
-    net_first_mount = false;
-    tape_options_apply();
-    if (cold) telestrat_cold_reset(&state.telestrat);
+}
+
+static void net_poll(void) {
+    snprintf(net.server, sizeof net.server, "%s", cfg_net);   // reseau= de TELESTRA.CFG (ou du menu), relu à chaque image
+    neo_net_poll(&net);
 }
 #endif
 
@@ -1845,7 +1836,10 @@ void app_init(void) {
     neo_storage_set(NEO_VOL_USB, "Clé USB", &neo_storage_fatfs_ops, "");
 #ifdef TELESTRAT_NET
     // Volume 1 : le réseau, prêt une fois le serveur TNFS monté (net_poll)
-    neo_storage_set(NEO_VOL_NET, "Réseau", &neo_storage_tnfs_ops, &net_tnfs);
+    neo_net_init(&net, net_event, 0);
+    net.relay_only = true;       // pas de repli AT UDP : le port AT est celui de la ligne Minitel
+    net.can_try = net_can_try;
+    neo_storage_set(NEO_VOL_NET, "Réseau", &neo_storage_tnfs_ops, &net.tnfs);
 #endif
     modem_mux_init(&mux, &modem);
     hayes = hayes_line_line(&modem);

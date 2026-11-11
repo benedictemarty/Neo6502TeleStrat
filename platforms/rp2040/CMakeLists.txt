@@ -70,6 +70,10 @@ add_executable(telestrat
     ${RELOAD_RP2040}/src/neo_storage_fatfs.c  # socle : volume 0 de neo_storage (la clé) sur FatFs
     ${RELOAD_RP2040}/src/neo_cdc_serial.c  # socle : ports série USB du modem (ligne, TNFS)
 )
+# Volume Réseau : variante standard seulement (la RAM 64 Ko n'a pas la place : ~3 Ko)
+if(NOT TELESTRAT_RAM64K)
+    target_sources(telestrat PRIVATE ${RELOAD_RP2040}/src/neo_net.c)  # socle : montage TNFS par le modem
+endif()
 
 
 # Ordre : nos en-têtes (dont tusb_config.h avec le CDC hôte), puis la plate-forme
