@@ -23,9 +23,14 @@ import struct
 import sys
 import time
 
+import os
 import capstone
 import unicorn
 from unicorn import arm_const as A
+
+# Brique commune (socle) : lecture ELF, modèle de cycles Cortex-M0+, comptage, diviseur du SIO
+sys.path.insert(0, os.path.join(os.environ.get("RELOAD_DIR") or os.path.expanduser("~/Projets/Neo6502Socle"), "tools"))
+from m0sim import read_elf, md, insn_cost, Cycles, Sio  # noqa: E402
 
 SYSCLK = 372_000_000  # 960x544 (défaut du firmware) ; --video480 : 295,2 MHz
 TICKS_PER_FRAME = 19968
@@ -33,158 +38,6 @@ FRAME_BUDGET = SYSCLK // 50  # 20 ms
 STACK_TOP = 0x20041000
 RET_TRAP = 0x00000100
 TRACE_ADDR, EVENTS_ADDR, DISK_ADDR = 0x60000000, 0x5F000000, 0x70000000
-
-
-def read_elf(path):
-    data = open(path, "rb").read()
-    e_phoff, = struct.unpack_from("<I", data, 0x1C)
-    e_shoff, = struct.unpack_from("<I", data, 0x20)
-    e_phentsize, e_phnum, e_shentsize, e_shnum, e_shstrndx = struct.unpack_from("<HHHHH", data, 0x2A)
-    segs = []
-    for i in range(e_phnum):
-        p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, _, _ = struct.unpack_from(
-            "<IIIIIIII", data, e_phoff + i * e_phentsize)
-        if p_type == 1:
-            segs.append((p_vaddr, data[p_offset:p_offset + p_filesz], p_memsz))
-    # Table des symboles
-    sections = []
-    for i in range(e_shnum):
-        sh = struct.unpack_from("<IIIIIIIIII", data, e_shoff + i * e_shentsize)
-        sections.append(sh)
-    syms = {}
-    for sh in sections:
-        if sh[1] == 2:  # SHT_SYMTAB
-            strtab = sections[sh[6]]
-            for k in range(sh[5] // 16):
-                st_name, st_value, st_size, st_info, _, _ = struct.unpack_from("<IIIBBH", data, sh[4] + k * 16)
-                end = data.index(b"\0", strtab[4] + st_name)
-                name = data[strtab[4] + st_name:end].decode()
-                if name:
-                    syms[name] = (st_value & ~1, st_size)
-    return segs, syms
-
-
-# --- Coût des instructions ----------------------------------------------------
-md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_THUMB | capstone.CS_MODE_MCLASS)
-md.detail = True
-
-
-def insn_cost(i):
-    """(coût si non pris, supplément si branchement pris)"""
-    m = i.mnemonic.split(".")[0]
-    ops = i.op_str
-    if m in ("ldr", "ldrb", "ldrh", "ldrsb", "ldrsh", "str", "strb", "strh"):
-        return 2, 0
-    if m in ("push", "stm", "stmia", "ldm", "ldmia"):
-        n = ops.count(",") + 1
-        return 1 + n, 0
-    if m == "pop":
-        n = ops.count(",") + 1
-        return (3 + n) if "pc" in ops else (1 + n), 0
-    if m == "bl":
-        return 3, 0
-    if m in ("bx", "blx"):
-        return 2, 0
-    if m == "b":
-        return 2, 0
-    if i.group(capstone.CS_GRP_JUMP):  # beq, bne, ... (conditionnels)
-        return 1, 1
-    if m in ("mov", "add") and ops.startswith("pc"):
-        return 2, 0
-    return 1, 0
-
-
-class Cycles:
-    def __init__(self, uc, syms=None):
-        self.uc = uc
-        self.profile = {}
-        self.ranges = sorted((v[0], v[0] + max(v[1], 2), k) for k, v in (syms or {}).items() if v[1] > 0)
-        self.sym_of = {}
-        self.block_profile = {}
-        self.blocks = {}
-        self.total = 0
-        self.pending = None  # (adresse de repli, supplément) du bloc précédent
-        self.sio = 0
-
-    def block_info(self, addr, size):
-        info = self.blocks.get(addr)
-        if info is None:
-            code = bytes(self.uc.mem_read(addr, size))
-            cost, extra, fall = 0, 0, addr + size
-            per = []
-            for i in md.disasm(code, addr):
-                c, x = insn_cost(i)
-                cost += c
-                extra = x
-                per.append((i.address, c))
-            info = (cost, extra, fall, per)
-            self.blocks[addr] = info
-        return info
-
-    def hook(self, uc, addr, size, _):
-        if self.pending is not None:
-            fall, extra = self.pending
-            if extra and addr != fall:
-                self.total += extra
-        cost, extra, fall, _ = self.block_info(addr, size)
-        self.total += cost
-        if self.ranges:
-            name = self.sym_of.get(addr)
-            if name is None:
-                import bisect
-                k = bisect.bisect_right(self.ranges, (addr, 0xFFFFFFFF, "")) - 1
-                name = self.ranges[k][2] if k >= 0 and self.ranges[k][0] <= addr < self.ranges[k][1] else "?%x" % addr
-                self.sym_of[addr] = name
-            self.profile[name] = self.profile.get(name, 0) + cost
-            self.block_profile[addr] = self.block_profile.get(addr, 0) + 1
-        self.pending = (fall, extra)
-
-
-# --- Diviseur matériel du SIO -------------------------------------------------
-class Sio:
-    def __init__(self):
-        self.dividend = 0
-        self.divisor = 1
-        self.signed = False
-        self.accesses = 0
-
-    def _q_r(self):
-        a, b = self.dividend, self.divisor
-        if self.signed:
-            a = a - (1 << 32) if a & 0x80000000 else a
-            b = b - (1 << 32) if b & 0x80000000 else b
-            if b == 0:
-                return (0xFFFFFFFF if a >= 0 else 1), a & 0xFFFFFFFF
-            q = int(a / b)
-            return q & 0xFFFFFFFF, (a - q * b) & 0xFFFFFFFF
-        if b == 0:
-            return 0xFFFFFFFF, a
-        return a // b, a % b
-
-    def read(self, uc, offset, size, _):
-        self.accesses += 1
-        if offset == 0x70:
-            return self._q_r()[0]
-        if offset == 0x74:
-            return self._q_r()[1]
-        if offset == 0x78:
-            return 1  # READY
-        if offset == 0x60 or offset == 0x68:
-            return self.dividend
-        if offset == 0x64 or offset == 0x6C:
-            return self.divisor
-        return 0
-
-    def write(self, uc, offset, size, value, _):
-        self.accesses += 1
-        if offset in (0x60, 0x68):
-            self.dividend = value & 0xFFFFFFFF
-            self.signed = offset == 0x68
-        elif offset in (0x64, 0x6C):
-            self.divisor = value & 0xFFFFFFFF
-            self.signed = offset == 0x6C
-        elif offset == 0x74:
-            pass
 
 
 def straight_cost(path, sym, syms_segs):

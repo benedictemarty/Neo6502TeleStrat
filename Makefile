@@ -188,7 +188,7 @@ charge: $(BUILD)/telestrat_headless uf2
 	$(BUILD)/telestrat_headless -c oricutron -0 $(BUILD)/charge.dsk -f 1500 -w 500 \
 	    -t '1~~~~~~DIR\n' -B $(BUILD)/charge > /dev/null
 	cp $(CHARGE_DSK) $(BUILD)/charge.dsk
-	$(PYTHON) tools/rp2040_load.py $(BUILD)/rp2040/telestrat_bench.elf $(BUILD)/rp2040/telestrat.elf \
+	RELOAD_DIR=$(RELOAD_DIR) $(PYTHON) tools/rp2040_load.py $(BUILD)/rp2040/telestrat_bench.elf $(BUILD)/rp2040/telestrat.elf \
 	    $(BUILD)/charge --disk $(BUILD)/charge.dsk --every 10
 
 # Coût d'une ligne affichée par le cœur 1 : menu contre image (même émulateur)

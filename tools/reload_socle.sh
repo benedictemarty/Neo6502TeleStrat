@@ -3,9 +3,9 @@
 #
 #   tools/reload_socle.sh [ÉTIQUETTE] [DÉPÔT_RELOAD]
 #
-# ÉTIQUETTE : par défaut le contenu de tools/SOCLE (seule source de l'étiquette,
+# ÉTIQUETTE : par défaut le contenu de tools/SOCLE ou SOCLE (seule source de l'étiquette,
 # lue aussi par le Makefile et platforms/rp2040/CMakeLists.txt).
-# DÉPÔT_RELOAD : par défaut le premier trouvé parmi $RELOAD_REPO,
+# DÉPÔT_RELOAD : par défaut le premier trouvé parmi $RELOAD_REPO, $RELOAD_SRC,
 # ~/Projets/Neo6502Socle, ~/Projets/reload-emulator, ~/reload-emulator qui contienne l'étiquette.
 #
 # Clone local (sans réseau) du dépôt à l'étiquette dans
@@ -19,7 +19,10 @@
 set -eu
 
 ICI=$(cd "$(dirname "$0")" && pwd)
-TAG="${1:-$(tr -d ' \t\r\n' < "$ICI/SOCLE")}"
+# Étiquette : argument, sinon tools/SOCLE (ou SOCLE à la racine du projet)
+SOCLEFILE="$ICI/SOCLE"
+[ -f "$SOCLEFILE" ] || SOCLEFILE="$ICI/../SOCLE"
+TAG="${1:-$(tr -d ' \t\r\n' < "$SOCLEFILE" 2>/dev/null || true)}"
 CACHE="${RELOAD_SOCLE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/reload-socle}"
 DST="$CACHE/$TAG"
 
@@ -30,7 +33,7 @@ fi
 
 # Dépôt reload : argument, RELOAD_REPO, puis les emplacements habituels
 SRC=
-for c in "${2:-}" "${RELOAD_REPO:-}" "$HOME/Projets/Neo6502Socle" "$HOME/Projets/reload-emulator" "$HOME/reload-emulator"; do
+for c in "${2:-}" "${RELOAD_REPO:-}" "${RELOAD_SRC:-}" "$HOME/Projets/Neo6502Socle" "$HOME/Projets/reload-emulator" "$HOME/reload-emulator"; do
     [ -n "$c" ] || continue
     if git -C "$c" rev-parse -q --verify "refs/tags/$TAG^{commit}" > /dev/null 2>&1; then
         SRC=$c
