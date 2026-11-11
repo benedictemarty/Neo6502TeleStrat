@@ -726,13 +726,24 @@ WD1793 (piste, secteur, données, lecteur, face, têtes, `$0314` ; tampon de
 piste vidé sur la disquette), cadence (compteur de cycles, échéances de
 l'AY, horloge audio fractionnaire depuis la version 2 du format, v0.16.8 : les
 instantanés antérieurs sont refusés ; version 3 : registres du WD1793 du
-socle, têtes `head[]`), STROBE et ACK. Pas enregistrés : disquettes et cassette (supports),
+socle, têtes `head[]` ; version 5, v0.17.0 : CRC-32 en fin de fichier,
+marqueur d'endianness, pointeurs mis à zéro dans le fichier, signature avec
+positions de champs, `printer_wait`, temps différé des périphériques rattrapé
+avant l'écriture, valeurs bornées à la relecture, rappels de la plate-forme
+toujours conservés même si le fichier est tronqué), STROBE et ACK. Pas enregistrés : disquettes et cassette (supports),
 enregistreur, joystick, ligne. Refusé pendant une commande du WD1793
 (`state != WD1793_IDLE`). Sur
 le Neo6502, le fichier (`neo_file_t`) et le texte sont pris dans l'image du Telestrat
 (menu ouvert), vérifié à la compilation (`_Static_assert`).
 
 RAM libre : 8,3 Ko (standard), 860 octets (RAM 64 Ko).
+
+> Les « RAM libre » ci-dessus datent d'avant la v0.17.0 : `state`, `planes` et
+> la table vidéo sont passés de `.data` à `.bss` (revue F-06), ce qui n'a pas
+> changé l'occupation de la RAM mais retire environ 100 Ko de zéros de la flash.
+> Mesure v0.17.0 (standard, `arm-none-eabi-size`) : text 408 508, data 0,
+> bss 217 956 octets ; image `telestrat.bin` 408 508 octets (508 460 avant).
+> Les marges de RAM libre sont à remesurer pour les deux variantes.
 
 ## Cassette rapide et moteur sans relais (sprint 13)
 

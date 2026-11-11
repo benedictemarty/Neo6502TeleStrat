@@ -346,7 +346,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 | US-186 | Le cœur 0 ne meurt plus en HardFault dans l'IRQ USB : `third_party/tinyusb` passe de `dae3f9a` (30 juin) à `3174e76` (11 oct., abandon des transferts EPX, hathach/tinyusb#4166) ; avant, `epx_save_context` retranchait 0x80 à un `user_buf` nul (`0xffffff80`, lu par SWD) | ✅ `make test` entier ; ✅ carte : pas de HardFault pendant 80 s (Télestrat seul, 456 284 o) ; ⏳ avec seconde clé et lecteur de disquettes |
 | US-187 | Image noire environ 5 s après le démarrage (cœur 1 figé dans `dvi_dma_irq_handler`, canal DMA 5 arrêté en plein bloc) | ✅ non reproduit sans arrêt de cœur : Télestrat seul v0.16.37 flashé, DMA en marche plus de 3 min, `FDEBUG` 0, écran affiché (bmarty, 2026-10-26). L'état figé n'est apparu qu'après `halt`/`resume` des cœurs par SWD (cœur 1 privé de son IRQ DMA) ; mesure de l'autre session peut-être faussée de même. Clé + lecteur de disquettes USB branchés (2026-10-26) : l'écran affiche bien l'image (bmarty) ; sonde injoignable à ce moment (« Failed to connect multidrop »), donc pas de mesure SWD ni durée relevée ; ⏳ à revoir sur le Vic-20 |
 
-## Sprint 5 — v0.17.x — « Revue de code : tout corriger » ⏳ (ouvert 2026-11-11)
+## Sprint 5 — v0.17.0 — « Revue de code : tout corriger » ✅ au banc (2026-11-11) ; ⏳ carte
 
 Source : `docs/CRITIQUE.md` (revue exhaustive, 4 zones, ≈ 130 constats, mineurs
 et style compris). Règle : chaque constat est soit corrigé avec un test, soit
@@ -355,11 +355,11 @@ supposé. Chaque US cite les identifiants de `CRITIQUE.md` qu'elle ferme.
 
 | Id | Récit | Constats | État |
 |---|---|---|---|
-| US-190 | Noyau : instantanés robustes (rappels, `deferred`, validation, CRC), masque SR, ACK imprimante, reset, portabilité, commentaires | N-01 à N-27 | ⏳ |
-| US-191 | Périphériques : noms longs, modem (pertes, bascule RS232, NO CARRIER, échecs d'appel), ACIA, FX-80, MCP-40, HID, files | P-01 à P-31 | ⏳ |
-| US-192 | Firmware et menu : Pause propre, flush disquette, configuration non tronquée, profils atomiques, 480p, `.data`, touches, scintillement, sonde | F-01 à F-35 | ⏳ |
-| US-193 | Banc PC, outils, tests, build : socle reproductible, ROM régénérables, tests stricts (SKIP, codes de retour, ASan), réseau déterministe, outils | O-01 à O-29 | ⏳ |
-| US-194 | Documentation : README (version), ARCHITECTURE, TESTS à jour ; licences des ROM | N-19, N-20, N-27, F-27, F-28 | ⏳ |
+| US-190 | Noyau : instantanés robustes (rappels, `deferred`, validation, CRC), masque SR, ACK imprimante, reset, portabilité, commentaires | N-01 à N-27 | ✅ `make test` entier (test_revue_noyau 120) ; à vérifier sur matériel : N-07, N-10, N-14, N-15, N-16 (comportement inchangé, commenté) |
+| US-191 | Périphériques : noms longs, modem (pertes, bascule RS232, NO CARRIER, échecs d'appel), ACIA, FX-80, MCP-40, HID, files | P-01 à P-31 | ✅ test_revue_peripheriques 93 ; P-26 refusé (files de 16/512/512 octets contre 1024 fixe pour `byte_fifo`) ; à vérifier : P-02 cadence du modem, P-05 ESC e/f, P-09, P-16, P-23 ; P-12 inchangé (choix documenté) |
+| US-192 | Firmware et menu : Pause propre, flush disquette, configuration non tronquée, profils atomiques, 480p, `.data`, touches, scintillement, sonde | F-01 à F-35 | ✅ compilé (2 variantes + 480p, image 408 068 o contre 508 460) et test_revue_firmware 61 ; ⏳ carte : F-01 (Pause), F-17/F-18 (scintillement), F-22 ; à vérifier : F-08, F-20, F-21, F-35 ; F-30 et F-31 refusés (code utilisé par les tests et le banc PC ; police générée et vérifiée par `--verifie`) |
+| US-193 | Banc PC, outils, tests, build : socle reproductible, ROM régénérables, tests stricts (SKIP, codes de retour, ASan), réseau déterministe, outils | O-01 à O-29 | ✅ `make test` entier, `test-asan`, `STRICT=1` ; partiels : O-08 (`-k 8` non étudié), O-10 (liaison 127.0.0.1 de tnfsd non vérifiée), O-18 (avertissement, format 32 bits gardé), O-26 (glyphes « maison » gardés), O-29 (coordonnées d'écran en dur, état global, `telestrat_frame.h`, `-R` hors écoute) ; reste manuel : publier le socle reload, fournir `basic10.rom` |
+| US-194 | Documentation : README (version), ARCHITECTURE, TESTS à jour ; licences des ROM | N-19, N-20, N-27, F-27, F-28 | ✅ ARCHITECTURE (instantané v5, tailles), TESTS, ROMS (provenance, droits non établis), README, VERSION 0.17.0 |
 
 ## Plus tard
 

@@ -9,7 +9,7 @@ le **vrai W65C02S** du Neo6502 exécute TELEMON, le **RP2040** sert la mémoire
 AY-3-8912, Microdisc intégré, ACIA 6551, vidéo ULA en DVI). Livré en
 `telestrat.uf2`, compatible avec le multi-boot du firmware Neo6502.
 
-**Version : 0.4.1 — validé sur carte.** Sur une vraie Olimex Neo6502 (recette
+**Version courante : voir `VERSION` (0.17.0, revue de code `docs/CRITIQUE.md`). Mesures ci-dessous : 0.4.1, validé sur carte.** Sur une vraie Olimex Neo6502 (recette
 par sonde SWD, `tools/carte.py`) : TELEMON 2.4, STRATSED, HYPER-BASIC et le menu
 démarrent ; `PRINT 6*7` et `DIR` fonctionnent ; le 65C02 tourne à **1,000 MHz**,
 cœur 0 chargé à 45-62 % (76 % au pire pendant un DIR), cœur 1 à 35 µs par
