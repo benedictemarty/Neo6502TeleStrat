@@ -363,6 +363,12 @@ supposé. Chaque US cite les identifiants de `CRITIQUE.md` qu'elle ferme.
 
 ## Plus tard
 
+- Décision à prendre (bmarty) : porter le NMI détourné du Telestrat sur le socle
+  (`socle-2026-11-11-15`, `src/devices/w65_regs.h`) : remplacer `_telestrat_snoop_t`
+  par `w65_snoop_t` et `_telestrat_tick_snoop` par `w65_snoop_cycle` (modèle :
+  `Neo6502BBC/src/systems/bbc_state.h`), repointer `tools/SOCLE`. Proposé par la
+  session reload-emulator (2026-11-11) ; le code actuel de `telestrat.h` est validé
+  sur puce réelle et n'est pas modifié tant que la décision n'est pas prise.
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
 - Essai de la prise RS232 sur carte : PicoWiFiModemUSB (`ATDT` depuis
   `CONSOLE`), puis retour à TELEMATIC ; en option l'UEXT.
