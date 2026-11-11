@@ -20,10 +20,24 @@ BIN=${1:-build/telestrat_headless}
 DSK=${STRATSED_DSK:-$HOME/oriclib/games/dsk/STRATSED.DSK}
 ROM=${HYPERBAS_ROM:-$HOME/Hyper-Basic/original/hyperbas.rom}
 ROM2=${TELEASS_ROM:-$HOME/tele-ass/original/teleass.rom}
-if [ ! -f "$DSK" ] || [ ! -f "$ROM" ] || [ ! -f "$ROM2" ]; then
-    skip "disquette, hyperbas.rom ou teleass.rom absente"
+if [ ! -f "$DSK" ]; then
+    skip "disquette STRATSED.DSK absente"
 fi
 tmp_init
+# ROM d'origine absentes de leur emplacement habituel : extraites de l'en-tête
+# généré (MD5 contrôlé), ce qui évite d'ignorer le test
+RACINE=$(cd "$(dirname "$0")/.." && pwd)
+if [ ! -f "$ROM" ]; then
+    ROM="$TMP/hyperbas.src"
+    python3 -I "$RACINE/tools/extrait_rom.py" hyperbas "$ROM" 2> /dev/null || ROM=
+fi
+if [ ! -f "$ROM2" ]; then
+    ROM2="$TMP/teleass.src"
+    python3 -I "$RACINE/tools/extrait_rom.py" teleass "$ROM2" 2> /dev/null || ROM2=
+fi
+if [ -z "$ROM" ] || [ -z "$ROM2" ]; then
+    skip "hyperbas.rom ou teleass.rom absente (ni fichier, ni en-tête généré)"
+fi
 mkdir "$TMP/cle"
 cp "$DSK" "$TMP/cle/STRATSED.DSK"
 cp "$ROM" "$TMP/cle/hyperbas.rom"

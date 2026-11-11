@@ -58,8 +58,8 @@ ROMS = [
     # menu, en banque 7 pour démarrer en mode Atmos (lecteur de cassette).
     ("telestrat_atmos", 0x4000, 0x0000, "a330779c42ad7d0c4ac6ef9e92788ec6",
      "ed28568574716eef5d7c0fde2568d7a47a6e4b1fbca81daff3be05e45723466d",
-     "reload-emulator/src/roms/oric_roms.h", None,
-     "ORIC EXTENDED BASIC V1.1, 16 premiers Ko de src/roms/oric_roms.h du dépôt reload-emulator (local)", True),
+     "Phosphoric/roms/basic11b.rom", None,
+     "ORIC EXTENDED BASIC V1.1 (basic11b.rom), dépôt local Phosphoric/roms (pas d'URL ; origine de l'image non documentée)", True),
     # Cartouche STRATORIC (manuel du développeur Telestrat, F. Broche 1987) :
     # banque 7 SEDORIC + démarrage, banque 6 ORIC BASIC V1.1, banque 5 ORIC
     # BASIC V1.0 — mode Atmos avec disquettes SEDORIC et cassettes
@@ -68,12 +68,12 @@ ROMS = [
      "stratoric/B7STRA40.ROM",
      "https://raw.githubusercontent.com/jedeoric/stratoric/master/B7STRA40.ROM",
      "STRATORIC 4.0 (B7STRA40.ROM), dépôt jedeoric/stratoric (GitHub)", True),
-    # ORIC BASIC V1.0 (Oric-1) : aucune source publique connue du dépôt, aucune copie
-    # locale retrouvée ; régénérable seulement depuis un en-tête déjà généré
+    # ORIC BASIC V1.0 (Oric-1) : copie locale dans le dépôt Phosphoric (roms/basic10.rom,
+    # MD5 identique), aucune URL publique connue ; sinon depuis un en-tête déjà généré
     ("telestrat_basic10", 0x4000, 0x0000, "ebe418ec8a6c85d5ac32956c9a96c179",
      "83d341dab126092f7a6d56f6a92bca0643ff3aa6529d896085004f958c9be2ff",
-     "Oric1/roms/basic10.rom", None,
-     "ORIC BASIC V1.0 (basic10.rom), copie locale hors dépôt, origine non documentée", True),
+     "Phosphoric/roms/basic10.rom", None,
+     "ORIC BASIC V1.0 (basic10.rom), dépôt local Phosphoric/roms (pas d'URL ; origine de l'image non documentée)", True),
 ]
 
 DEFAUT_SORTIE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "roms", "telestrat_roms.h")

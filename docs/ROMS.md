@@ -27,9 +27,9 @@ présents sur cette machine (sauf `oric_roms.h`).
 | `telestrat_hyperbas` | HYPER-BASIC | GitHub `assinie/Hyper-Basic`, `original/hyperbas.rom` | 16 Ko | `364bf095e0dc4222d75354d50b8cddfc` | `08eaf63a55a7659a6da7c91cf4a57bb0e2e21ff856d0957928605aa5feed09c6` |
 | `telestrat_teleass` | TELE-ASS | GitHub `jedeoric/tele-ass`, `original/teleass.rom` | 16 Ko | `2324c9cc227c1327a72a667c97ed2990` | `49921a9f932f7ecc2947b9b08f0451a393dc48f55317209c44338dc8bcf227ee` |
 | `telestrat_telematic` | TELEMATIC (cartouche) | GitHub `assinie/Telematic`, `original/telematic.rom` | 8 Ko | `0a814078410353744e2947a8e9342e4e` | `f213042b9b166b443b8a5a336a325ba4a2ae9482db369754932a7b3c802ed980` |
-| `telestrat_atmos` | ORIC EXTENDED BASIC V1.1 | 16 premiers Ko de `src/roms/oric_roms.h` du dépôt reload-emulator (local, pas d'URL) | 16 Ko | `a330779c42ad7d0c4ac6ef9e92788ec6` | `ed28568574716eef5d7c0fde2568d7a47a6e4b1fbca81daff3be05e45723466d` |
+| `telestrat_atmos` | ORIC EXTENDED BASIC V1.1 | `roms/basic11b.rom` du dépôt local Phosphoric (pas d'URL ; origine de l'image non documentée) | 16 Ko | `a330779c42ad7d0c4ac6ef9e92788ec6` | `ed28568574716eef5d7c0fde2568d7a47a6e4b1fbca81daff3be05e45723466d` |
 | `telestrat_stratoric` | STRATORIC 4.0 (`B7STRA40.ROM`) | GitHub `jedeoric/stratoric`, `B7STRA40.ROM` | 16 Ko | `19c56dfcab72a082f449d2bc6ec15032` | `88446367807254eafea8fc048a12c90aa19ea2f3347ce37c467a460926d7f5b3` |
-| `telestrat_basic10` | ORIC BASIC V1.0 (Oric-1) | **aucune source publique connue du dépôt** ; copie locale hors dépôt (`Oric1/roms/basic10.rom`), origine non documentée | 16 Ko | `ebe418ec8a6c85d5ac32956c9a96c179` | `83d341dab126092f7a6d56f6a92bca0643ff3aa6529d896085004f958c9be2ff` |
+| `telestrat_basic10` | ORIC BASIC V1.0 (Oric-1) | `roms/basic10.rom` du dépôt local Phosphoric (pas d'URL ; origine de l'image non documentée) | 16 Ko | `ebe418ec8a6c85d5ac32956c9a96c179` | `83d341dab126092f7a6d56f6a92bca0643ff3aa6529d896085004f958c9be2ff` |
 
 TELEMATIC occupe 8 Ko (`$E000-$FFFF`, vecteur RESET en `$E000`) : l'image est recopiée
 dans les **deux moitiés** de la banque de 16 Ko (hypothèse : la ligne d'adresse A13
@@ -60,8 +60,7 @@ Sources essayées dans l'ordre, chaque image étant vérifiée (taille, MD5, SHA
 1. clone local `~/Projets/<dépôt>/…` puis `~/<dépôt>/…` (chemins relatifs dans
    `tools/fetch_roms.py`) ;
 2. l'en-tête déjà généré (`src/roms/telestrat_roms.h` ou la sortie demandée) : permet de
-   régénérer sans réseau ni clones, y compris `telestrat_basic10`, qui n'a pas d'autre
-   source ;
+   régénérer sans réseau ni clones ;
 3. téléchargement HTTPS (taille limitée à 1 Mo, délai de 30 s), sauf `--offline`.
 
 L'écriture est atomique (fichier temporaire du même répertoire, puis renommage) : un
