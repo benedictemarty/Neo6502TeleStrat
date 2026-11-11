@@ -49,6 +49,7 @@ static inline bool osd_rom_size_ok(size_t size) {
 }
 
 // Remplit la banque (répétition des images plus petites) ; false si la taille ne va pas
+// (utilisé par les tests seulement : le firmware passe par rom_pool.h)
 static inline bool osd_rom_fill(uint8_t bank[OSD_BANK_BYTES], const uint8_t* data, size_t size) {
     if (!osd_rom_size_ok(size)) return false;
     for (size_t base = 0; base < OSD_BANK_BYTES; base += size) memcpy(bank + base, data, size);
@@ -81,6 +82,49 @@ static inline bool osd_config_server(const char* value, char* host, size_t cap, 
     }
     if (!p) return false;
     *port = (uint16_t)p;
+    return true;
+}
+
+// Port TCP d'une valeur « listen= » : 1 à 65535, rien d'autre ; false sinon
+static inline bool osd_config_port(const char* value, int* port) {
+    unsigned long p = 0;
+    if (!*value) return false;
+    for (; *value; value++) {
+        if (*value < '0' || *value > '9' || (p = p * 10 + (unsigned long)(*value - '0')) > 65535) return false;
+    }
+    if (!p) return false;
+    *port = (int)p;
+    return true;
+}
+
+// Lecture d'un fichier texte par morceaux : octets [pos, pos + len) dans buf
+typedef bool (*osd_config_read_t)(void* ctx, uint32_t pos, uint8_t* buf, uint32_t len);
+
+// Ligne suivante d'un fichier de size octets, lu à partir de *pos : fin de
+// ligne retirée, ainsi que les espaces de fin. Une ligne de cap caractères ou
+// plus est coupée à cap - 1 et sa suite sautée (jamais lue comme une autre
+// ligne) : *cut vaut alors true. false à la fin du fichier ou si la lecture échoue.
+static inline bool osd_config_line(osd_config_read_t read, void* ctx, uint32_t size, uint32_t* pos, char* line,
+                                   uint32_t cap, bool* cut) {
+    uint32_t n = 0;
+    bool eol = false;
+    *cut = false;
+    if (*pos >= size) return false;
+    while (!eol && *pos < size) {
+        uint8_t blk[32];  // lecture par morceaux : un appel de lecture par 32 octets
+        uint32_t want = size - *pos;
+        if (want > sizeof(blk)) want = sizeof(blk);
+        if (!read(ctx, *pos, blk, want)) return false;
+        uint32_t i = 0;
+        for (; i < want && !eol; i++) {
+            if (blk[i] == '\n') eol = true;
+            else if (n + 1 < cap) line[n++] = (char)blk[i];
+            else *cut = true;
+        }
+        *pos += i;
+    }
+    while (n && (line[n - 1] == '\r' || line[n - 1] == ' ')) n--;
+    line[n] = 0;
     return true;
 }
 
@@ -152,33 +196,37 @@ static inline bool osd_config_yes(const char* value, bool dflt) {
 // Réécrit TELESTRA.CFG : lignes du menu remplacées, autres gardées. drive[d] :
 // image du lecteur (NULL ou "" : aucune ligne) ; bank[b] : cartouche de la clé
 // en banque b (NULL ou "" : contenu d'origine). Retourne la longueur écrite
-// (0 si out est trop petit).
+// (0 si out est trop petit : l'appelant doit alors refuser d'écrire, jamais
+// écrire un fichier amputé).
 // Avec les options du menu (opt ; NULL : lignes existantes gardées telles
 // quelles)
 static inline size_t osd_config_merge_ex(const char* old, const char* const drive[4], const char* const bank[8],
                                          const osd_options_t* opt, char* out, size_t cap) {
     size_t len = 0;
     char line[128];
-#define _OSD_APPEND(s)                              \
+#define _OSD_APPEND_N(s, n)                         \
     do {                                            \
-        size_t l_ = strlen(s);                      \
+        size_t l_ = (n);                            \
         if (len + l_ + 1 > cap) return 0;           \
         memcpy(out + len, s, l_);                   \
         len += l_;                                  \
         out[len] = 0;                               \
     } while (0)
+#define _OSD_APPEND(s) _OSD_APPEND_N(s, strlen(s))
     if (cap) out[0] = 0;
-    // Lignes gardées
+    // Lignes gardées, recopiées sur leur longueur entière (seul le début, qui
+    // porte la clé, sert à reconnaître une ligne du menu)
     const char* p = old ? old : "";
     while (*p) {
         const char* e = strchr(p, '\n');
-        size_t n = e ? (size_t)(e - p) : strlen(p);
-        size_t m = n < sizeof(line) - 1 ? n : sizeof(line) - 1;
-        memcpy(line, p, m);
-        line[m] = 0;
-        while (m && (line[m - 1] == '\r' || line[m - 1] == ' ')) line[--m] = 0;
+        const size_t n = e ? (size_t)(e - p) : strlen(p);
+        size_t m = n;
+        while (m && (p[m - 1] == '\r' || p[m - 1] == ' ')) m--;
+        const size_t k = m < sizeof(line) - 1 ? m : sizeof(line) - 1;
+        memcpy(line, p, k);
+        line[k] = 0;
         if (m && !_osd_config_owned(line, opt)) {
-            _OSD_APPEND(line);
+            _OSD_APPEND_N(p, m);
             _OSD_APPEND("\n");
         }
         p += n + (e ? 1 : 0);
@@ -209,9 +257,11 @@ static inline size_t osd_config_merge_ex(const char* old, const char* const driv
         }
     }
 #undef _OSD_APPEND
+#undef _OSD_APPEND_N
     return len;
 }
 
+// Sans options du menu (tests seulement : le firmware passe par osd_config_merge_ex)
 static inline size_t osd_config_merge(const char* old, const char* const drive[4], const char* const bank[8], char* out,
                                       size_t cap) {
     return osd_config_merge_ex(old, drive, bank, NULL, out, cap);

@@ -3,11 +3,18 @@ cmake_minimum_required(VERSION 3.12)
 # Firmware telestrat.uf2 pour Olimex Neo6502. Réutilise le SDK Pico, PicoDVI,
 # tinyusb et les sources de plate-forme de reload-emulator (RELOAD_DIR).
 #
-#   cmake -S platforms/rp2040 -B build/rp2040 [-DRELOAD_DIR=~/.cache/reload-socle/socle-2026-10-01-27]
+#   cmake -S platforms/rp2040 -B build/rp2040 [-DRELOAD_DIR=<arbre du socle, voir tools/SOCLE>]
 #         [-DTELESTRAT_RAM64K=ON] [-DNEO_MULTIBOOT_DIR=... -DNEO_SLOT_TELESTRAT=n]
 
-# Par défaut : le socle reload épinglé (tools/reload_socle.sh, comme le Makefile)
-set(RELOAD_DIR "$ENV{HOME}/.cache/reload-socle/socle-2026-10-01-27" CACHE PATH "reload-emulator (puces, SDK Pico, PicoDVI, tinyusb)")
+# Par défaut : le socle reload épinglé (tools/reload_socle.sh, comme le Makefile) ;
+# l'étiquette n'est écrite que dans tools/SOCLE
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/SOCLE" RELOAD_SOCLE_TAG LIMIT_COUNT 1)
+if(DEFINED ENV{XDG_CACHE_HOME} AND NOT "$ENV{XDG_CACHE_HOME}" STREQUAL "")
+    set(RELOAD_CACHE "$ENV{XDG_CACHE_HOME}/reload-socle")
+else()
+    set(RELOAD_CACHE "$ENV{HOME}/.cache/reload-socle")
+endif()
+set(RELOAD_DIR "${RELOAD_CACHE}/${RELOAD_SOCLE_TAG}" CACHE PATH "reload-emulator (puces, SDK Pico, PicoDVI, tinyusb)")
 if(NOT EXISTS "${RELOAD_DIR}/platforms/rp2040/lib/pico-sdk/pico_sdk_init.cmake")
     message(FATAL_ERROR "reload-emulator absent de ${RELOAD_DIR} : lancer tools/reload_socle.sh (ou -DRELOAD_DIR=...)")
 endif()
@@ -78,6 +85,12 @@ target_include_directories(telestrat PRIVATE
 )
 
 target_compile_options(telestrat PRIVATE -Wall)
+# À MESURER (F-35, pas un bogue connu) : le deuxième étage de démarrage de la
+# carte olimex_neo6502 est GENERIC_03H avec CLKDIV 8 pour la flash (QSPI,
+# boards/olimex_neo6502.h du SDK du socle) ; le
+# code resté en flash (AY, accès partiels aux VIA, menu) paie cher chaque
+# défaut du cache XIP de 16 Ko. Essai : compter les défauts de cache (compteurs
+# XIP_CTRL) ou diag_frame_us_max avec un autre boot2 / CLKDIV, par la sonde SWD.
 option(TELESTRAT_VIDEO_480 "800x480 à 295,2 MHz (1,20 V) au lieu de 960x544 à 372 MHz (1,30 V)" OFF)
 
 # Version affichée par le menu (fichier VERSION du dépôt)
@@ -154,10 +167,10 @@ target_compile_definitions(telestrat PRIVATE
     # plus ses files, et malloc (newlib) demande la mémoire par pages : mesuré
     # sur carte, il faut ~21,8 Ko (21 204 échouent, 21 800 passent). Un manque
     # fait échouer l'édition des liens (« region RAM overflowed ») au lieu de
-    # planter la carte au démarrage (« Out of memory » dans dvi_init)
-    $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:PICO_HEAP_SIZE=0x5800>
+    # planter la carte au démarrage (« Out of memory » dans dvi_init). Même
+    # valeur dans les deux variantes (F-29)
+    PICO_HEAP_SIZE=0x5800
     $<$<NOT:$<BOOL:${TELESTRAT_RAM64K}>>:OSD_MENU_FILES=40>
-        $<$<BOOL:${TELESTRAT_RAM64K}>:PICO_HEAP_SIZE=0x5800>
 )
 
 target_link_libraries(telestrat

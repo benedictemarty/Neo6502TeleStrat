@@ -75,7 +75,7 @@
 // pour chaque port : le port TNFS du modem ne répond qu'avec DTR levé. Trames TNFS
 // (534 octets au plus) : tampons de 128 octets vidés et remplis par neo_cdc_serial.c
 #define CFG_TUH_CDC_LINE_CONTROL_ON_ENUM 0x03
-#define CFG_TUH_CDC_LINE_CODING_ON_ENUM  { 9600, CDC_LINE_CONDING_STOP_BITS_1, CDC_LINE_CODING_PARITY_NONE, 8 }
+#define CFG_TUH_CDC_LINE_CODING_ON_ENUM  { 9600, CDC_LINE_CODING_STOP_BITS_1, CDC_LINE_CODING_PARITY_NONE, 8 }
 
 //------------- HID -------------//
 #define CFG_TUH_HID_EPIN_BUFSIZE    64

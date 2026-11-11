@@ -42,8 +42,10 @@
 #define TELESTRAT_VIDEO_PIXELS         720  // après triplement
 
 // Octet de l'image (deux pixels) -> 6 bits par plan (pixel de gauche en bits
-// 0-2), plan p dans l'octet p du mot
-static uint32_t TELESTRAT_VIDEO_RAM telestrat_video_lut[256];
+// 0-2), plan p dans l'octet p du mot. Remplie par telestrat_video_init : en
+// .bss, sans attribut de section (TELESTRAT_VIDEO_RAM la rangeait en .data, et
+// ses zéros dans l'image flash : F-06) ; le code de la ligne, lui, reste en RAM.
+static uint32_t telestrat_video_lut[256];
 
 static inline void telestrat_video_init(void) {
     for (int b = 0; b < 256; b++) {

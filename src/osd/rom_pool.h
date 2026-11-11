@@ -68,7 +68,8 @@ static inline int _rom_pool_free_slot(const rom_pool_t* p) {
     return -1;
 }
 
-// Emplacements libres (pour les cartouches en banque vide)
+// Emplacements libres (pour les cartouches en banque vide) ; sert à la vérification
+// préalable de rom_builtin.h
 static inline int rom_pool_free(const rom_pool_t* p) {
     int n = 0;
     for (int s = 0; s < p->nslots; s++) n += p->slot_bank[s] < 0;

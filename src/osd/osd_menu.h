@@ -8,8 +8,9 @@
 // pour une banque, les ROM intégrées d'abord), avec défilement et saut à
 // l'initiale tapée. Volume Réseau prêt (net_present) : choix de la source
 // (Clé USB / Réseau) avant le sélecteur ; les fichiers du réseau sont nommés
-// « net:/NOM » (préfixe de neo_storage.h du socle). osd_tape_banner dessine le bandeau de la cassette. La plate-forme remplit l'état (lecteurs, banques, clé,
-// fichiers, message) et exécute les actions rendues par osd_menu_key().
+// « net:/NOM » (préfixe de neo_storage.h du socle). osd_tape_banner dessine le
+// bandeau de la cassette. La plate-forme remplit l'état (lecteurs, banques,
+// clé, fichiers, message) et exécute les actions rendues par osd_menu_key().
 //
 // Indépendant de la plate-forme (testé dans tests/test_telestrat.c).
 //
@@ -36,7 +37,7 @@
 #include "osd/osd.h"
 
 #ifndef OSD_MENU_FILES
-#define OSD_MENU_FILES 64  // fichiers de la clé listés (32 avec la RAM 64 Ko : place)
+#define OSD_MENU_FILES 64  // fichiers listés (64 par défaut ; platforms/rp2040/CMakeLists.txt : 40, ou 16 avec la RAM 64 Ko)
 #endif
 #define OSD_NAME_LEN   48
 // Préfixe des fichiers du réseau (NEO_NET_PREFIX "/" de neo_storage.h) ; un
@@ -99,6 +100,12 @@ typedef struct {
     uint8_t vol;  // OSD_VOL_USB, OSD_VOL_NET
 } osd_file_t;
 
+// Entrée de répertoire à ne pas lister : cachée, ou « ._NOM » (fichier AppleDouble
+// laissé par macOS sur une clé FAT, de contenu sans rapport avec « NOM »)
+static inline bool osd_name_ignored(const char* name, bool hidden) {
+    return hidden || (name[0] == '.' && name[1] == '_');
+}
+
 // Fichier du réseau (nom préfixé)
 static inline bool osd_is_net(const char* name) { return !strncmp(name, OSD_NET_PREFIX, OSD_NET_PREFIX_LEN); }
 
@@ -142,6 +149,7 @@ typedef struct {
     const char* net_label;        // serveur (NULL : non affiché)
     osd_file_t files[OSD_MENU_FILES];
     int nfiles;
+    bool truncated;               // liste incomplète : OSD_MENU_FILES atteint (la plate-forme le lève à chaque relecture)
     char message[96];             // dernier résultat d'action
     bool message_error;
     const char* version;
@@ -158,6 +166,7 @@ typedef struct {
     int source_cursor;  // page de la source : 0 clé, 1 réseau
 } osd_menu_t;
 
+// Remise à zéro (banc PC et tests : le firmware tient `menu` en .bss, déjà à zéro)
 static inline void osd_menu_init(osd_menu_t* m) {
     memset(m, 0, sizeof(*m));
     m->version = "";
@@ -170,7 +179,6 @@ static inline bool _osd_item_is_drive(int item) { return item >= OSD_ITEM_DRIVE0
 
 static inline bool _osd_item_is_bank(int item) { return item >= OSD_ITEM_BANK7 && item < OSD_ITEM_BANK7 + 7; }
 
-// Ouverture du sélecteur pour un lecteur ou une banque
 // Nom d'un élément de la liste du sélecteur
 static inline const char* _osd_entry_name(const osd_menu_t* m, int entry) {
     if (entry <= -100) return m->profile[-100 - entry];
@@ -259,85 +267,92 @@ static inline void _osd_browse_clamp(osd_menu_t* m) {
 
 static inline int _osd_upper(int c) { return (c >= 'a' && c <= 'z') ? c - 32 : c; }
 
-static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
+// Page du choix de la source (clé, réseau)
+static inline osd_action_t _osd_key_source(osd_menu_t* m, int key) {
     osd_action_t a = {OSD_ACT_NONE, 0, -1};
-    if (m->page == OSD_PAGE_SOURCE) {
-        switch (key) {
-            case OSD_KEY_UP:
-            case OSD_KEY_DOWN: m->source_cursor = !m->source_cursor; break;
-            case OSD_KEY_HOME: m->source_cursor = 0; break;
-            case OSD_KEY_END: m->source_cursor = 1; break;
-            case OSD_KEY_ESC:
-            case OSD_KEY_LEFT: m->page = OSD_PAGE_MAIN; break;
-            case OSD_KEY_ENTER:
-            case OSD_KEY_RIGHT:
-                // Sélecteur ouvert sur la liste connue ; la plate-forme relit le volume
-                a.type = OSD_ACT_SOURCE;
-                a.target = m->browse_target;
-                a.file = m->source_cursor ? OSD_VOL_NET : OSD_VOL_USB;
-                osd_menu_browse(m, m->browse_target, a.file);
-                break;
-            default:
-                // Initiale : C (clé), R (réseau)
-                if (_osd_upper(key) == 'C') m->source_cursor = 0;
-                else if (_osd_upper(key) == 'R') m->source_cursor = 1;
-                break;
-        }
-        return a;
+    switch (key) {
+        case OSD_KEY_UP:
+        case OSD_KEY_DOWN: m->source_cursor = !m->source_cursor; break;
+        case OSD_KEY_HOME: m->source_cursor = 0; break;
+        case OSD_KEY_END: m->source_cursor = 1; break;
+        case OSD_KEY_ESC:
+        case OSD_KEY_LEFT: m->page = OSD_PAGE_MAIN; break;
+        case OSD_KEY_ENTER:
+        case OSD_KEY_RIGHT:
+            // Sélecteur ouvert sur la liste connue ; la plate-forme relit le volume
+            a.type = OSD_ACT_SOURCE;
+            a.target = m->browse_target;
+            a.file = m->source_cursor ? OSD_VOL_NET : OSD_VOL_USB;
+            osd_menu_browse(m, m->browse_target, a.file);
+            break;
+        default:
+            // Initiale : C (clé), R (réseau)
+            if (_osd_upper(key) == 'C') m->source_cursor = 0;
+            else if (_osd_upper(key) == 'R') m->source_cursor = 1;
+            break;
     }
-    if (m->page == OSD_PAGE_BROWSE) {
-        const int n = m->browse_count + 1;
-        switch (key) {
-            case OSD_KEY_UP: m->browse_cursor = (m->browse_cursor + n - 1) % n; break;
-            case OSD_KEY_DOWN: m->browse_cursor = (m->browse_cursor + 1) % n; break;
-            case OSD_KEY_PGUP: m->browse_cursor -= OSD_BROWSE_VISIBLE; break;
-            case OSD_KEY_PGDN: m->browse_cursor += OSD_BROWSE_VISIBLE; break;
-            case OSD_KEY_HOME: m->browse_cursor = 0; break;
-            case OSD_KEY_END: m->browse_cursor = n - 1; break;
-            case OSD_KEY_ESC:
-            case OSD_KEY_LEFT:
-                m->page = OSD_PAGE_MAIN;
-                if (m->browse_target == OSD_ITEM_BOOT) a.type = OSD_ACT_RESUME;  // configuration de la clé
-                break;
-            case OSD_KEY_ENTER: {
-                const int item = m->browse_target;
-                const int file = m->browse_cursor ? m->browse_list[m->browse_cursor - 1] : -1;
-                const bool none = m->browse_cursor == 0;
-                if (item == OSD_ITEM_BOOT) {
-                    a.type = OSD_ACT_PROFILE;
-                    a.file = none ? -1 : -100 - file;
-                } else if (_osd_item_is_drive(item)) {
-                    a.target = item - OSD_ITEM_DRIVE0;
-                    a.type = none ? OSD_ACT_EJECT : OSD_ACT_INSERT;
-                } else if (item == OSD_ITEM_TAPE) {
-                    a.type = none ? OSD_ACT_TAPE_EJECT : OSD_ACT_TAPE_INSERT;
-                } else if (item == OSD_ITEM_STATE) {
-                    a.type = none ? OSD_ACT_STATE_SAVE : OSD_ACT_STATE_LOAD;
-                } else {
-                    a.target = _osd_item_bank(item);
-                    a.type = none ? OSD_ACT_RESTORE : file >= 0 ? OSD_ACT_LOAD_ROM : OSD_ACT_LOAD_BUILTIN;
-                }
-                if (item != OSD_ITEM_BOOT) a.file = none ? -1 : file >= 0 ? file : -2 - file;
-                m->page = OSD_PAGE_MAIN;
-                break;
+    return a;
+}
+
+// Sélecteur de fichiers
+static inline osd_action_t _osd_key_browse(osd_menu_t* m, int key) {
+    osd_action_t a = {OSD_ACT_NONE, 0, -1};
+    const int n = m->browse_count + 1;
+    switch (key) {
+        case OSD_KEY_UP: m->browse_cursor = (m->browse_cursor + n - 1) % n; break;
+        case OSD_KEY_DOWN: m->browse_cursor = (m->browse_cursor + 1) % n; break;
+        case OSD_KEY_PGUP: m->browse_cursor -= OSD_BROWSE_VISIBLE; break;
+        case OSD_KEY_PGDN: m->browse_cursor += OSD_BROWSE_VISIBLE; break;
+        case OSD_KEY_HOME: m->browse_cursor = 0; break;
+        case OSD_KEY_END: m->browse_cursor = n - 1; break;
+        case OSD_KEY_ESC:
+        case OSD_KEY_LEFT:
+            m->page = OSD_PAGE_MAIN;
+            if (m->browse_target == OSD_ITEM_BOOT) a.type = OSD_ACT_RESUME;  // configuration de la clé
+            break;
+        case OSD_KEY_ENTER: {
+            const int item = m->browse_target;
+            const int file = m->browse_cursor ? m->browse_list[m->browse_cursor - 1] : -1;
+            const bool none = m->browse_cursor == 0;
+            if (item == OSD_ITEM_BOOT) {
+                a.type = OSD_ACT_PROFILE;
+                a.file = none ? -1 : -100 - file;
+            } else if (_osd_item_is_drive(item)) {
+                a.target = item - OSD_ITEM_DRIVE0;
+                a.type = none ? OSD_ACT_EJECT : OSD_ACT_INSERT;
+            } else if (item == OSD_ITEM_TAPE) {
+                a.type = none ? OSD_ACT_TAPE_EJECT : OSD_ACT_TAPE_INSERT;
+            } else if (item == OSD_ITEM_STATE) {
+                a.type = none ? OSD_ACT_STATE_SAVE : OSD_ACT_STATE_LOAD;
+            } else {
+                a.target = _osd_item_bank(item);
+                a.type = none ? OSD_ACT_RESTORE : file >= 0 ? OSD_ACT_LOAD_ROM : OSD_ACT_LOAD_BUILTIN;
             }
-            default:
-                // Saut au fichier suivant qui commence par la lettre tapée
-                if (key > ' ' && key < 0x100) {
-                    for (int k = 1; k <= m->browse_count; k++) {
-                        const int idx = (m->browse_cursor - 1 + k) % m->browse_count;
-                        if (_osd_upper((uint8_t)_osd_shown_name(_osd_entry_name(m, m->browse_list[idx]))[0]) ==
-                            _osd_upper(key)) {
-                            m->browse_cursor = idx + 1;
-                            break;
-                        }
+            if (item != OSD_ITEM_BOOT) a.file = none ? -1 : file >= 0 ? file : -2 - file;
+            m->page = OSD_PAGE_MAIN;
+            break;
+        }
+        default:
+            // Saut au fichier suivant qui commence par la lettre tapée
+            if (key > ' ' && key < 0x100) {
+                for (int k = 1; k <= m->browse_count; k++) {
+                    const int idx = (m->browse_cursor - 1 + k) % m->browse_count;
+                    if (_osd_upper((uint8_t)_osd_shown_name(_osd_entry_name(m, m->browse_list[idx]))[0]) ==
+                        _osd_upper(key)) {
+                        m->browse_cursor = idx + 1;
+                        break;
                     }
                 }
-                break;
-        }
-        _osd_browse_clamp(m);
-        return a;
+            }
+            break;
     }
+    _osd_browse_clamp(m);
+    return a;
+}
+
+// Page principale
+static inline osd_action_t _osd_key_main(osd_menu_t* m, int key) {
+    osd_action_t a = {OSD_ACT_NONE, 0, -1};
     int c = m->cursor;
     switch (key) {
         case OSD_KEY_UP: c = (c + OSD_ITEMS - 1) % OSD_ITEMS; break;
@@ -383,6 +398,12 @@ static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
     }
     m->cursor = c;
     return a;
+}
+
+static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
+    if (m->page == OSD_PAGE_SOURCE) return _osd_key_source(m, key);
+    if (m->page == OSD_PAGE_BROWSE) return _osd_key_browse(m, key);
+    return _osd_key_main(m, key);
 }
 
 // Instantané à reprendre par F3 : le dernier enregistré ou repris
@@ -451,11 +472,9 @@ static inline void _osd_button(osd_surface_t* s, int row, int col, int cols, con
     osd_puts(s, row, col + (cols - len) / 2, label, attr, -1);
 }
 
-static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
+// Bandeau du haut
+static inline void _osd_draw_header(const osd_menu_t* m, osd_surface_t* s) {
     char buf[96];
-    osd_clear(s, OSD_BG);
-
-    // Bandeau
     osd_fill(s, 0, 0, 3, OSD_COLS, OSD_ATTR(OSD_WHITE, OSD_BLUE));
     osd_puts_big(s, 1, 3, "TELESTRAT", OSD_ATTR(OSD_WHITE, OSD_BLUE));
     osd_puts(s, 1, 24, "Oric", OSD_ATTR(OSD_YELLOW, OSD_BLUE), -1);
@@ -463,7 +482,11 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
     osd_puts(s, 1, OSD_COLS - 3 - osd_strlen(buf), buf, OSD_ATTR(OSD_CYAN, OSD_BLUE), -1);
     for (int c = 0; c < OSD_COLS; c++) osd_putc(s, 3, c, OSD_HLINE, OSD_ATTR(OSD_CYAN, OSD_BLACK));
 
-    // Disquettes
+}
+
+// Disquettes et cassette
+static inline void _osd_draw_media(const osd_menu_t* m, osd_surface_t* s) {
+    char buf[96];
     _osd_panel(s, 5, 2, 12, 56, OSD_FLOP_L, "Disquettes");
     for (int d = 0; d < 4; d++) {
         const int row = 7 + 2 * d;
@@ -505,7 +528,11 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
         }
     }
 
-    // Cartouches
+}
+
+// Cartouches (banques 7 à 1)
+static inline void _osd_draw_banks(const osd_menu_t* m, osd_surface_t* s) {
+    char buf[96];
     _osd_panel(s, 5, 61, 17, 57, OSD_CART_L, "Cartouches");
     static const char* const origin[5] = {"", "RAM", "ROM", "clé USB", "réseau"};
     for (int i = 0; i < 7; i++) {
@@ -523,7 +550,11 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
         }
     }
 
-    // Clé USB
+}
+
+// Clé USB et volume Réseau
+static inline void _osd_draw_usb(const osd_menu_t* m, osd_surface_t* s) {
+    char buf[96];
     _osd_panel(s, 18, 2, 4, 56, OSD_USB_L, "Clé USB");
     if (m->usb_present) {
         int ndsk = 0, nrom = 0, ntap = 0, nsta = 0;
@@ -535,7 +566,8 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
             else nrom++;
         }
         osd_puts(s, 19, 5, m->usb_label[0] ? m->usb_label : "Clé montée", OSD_PANEL, m->net_present ? 24 : 50);
-        snprintf(buf, sizeof(buf), "%d .dsk   %d .tap   %d .rom   %d .sta", ndsk, ntap, nrom, nsta);
+        snprintf(buf, sizeof(buf), "%d .dsk   %d .tap   %d .rom   %d .sta%s", ndsk, ntap, nrom, nsta,
+                 m->truncated ? "   (liste tronquée)" : "");
         osd_puts(s, 20, 5, buf, OSD_PANEL_DIM, -1);
     } else {
         osd_puts(s, 19, 5, "Aucune clé", OSD_PANEL, -1);
@@ -548,7 +580,11 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
         if (m->net_label) osd_puts(s, 19, 33 + nl, m->net_label, OSD_PANEL_DIM, 55 - 33 - nl);
     }
 
-    // Périphériques : imprimante, modem (Entrée : activer / couper)
+}
+
+// Périphériques : instantanés, imprimante, modem, cassette (Entrée : activer / couper)
+static inline void _osd_draw_devices(const osd_menu_t* m, osd_surface_t* s) {
+    char buf[96];
     _osd_panel(s, 23, 2, 5, 116, 0, "Périphériques");
     {
         // Instantanés (Entrée : enregistrer, reprendre)
@@ -608,7 +644,10 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
         if (m->tape_motor_always) osd_puts(s, 26, 91, "câble sans relais", dim_o, -1);
     }
 
-    // Actions
+}
+
+// Boutons d'action et message
+static inline void _osd_draw_actions(const osd_menu_t* m, osd_surface_t* s) {
     const int btn_row = 29;
     const char* const labels[3] = {"Redémarrer (RESET)", "Enregistrer la configuration", "Reprendre"};
     const int cols[3] = {2, 40, 82}, widths[3] = {34, 38, 36};
@@ -621,8 +660,10 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
                  OSD_ATTR(m->message_error ? OSD_RED : OSD_GREEN, OSD_BLACK));
         osd_puts(s, 31, 5, m->message, OSD_ATTR(m->message_error ? OSD_RED : OSD_YELLOW, OSD_BLACK), -1);
     }
+}
 
-    // Pied : aide des touches
+// Pied : aide des touches
+static inline void _osd_draw_footer(const osd_menu_t* m, osd_surface_t* s) {
     osd_fill(s, 32, 0, 2, OSD_COLS, OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER));
     const uint8_t key = OSD_ATTR(OSD_BLACK, OSD_CYAN), txt = OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER);
     const char* const help_main[][2] = {{" Flèches ", "choisir"}, {" Entrée ", "ouvrir, activer"}, {" Suppr ", "éjecter, d'origine"},
@@ -636,10 +677,15 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
         c += osd_puts(s, 32, c, help[i][1], txt, -1) + 3;
     }
     osd_puts(s, 32, OSD_COLS - 22, "F1 : ouvrir ce menu", OSD_ATTR(OSD_CYAN, OSD_BLUE | OSD_DITHER), -1);
+}
 
-    if (m->page == OSD_PAGE_MAIN) return;
+// Cadre du sélecteur de fichiers ou du choix de la source, par-dessus la page
+#define OSD_BR_TOP   6
+#define OSD_BR_LEFT  22
+#define OSD_BR_WIDTH 76
 
-    // Sélecteur de fichiers ou choix de la source, par-dessus
+static inline void _osd_draw_browser_frame(const osd_menu_t* m, osd_surface_t* s) {
+    char buf[96];
     const int item = m->browse_target;
     const bool drive = _osd_item_is_drive(item), tape = item == OSD_ITEM_TAPE, state = item == OSD_ITEM_STATE,
                boot = item == OSD_ITEM_BOOT;
@@ -653,7 +699,7 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
         const size_t l = strlen(buf);
         snprintf(buf + l, sizeof(buf) - l, net ? " — réseau" : " — source ?");
     }
-    const int top = 6, left = 22, width = 76, height = source ? 6 : OSD_BROWSE_VISIBLE + 4;
+    const int top = OSD_BR_TOP, left = OSD_BR_LEFT, width = OSD_BR_WIDTH, height = source ? 6 : OSD_BROWSE_VISIBLE + 4;
     osd_fill(s, top + 1, left + 2, height, width, OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER));  // ombre
     osd_fill(s, top, left, height, width, OSD_ATTR(OSD_WHITE, OSD_BLACK));
     osd_frame(s, top, left, height, width, OSD_ATTR(OSD_YELLOW, OSD_BLACK), NULL, 0);
@@ -663,20 +709,29 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
     osd_putc(s, top, left + 4, (uint8_t)(icon + 1), OSD_ATTR(OSD_YELLOW, OSD_BLACK));
     const int tl = osd_puts(s, top, left + 6, buf, OSD_ATTR(OSD_WHITE, OSD_BLACK), -1);
     osd_putc(s, top, left + 6 + tl, ' ', OSD_ATTR(OSD_YELLOW, OSD_BLACK));
-    if (source) {
-        // Clé USB / Réseau
-        for (int k = 0; k < 2; k++) {
-            const int row = top + 2 + k;
-            const bool sel = k == m->source_cursor;
-            const uint8_t base = sel ? OSD_ATTR(OSD_BLACK, OSD_CYAN) : OSD_ATTR(OSD_WHITE, OSD_BLACK);
-            const uint8_t dim = sel ? OSD_ATTR(OSD_BLUE, OSD_CYAN) : OSD_ATTR(OSD_CYAN, OSD_BLACK);
-            osd_fill(s, row, left + 2, 1, width - 5, base);
-            osd_puts(s, row, left + 4, k ? "Réseau" : "Clé USB", base, -1);
-            const char* info = k ? m->net_label : m->usb_present ? m->usb_label : "aucune clé";
-            if (info) osd_puts(s, row, left + 16, info, dim, width - 22);
-        }
-        return;
+}
+
+// Choix de la source : Clé USB / Réseau
+static inline void _osd_draw_source_rows(const osd_menu_t* m, osd_surface_t* s) {
+    const int top = OSD_BR_TOP, left = OSD_BR_LEFT, width = OSD_BR_WIDTH;
+    for (int k = 0; k < 2; k++) {
+        const int row = top + 2 + k;
+        const bool sel = k == m->source_cursor;
+        const uint8_t base = sel ? OSD_ATTR(OSD_BLACK, OSD_CYAN) : OSD_ATTR(OSD_WHITE, OSD_BLACK);
+        const uint8_t dim = sel ? OSD_ATTR(OSD_BLUE, OSD_CYAN) : OSD_ATTR(OSD_CYAN, OSD_BLACK);
+        osd_fill(s, row, left + 2, 1, width - 5, base);
+        osd_puts(s, row, left + 4, k ? "Réseau" : "Clé USB", base, -1);
+        const char* info = k ? m->net_label : m->usb_present ? m->usb_label : "aucune clé";
+        if (info) osd_puts(s, row, left + 16, info, dim, width - 22);
     }
+}
+
+// Liste du sélecteur de fichiers
+static inline void _osd_draw_file_rows(const osd_menu_t* m, osd_surface_t* s) {
+    const int top = OSD_BR_TOP, left = OSD_BR_LEFT, width = OSD_BR_WIDTH;
+    const int item = m->browse_target;
+    const bool drive = _osd_item_is_drive(item), tape = item == OSD_ITEM_TAPE, state = item == OSD_ITEM_STATE,
+               boot = item == OSD_ITEM_BOOT, net = m->browse_vol == OSD_VOL_NET;
     const int n = m->browse_count + 1;
     for (int k = 0; k < OSD_BROWSE_VISIBLE && m->browse_scroll + k < n; k++) {
         const int idx = m->browse_scroll + k, row = top + 2 + k;
@@ -725,8 +780,15 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
                                    : "Aucun fichier de ce type sur le réseau")
                  : drive ? "Aucune image .dsk sur la clé"
                  : tape  ? "Aucune cassette .tap sur la clé"
+                 : state ? "Aucun instantané .sta sur la clé"
                          : "Aucune image .rom sur la clé",
                  OSD_ATTR(OSD_RED, OSD_BLACK), -1);
+    // Liste incomplète : le fichier cherché peut manquer
+    if (m->truncated) {
+        char note[48];
+        snprintf(note, sizeof(note), "Liste tronquée : %d fichiers au plus", OSD_MENU_FILES);
+        osd_puts(s, top + OSD_BROWSE_VISIBLE + 2, left + 4, note, OSD_ATTR(OSD_YELLOW, OSD_BLACK), -1);
+    }
     // Barre de défilement
     if (n > OSD_BROWSE_VISIBLE) {
         const int bar = left + width - 2;
@@ -734,6 +796,22 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
         const int thumb = m->browse_scroll * (OSD_BROWSE_VISIBLE - 1) / (n - OSD_BROWSE_VISIBLE);
         osd_putc(s, top + 2 + thumb, bar, OSD_FULL, OSD_ATTR(OSD_CYAN, OSD_BLACK));
     }
+}
+
+static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
+    osd_clear(s, OSD_BG);
+    _osd_draw_header(m, s);
+    _osd_draw_media(m, s);
+    _osd_draw_banks(m, s);
+    _osd_draw_usb(m, s);
+    _osd_draw_devices(m, s);
+    _osd_draw_actions(m, s);
+    _osd_draw_footer(m, s);
+    if (m->page == OSD_PAGE_MAIN) return;
+    // Sélecteur de fichiers ou choix de la source, par-dessus
+    _osd_draw_browser_frame(m, s);
+    if (m->page == OSD_PAGE_SOURCE) _osd_draw_source_rows(m, s);
+    else _osd_draw_file_rows(m, s);
 }
 
 // Bandeau de la cassette, incrusté sous l'image du Telestrat pendant que le

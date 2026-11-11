@@ -1,8 +1,10 @@
 // telestrat_bench.c — mesure de charge du RP2040 sans carte (tools/rp2040_load.py)
 //
-// Même système que le firmware (mêmes options de compilation, même code
-// chaud en RAM), mais le vrai 65C02 est remplacé par la relecture d'une trace
-// de bus enregistrée par le banc PC (telestrat_headless -B) : adresse, R/W et
+// Même système que le firmware (même code chaud en RAM, même VIA), mais sans
+// TELESTRAT_MAX_RAM_BANKS=1 que le firmware standard définit (voir
+// platforms/rp2040/CMakeLists.txt), et le vrai 65C02 est remplacé par la
+// relecture d'une trace de bus enregistrée par le banc PC (telestrat_headless
+// -B) : adresse, R/W et
 // donnée de chaque cycle. L'ELF produit n'est jamais flashé : il est exécuté
 // dans un émulateur Cortex-M0+ qui compte les cycles. Chaque octet que le
 // système place sur le bus est comparé à celui de la trace (bench_mismatch) :
@@ -175,7 +177,11 @@ __attribute__((noinline, used)) void bench_replay_only(uint32_t n) {
     }
 }
 
-// Fin de trame : comme la boucle principale du firmware
+// Fin de trame : les deux mêmes appels que la boucle principale du firmware,
+// dans l'ordre inverse (la boucle fait screen_update puis kbd_update) et avec
+// 20000 microsecondes au lieu de 19968 (num_ticks de la boucle principale) ;
+// écart non mesuré, à reprendre si les chiffres de docs/PERFORMANCE.md sont
+// refaits (F-28)
 __attribute__((noinline, used)) void bench_frame_end(void) {
     telestrat_kbd_update(&sys, 20000);
     telestrat_screen_update(&sys);

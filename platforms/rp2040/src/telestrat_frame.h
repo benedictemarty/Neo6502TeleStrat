@@ -14,7 +14,9 @@
 #include "osd/osd.h"
 #include "telestrat_video.h"
 
-#define TELESTRAT_FRAME_LINES 272  // 960x544
+// 960x544 : utilisé par le banc PC (platforms/pc/telestrat_headless.c) ; le
+// firmware passe DISPLAY_LINES, calculé depuis FRAME_HEIGHT (F-30)
+#define TELESTRAT_FRAME_LINES 272
 
 // y : ligne de tampon ; width, lines : sortie (960 x 272 ; 800 x 240 en
 // 800x480) ; menu / banner : NULL s'ils ne sont pas affichés (tous deux
