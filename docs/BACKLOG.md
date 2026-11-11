@@ -359,16 +359,11 @@ supposé. Chaque US cite les identifiants de `CRITIQUE.md` qu'elle ferme.
 | US-191 | Périphériques : noms longs, modem (pertes, bascule RS232, NO CARRIER, échecs d'appel), ACIA, FX-80, MCP-40, HID, files | P-01 à P-31 | ✅ test_revue_peripheriques 93 ; P-26 ✅ (`byte_ring_t` générique, RAM inchangée) ; à vérifier : P-02 cadence du modem, P-05 ESC e/f, P-09, P-16, P-23 ; P-12 inchangé (choix documenté) |
 | US-192 | Firmware et menu : Pause propre, flush disquette, configuration non tronquée, profils atomiques, 480p, `.data`, touches, scintillement, sonde | F-01 à F-35 | ✅ compilé (2 variantes + 480p, image 408 068 o contre 508 460) et test_revue_firmware 61 ; ⏳ carte : F-01 (Pause), F-17/F-18 (scintillement), F-22 ; à vérifier : F-08, F-20, F-21, F-35 ; F-30 ✅ en partie (code mort retiré ; `osd_menu_init`, `TELESTRAT_FRAME_LINES`, `rom_pool_free` utilisés, gardés), F-31 ✅ (copie et générateur supprimés, police du socle) |
 | US-193 | Banc PC, outils, tests, build : socle reproductible, ROM régénérables, tests stricts (SKIP, codes de retour, ASan), réseau déterministe, outils | O-01 à O-29 | ✅ `make test` entier, `test-asan`, `STRICT=1` ; O-08 ✅ (cause : la ROM Atmos efface la touche, test exact), O-26 sans objet (générateur supprimé), O-29 ✅ en grande partie ; non faisables : O-10 (`tnfsd` sans option d'adresse, binaire seul), O-18 (la source `system_ticks` est 32 bits ; limite réelle 65 536 trames, désormais signalée) ; reste O-29 : `drive_set` hors tests unitaires (`hayes_line`/`modem_mux`/`minitel_port` couverts par `test_modem`, faux modem sur socket) ; `test_menu` n'est plus ignoré (ROM extraites de l'en-tête généré, `tools/extrait_rom.py`) ; `basic10.rom` et `basic11b.rom` viennent de `~/Projets/Phosphoric/roms` (MD5 identiques) ; les cinq dépôts de ROM sont de nouveau dans `~/Projets` (copiés du disque externe) ; reste manuel : publier le socle reload, fournir `tnfsd`; `cpu_harte` tourne depuis le 2026-11-11 (2 540 000 tests, 0 échec fonctionnel) |
+| US-195 | NMI détourné (capture / restitution des registres) repris de la brique du socle `devices/w65_regs.h` (`w65_snoop_t`, `w65_snoop_cycle`), socle `socle-2026-11-11-15` ; décision de bmarty | ✅ `make test` entier (test_telestrat 509, test_revue_noyau 120 dont N-09 pile qui reboucle, test_state 7, replay 3/3) ; firmware compilé ; ⏳ carte : F2 / F3 (instantané) à refaire |
 | US-194 | Documentation : README (version), ARCHITECTURE, TESTS à jour ; licences des ROM | N-19, N-20, N-27, F-27, F-28 | ✅ ARCHITECTURE (instantané v5, tailles), TESTS, ROMS (provenance, droits non établis), README, VERSION 0.17.0 |
 
 ## Plus tard
 
-- Décision à prendre (bmarty) : porter le NMI détourné du Telestrat sur le socle
-  (`socle-2026-11-11-15`, `src/devices/w65_regs.h`) : remplacer `_telestrat_snoop_t`
-  par `w65_snoop_t` et `_telestrat_tick_snoop` par `w65_snoop_cycle` (modèle :
-  `Neo6502BBC/src/systems/bbc_state.h`), repointer `tools/SOCLE`. Proposé par la
-  session reload-emulator (2026-11-11) ; le code actuel de `telestrat.h` est validé
-  sur puce réelle et n'est pas modifié tant que la décision n'est pas prise.
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).
 - Essai de la prise RS232 sur carte : PicoWiFiModemUSB (`ATDT` depuis
   `CONSOLE`), puis retour à TELEMATIC ; en option l'UEXT.
