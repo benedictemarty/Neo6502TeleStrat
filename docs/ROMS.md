@@ -58,7 +58,11 @@ python3 tools/fetch_roms.py --offline   # sans réseau
 Sources essayées dans l'ordre, chaque image étant vérifiée (taille, MD5, SHA-256) :
 
 1. clone local `~/Projets/<dépôt>/…` puis `~/<dépôt>/…` (chemins relatifs dans
-   `tools/fetch_roms.py`) ;
+   `tools/fetch_roms.py`)  ; depuis le 2026-11-11 les clones
+   `telemon`, `Hyper-Basic`, `tele-ass`, `Telematic` et `stratoric` sont dans `~/Projets`
+   (copiés de `projets-home/` du disque externe SP PHD U3, empreintes vérifiées) et
+   `Phosphoric/roms` fournit les deux BASIC : les sept ROM se régénèrent hors ligne
+   depuis ces sources seules ;
 2. archives locales `~/oriclib/games/zip/` (`telemon.zip` : `telemon-2.4.rom`,
    `HyperBasic.zip` : `HyperBasic`, `teleass.zip` : `teleass.rom`), dont le MD5 et le
    SHA-256 sont ceux attendus (vérifié le 2026-11-11) ; `TeleMatic.zip` (16 Ko, MD5
