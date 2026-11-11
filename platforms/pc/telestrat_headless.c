@@ -6,7 +6,7 @@
 //   telestrat_headless [-c config] [-f N] [-w N] [-t TEXTE] [-k N] [-s] [-b] [-p f.ppm] [-r f.bin]
 //                      [-0 disque.dsk] [-1 ...] [-2 ...] [-3 ...] [-W f.dsk] [-P f.txt] [-G type:rép]
 //                      [-T f.txt] [-L ligne] [-S liaison] [-U rép] [-N hôte[:port]] [-M t:touches]
-//                      [-O f.ppm] [-D f.ppm] [-C rép] [-K f.tap] [-Z] [-Y] [-X t:f.sta] [-J f.sta]
+//                      [-H modem] [-d cible] [-O f.ppm] [-D f.ppm] [-C rép] [-K f.tap] [-Z] [-Y] [-X t:f.sta] [-J f.sta]
 //                      [-Q t] [-R] [-B préfixe]      (« telestrat_headless -h » : aide)
 //
 //   -c CONFIG  standard (défaut) : 0 RAM, 2 TELE-ASS, 3 TELEMATIC, 6 HYPER-BASIC, 7 TELEMON
@@ -41,6 +41,14 @@
 //              raccroche libère la liaison) ou connect:HOTE:PORT ;
 //              -T la trace en RTX/RRX (-B ne trace que la prise Minitel) ;
 //              -T note aussi les bascules de prise (PA4)
+//   -H MODEM   branche le « PicoWiFiModemUSB » du firmware : le Minitel, la RS232 et la
+//              logique Hayes (hayes_line.h, modem_mux.h) sont ceux du firmware, le
+//              « câble USB » est un socket TCP : listen:PORT (127.0.0.1, PORT 0 :
+//              port choisi et annoncé sur stderr) auquel se relie un correspondant
+//              jouant le modem (tests/modem_peer.py) ; le banc l'attend avant la trame 0
+//              (30 s au plus, sinon sortie 1). Exclusif avec -L et -S ;
+//              à la fin, une ligne « modem_pc : octets perdus… » sur stderr
+//   -d CIBLE   (exige -H) HOTE:PORT composé par ATD (défaut : serveur.test:3615)
 //   -U RÉP     répertoire tenant lieu de clé USB pour le menu (.dsk, .rom,
 //              TELESTRA.CFG : a= … d=, bank1= … bank7= appliqués au démarrage)
 //   -M T:TOUCHES (exige -U) ouvre le menu à la trame T et y tape TOUCHES : u d l r
@@ -147,6 +155,7 @@
 #include "neo_tnfs_udp.h"
 #endif
 #include "line_tcp.h"
+#include "modem_pc.h"
 #ifndef TELESTRAT_REF  // la référence figée n'a pas de menu
 #include "menu_pc.h"
 #include "telestrat_frame.h"
@@ -288,15 +297,28 @@ static int serial_rx(void* user_data) {
 // Prise RS232 : liaison TCP directe (ouverte d'emblée ou au premier client)
 static line_tcp_t rs232_link;
 
+// Modem du banc (-H) : prise Minitel et prise RS232 partagent le même modem
+static modem_pc_t modem_bench;
+static bool modem_hayes = false;
+
 static void rs232_tx(uint8_t data, void* user_data) {
     (void)user_data;
     if (serial_trace) fprintf(serial_trace, "%d RTX %02X\n", current_frame, data);
+    if (modem_hayes) {
+        if (modem_enabled) modem_mux_rs232_send(&modem_bench.mux, data);
+        return;
+    }
     if (line_tcp_incoming(&rs232_link)) line_tcp_answer(&rs232_link);
     line_tcp_send(&rs232_link, data);
 }
 
 static int rs232_rx(void* user_data) {
     (void)user_data;
+    if (modem_hayes) {
+        const int m = modem_enabled ? modem_mux_rs232_recv(&modem_bench.mux) : -1;
+        if (m >= 0 && serial_trace) fprintf(serial_trace, "%d RRX %02X\n", current_frame, m);
+        return m;
+    }
     if (line_tcp_incoming(&rs232_link)) line_tcp_answer(&rs232_link);
     int c = line_tcp_recv(&rs232_link);
     if (c >= 0 && serial_trace) fprintf(serial_trace, "%d RRX %02X\n", current_frame, c);
@@ -418,6 +440,17 @@ static void write_ppm(const char* path) {
     }
 }
 
+// Cible d'ATD : HOTE:PORT, 63 caractères au plus, rien qui puisse casser la commande Hayes
+static bool modem_dial_ok(const char* s) {
+    size_t n = strlen(s);
+    if (n == 0 || n > 63 || !strchr(s, ':')) return false;
+    for (; *s; s++)
+        if (!((*s >= '0' && *s <= '9') || (*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z') || *s == '.' ||
+              *s == '_' || *s == '-' || *s == ':'))
+            return false;
+    return true;
+}
+
 static void usage(FILE* out, const char* prog) {
     fprintf(out,
             "usage : %s [options]\n"
@@ -427,6 +460,7 @@ static void usage(FILE* out, const char* prog) {
             "  -0..-3 DSK -W DSK         disquettes des lecteurs A..D, écriture du lecteur A (exige -0)\n"
             "  -P F -G TYPE:RÉP          imprimante brute, imprimante rendue (fx80, mcp40)\n"
             "  -T F -L LIGNE -S LIAISON  trace série, ligne Minitel TCP, prise RS232 TCP\n"
+            "  -H listen:PORT -d CIBLE   modem Hayes du firmware sur TCP (exclusif avec -L, -S), cible d'ATD\n"
             "  -U RÉP -M T:TOUCHES -O F  clé USB du menu, touches du menu (exige -U), image du menu\n"
             "  -N HÔTE[:PORT]            volume Réseau (TNFS)\n"
             "  -D F.ppm -C RÉP -K TAP    sortie DVI, cassettes enregistrées, cassette insérée\n"
@@ -461,6 +495,9 @@ int main(int argc, char** argv) {
     const char* render_spec = NULL;
     const char* line_spec = NULL;
     const char* rs232_spec = NULL;
+    const char* modem_spec = NULL;
+    const char* modem_dial = "serveur.test:3615";
+    bool modem_dial_set = false;
     const char* usb_dir = NULL;
     const char* net_spec = NULL;
     const char* tape_file = NULL;
@@ -483,7 +520,7 @@ int main(int argc, char** argv) {
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "hc:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:ZYX:J:Q:N:")) != -1) {
+    while ((opt = getopt(argc, argv, "hc:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:H:d:U:M:O:K:D:C:RB:k:ZYX:J:Q:N:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
             case 'f': frames = parse_int('f', optarg, 0, 0); break;
@@ -499,6 +536,8 @@ int main(int argc, char** argv) {
             case 'G': render_spec = optarg; break;
             case 'L': line_spec = optarg; break;
             case 'S': rs232_spec = optarg; break;
+            case 'H': modem_spec = optarg; break;
+            case 'd': modem_dial = optarg; modem_dial_set = true; break;
             case 'U': usb_dir = optarg; break;
             case 'N': net_spec = optarg; break;
             case 'M':
@@ -658,6 +697,34 @@ int main(int argc, char** argv) {
             return 1;
         }
         desc.audio.callback.func = bench_audio;
+    }
+    if (modem_spec || modem_dial_set) {
+        if (!modem_spec) {
+            fprintf(stderr, "-d exige -H\n");
+            return 2;
+        }
+        if (line_spec || rs232_spec) {
+            fprintf(stderr, "-H est exclusif avec -L et -S (le modem tient les deux prises)\n");
+            return 2;
+        }
+        if (!modem_dial_ok(modem_dial)) {
+            fprintf(stderr, "-d : HOTE:PORT attendu (63 caractères au plus, lettres, chiffres, . _ -), reçu « %s »\n", modem_dial);
+            return 2;
+        }
+        if (!modem_pc_open(&modem_bench, modem_spec, modem_dial)) {
+            fprintf(stderr, "modem invalide : %s\n", modem_spec);
+            return 2;
+        }
+        if (!modem_pc_wait(&modem_bench, MODEM_PC_WAIT_MS)) {
+            fprintf(stderr, "modem : aucun correspondant en %d s\n", MODEM_PC_WAIT_MS / 1000);
+            return 1;
+        }
+        minitel_line_t l = hayes_line_line(&modem_bench.hayes);
+        minitel_port_init(&minitel, &l);
+        minitel_on = true;
+        modem_hayes = true;
+        desc.rs232.tx = rs232_tx;
+        desc.rs232.rx = rs232_rx;
     }
     if (line_spec) {
         if (!line_tcp_open(&line, line_spec)) {
@@ -847,6 +914,7 @@ int main(int argc, char** argv) {
             }
         }
         current_frame = frame;
+        if (modem_hayes) modem_pc_watch(&modem_bench);
         // Format de trace (O-18) : 4 octets par cycle dans .trace (80 Ko par trame),
         // trame sur 16 bits dans .ev (limite à 65536 trames = 5,2 Go), cycle sur 32 bits
         // dans .ser parce que system_ticks (src/systems) est lui-même un uint32_t ;
@@ -901,7 +969,15 @@ int main(int argc, char** argv) {
                 if (p != prise) fprintf(serial_trace, "%d PA4 %s\n", frame, p ? "RS232" : "MINITEL");
                 prise = p;
             }
-            if (minitel_on) {
+            if (modem_hayes) {
+                // Même enchaînement que la boucle du firmware (modem_pc.h)
+                const bool ring = modem_pc_tick(&modem_bench, &minitel, telestrat_serial_is_rs232(&sys)) && modem_enabled;
+                if (bench_ring && ring != sys.ring) {
+                    uint32_t w[2] = {(uint32_t)(frame * 20 + ms), ring};
+                    fwrite(w, 4, 2, bench_ring);
+                }
+                telestrat_set_ring(&sys, ring);
+            } else if (minitel_on) {
                 bool ring = modem_enabled && minitel_port_tick(&minitel, 1000);
                 if (bench_ring && ring != sys.ring) {
                     uint32_t w[2] = {(uint32_t)(frame * 20 + ms), ring};
@@ -927,6 +1003,10 @@ int main(int argc, char** argv) {
     sys.screen_dirty = true;
     telestrat_screen_update(&sys);
 
+    if (modem_hayes)
+        fprintf(stderr, "modem_pc : octets perdus %u (file Hayes %u, file RS232 %u, file Minitel %u, émission %u)\n",
+                modem_pc_lost(&modem_bench), modem_bench.lost_hayes, modem_bench.lost_mux, modem_bench.lost_minitel,
+                modem_bench.lost_tx);
     if (show_screen) print_screen();
     if (show_banks) {
         printf("banque courante : %d\n", sys.bank);

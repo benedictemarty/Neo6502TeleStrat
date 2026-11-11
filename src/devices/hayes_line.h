@@ -18,7 +18,9 @@
 //   hangup     garde 1 s, « +++ », garde 1 s, ATH
 //   « NO CARRIER » (aussi en ligne) : porteuse perdue ; en ligne, seulement
 //              précédé de « \r\n » (ou du « CONNECT » lui-même), et ces octets
-//              ne sont pas transmis comme données
+//              ne sont pas transmis comme données ; les octets reçus avant,
+//              encore dans la file, sont d'abord remis (hayes_line_carrier
+//              reste vrai jusqu'à la file vide), comme la ligne TCP du banc
 //   « BUSY », « NO ANSWER », « NO DIALTONE », « ERROR » : échec de l'appel,
 //              visible par hayes_line_pending() (le Minitel n'attend pas 40 s)
 //
@@ -81,6 +83,7 @@ typedef struct {
     int nc_match, nc_free;
     uint32_t nc_age_us;  // temps depuis le dernier octet retenu
     bool skip_lf;  // le \n qui termine « CONNECT » n'est pas une donnée
+    bool drain;    // « NO CARRIER » reçu : la file de réception se vide avant la déconnexion
     bool ringing;
     uint32_t ring_age_us;
     uint32_t timer_us;
@@ -161,6 +164,7 @@ static inline void hayes_line_feed(hayes_line_t* h, uint8_t b) {
                 // Le correspondant a raccroché : les octets du motif ne sont pas des données
                 h->state = HAYES_COMMAND;
                 h->nc_match = h->nc_free = 0;
+                h->drain = true;
             }
         } else {
             hayes_rx_push_(h, b);
@@ -218,11 +222,19 @@ static inline void hayes_line_tick(hayes_line_t* h, uint32_t us) {
     }
 }
 
+// Octets du dernier appel encore en file : jetés (nouvel appel, raccrochage)
+static inline void hayes_rx_discard_(hayes_line_t* h) {
+    byte_ring_clear(&h->rx);
+    h->drain = false;
+    h->nc_match = h->nc_free = 0;
+}
+
 /*-- Interface minitel_line_t ------------------------------------------------*/
 
 static inline bool hayes_line_dial(void* ctx) {
     hayes_line_t* h = (hayes_line_t*)ctx;
     if (h->state != HAYES_COMMAND || !h->dial_target[0]) return false;
+    hayes_rx_discard_(h);
     hayes_puts_(h, "ATD");
     hayes_puts_(h, h->dial_target);
     hayes_puts_(h, "\r");
@@ -234,6 +246,7 @@ static inline bool hayes_line_dial(void* ctx) {
 static inline void hayes_line_answer(void* ctx) {
     hayes_line_t* h = (hayes_line_t*)ctx;
     if (h->state != HAYES_COMMAND) return;
+    hayes_rx_discard_(h);
     hayes_puts_(h, "ATA\r");
     h->ringing = false;
     h->state = HAYES_ANSWERING;
@@ -243,6 +256,7 @@ static inline void hayes_line_answer(void* ctx) {
 static inline void hayes_line_hangup(void* ctx) {
     hayes_line_t* h = (hayes_line_t*)ctx;
     h->ringing = false;
+    hayes_rx_discard_(h);  // on raccroche : plus rien à remettre
     if (h->state == HAYES_ONLINE) {
         h->state = HAYES_ESCAPE_GUARD1;
         h->timer_us = 0;
@@ -254,7 +268,10 @@ static inline void hayes_line_hangup(void* ctx) {
 
 static inline bool hayes_line_incoming(void* ctx) { return ((hayes_line_t*)ctx)->ringing; }
 
-static inline bool hayes_line_carrier(void* ctx) { return ((hayes_line_t*)ctx)->state == HAYES_ONLINE; }
+static inline bool hayes_line_carrier(void* ctx) {
+    const hayes_line_t* h = (const hayes_line_t*)ctx;
+    return h->state == HAYES_ONLINE || (h->drain && byte_ring_count(&h->rx) > 0);
+}
 
 // Appel en cours d'établissement (ATD ou ATA envoyé, ni CONNECT ni échec reçu)
 static inline bool hayes_line_pending(void* ctx) {

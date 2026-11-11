@@ -336,6 +336,61 @@ lettres doublées se perdent) :
 | `CONSOLE`, « HELLO » tapé | « HELLO » reçu ; réponse « SALUT » affichée |
 | mode écoute `-S listen:0` (temps réel `-R`), `tests/rs232_client.py` : deux appels, le premier raccroche | le banc libère la ligne et accepte le second (`HELLO` reçu aux deux appels, `SALUT1` et `SALUT2` affichés) |
 
+## Modem Hayes du firmware — `tests/test_modem.sh` (51 vérifications)
+
+Intégration de `hayes_line.h`, `modem_mux.h`, `minitel_port.h` et de l'ACIA 6551,
+jusque-là couverts par les seuls tests unitaires. Sur la carte, le modem est un
+PicoWiFiModemUSB vu comme port série USB (CDC) ; sur PC, l'option **`-H listen:0`**
+du banc (`platforms/pc/modem_pc.h`) offre les mêmes opérations (lire un octet sans
+attente, écrire) sur un socket TCP de `127.0.0.1` (port annoncé sur stderr, comme
+`-L` et `-S`), et le correspondant **`tests/modem_peer.py`** joue le modem. Le banc
+attend le correspondant avant la trame 0 ; le correspondant s'arrête quand le banc
+ferme. Le « collage » de `modem_pc_tick()` (PA4, `modem_mux_select`, lecture du
+modem dans la limite de la place libre, `modem_mux_tick`, `minitel_port_tick`,
+sonnerie) est celui de la boucle de `platforms/rp2040/src/telestrat.c` ; le reste
+est le code du firmware, sans copie. `-d HOTE:PORT` fixe la cible d'`ATD` (défaut
+`serveur.test:3615`). À la fin, le banc écrit `modem_pc : octets perdus N (file
+Hayes, file RS232, file Minitel, émission)` sur stderr.
+
+**Comportement du vrai modem non vérifié** : le correspondant ne modélise que ce
+que `hayes_line.h` attend (« OK » à toute commande `AT…`, `ATD` et `ATA` →
+`CONNECT` ou l'échec choisi, `RING` répété, `+++` reçu d'un bloc → mode commande,
+`\r\nNO CARRIER\r\n`). Ni formes exactes des réponses, ni cadence des `RING`, ni
+temps de garde de `+++` (le banc n'est pas cadencé : seul l'ordre des octets
+compte), ni tampon, ni débit du CDC ne sont vérifiés. Les échéances sont en
+trames (`-f`, `-Q`) ; seule la latence TCP locale du correspondant intervient, avec
+de grandes marges (échec d'appel : moins de 1000 trames, la limite de 40 s étant à
+2000).
+
+| Scénario | Vérifié |
+|---|---|
+| options (9) | `-H connect:`, `-H` sans `listen:`, port invalide, `-H` avec `-L` ou `-S`, `-d` sans `-H`, `-d` invalide : sortie 2 ; `-h` décrit `-H` |
+| initialisation | `ATE0V1` puis `ATS0=0` dès le modem branché, aucune autre commande ; 0 octet perdu |
+| appel entrant (TELEMATIC, `DEMO`, `STRATSED.DSK`) | `RING`, `ESC 9 o ESC 9 h`, `ATA`, `SEP $50 $59 $53`, page d'accueil et réponse à ENVOI reçues par le correspondant, `ESC 9 g` à Connexion/Fin, `+++` puis `ATH`, `SEP $59 $53`, retour à « Attente de communication » |
+| appel sortant (`APLIC 1`, FUNCT+D) | `ATD` de la cible après l'initialisation, `CONNECT` → `SEP $53` aussi envoyé au correspondant, page affichée (écran HIRES), `BONJOUR` + ENVOI reçus, réponse affichée |
+| échec d'appel `BUSY`, `NO ANSWER` (P-15) | `SEP $50 $59 $59`, jamais `$53`, connu moins de 1000 trames après `ESC 9 h` (mesuré : 1), second `ATD` accepté ensuite |
+| « NO CARRIER » dans une page (P-14) | texte au milieu d'une ligne et début de motif `\r\nNO CARRIX` : page complète remise, la ligne tient (BONJOUR + ENVOI arrivent ensuite) ; vrai `\r\nNO CARRIER` : octets d'avant (« ADIEU ») remis avant `SEP $59 $53`, pas de `+++` |
+| RESET en pleine communication (P-03) | `-Q 1800` : PA4 repasse à la RS232 (une trame) ; `+++` puis `ATH`, puis `ATE0V1 ATS0=0` (retour sur la prise Minitel pendant le raccrochage) ; rien d'autre n'est parti vers le correspondant |
+| débit élevé (P-02) | 4000 octets envoyés d'un coup : tous remis à l'ACIA, dans l'ordre ; 0 octet perdu (sans contrôle de flux : 3488 perdus, vérifié en le retirant) |
+| prise RS232 par le modem | `CONSOLE` de HYPER-BASIC : `HELLO` arrive en octets bruts, `SALUT` s'affiche (`RTX` / `RRX` tracés) |
+
+**Anomalie trouvée et corrigée** (`hayes_line.h`) : à la réception de
+`\r\nNO CARRIER`, la déconnexion était signalée aussitôt et les octets du correspondant
+encore dans la file de réception (jusqu'à 512, ce que le Minitel n'avait pas encore
+lus à 1200 bauds) étaient perdus ; la ligne TCP du banc les livre. Corrigé :
+`hayes_line_carrier` reste vrai jusqu'à la file vide. Autre défaut voisin : les octets
+restants d'un appel pouvaient se retrouver au début du suivant ; la file est vidée à
+`ATD`, `ATA` et au raccrochage. Tests unitaires : `test_hayes_no_carrier`
+(`tests/test_revue_peripheriques.c`).
+
+**Non couvert** : le comportement du vrai PicoWiFiModem ; `neo_cdc_serial.c`, la file
+`modem_txq` et `modem_flush` (le banc écrit tout de suite) ; `AT$SP` (le banc passe
+un port d'écoute 0, couvert seulement en unitaire, `tests/test_telestrat.c`) ; le retrait et le rebranchement
+du modem en cours de test (`modem_pc_watch` les gère, sans scénario) ; une bascule vers
+la RS232 *prolongée* en pleine communication (TELEMON ne bascule que par RESET ou
+`SOUT` : le RESET ne laisse la RS232 qu'une trame ; la bascule longue reste couverte
+par `test_mux_switch` en unitaire) ; le menu `modem=non` avec `-H`.
+
 ## Menu et clé USB — `tests/test_menu.sh` (14 vérifications)
 
 Un répertoire tient lieu de clé (`-U`) : `STRATSED.DSK`, `hyperbas.rom`,

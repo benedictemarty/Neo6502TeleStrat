@@ -113,7 +113,7 @@ $(BUILD):
 
 headless: $(BUILD)/telestrat_headless
 
-TESTS_SH := tests/test_boot.sh tests/test_telematic.sh tests/test_minitel_emul.sh tests/test_rs232.sh \
+TESTS_SH := tests/test_boot.sh tests/test_telematic.sh tests/test_minitel_emul.sh tests/test_rs232.sh tests/test_modem.sh \
     tests/test_menu.sh tests/test_tape.sh tests/test_stratoric.sh tests/test_printer.sh tests/test_state.sh \
     tests/test_profiles.sh tests/test_replay.sh tests/test_golden.sh tests/test_tnfs.sh
 

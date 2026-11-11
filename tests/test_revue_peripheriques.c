@@ -179,11 +179,41 @@ static void test_hayes_no_carrier(void) {
 
     // Précédé de CRLF : porteuse perdue, octets retirés des données
     modem_says(&h, "AB\r\nNO CARRIER\r\n");
-    CHECK(!l.carrier(l.ctx), "CRLF + NO CARRIER : porteuse perdue");
+    CHECK(h.state == HAYES_COMMAND, "CRLF + NO CARRIER : modem revenu en mode commande");
+    CHECK(l.carrier(l.ctx), "octets reçus avant NO CARRIER : porteuse tenue jusqu'à leur remise");
     n = 0;
     while ((c = l.recv(l.ctx)) >= 0 && n < 63) got[n++] = (char)c;
     got[n] = 0;
     CHECK(strcmp(got, "AB") == 0, "les octets du motif ne sont pas des données : %s", got);
+    CHECK(!l.carrier(l.ctx), "file vidée : porteuse perdue");
+
+    // Même chose par le Minitel : les données d'avant NO CARRIER arrivent avant SEP $59 $53
+    {
+        minitel_port_t p;
+        hayes_online(&h);
+        minitel_port_init(&p, &l);
+        p.state = MINITEL_ONLINE;
+        modem_says(&h, "ADIEU\r\nNO CARRIER\r\n");
+        char rx[32];
+        int k = 0;
+        for (int i = 0; i < 40 && k < 31; i++) {
+            minitel_port_tick(&p, 1000);
+            int b = minitel_port_to_telestrat(&p);
+            if (b >= 0) rx[k++] = (char)b;
+        }
+        rx[k] = 0;
+        CHECK(strcmp(rx, "ADIEU\x13\x59\x13\x53") == 0, "ADIEU remis au Minitel, puis déconnexion (%d octets)", k);
+    }
+
+    // Raccrochage ou nouvel appel : les octets restants du dernier appel sont jetés
+    hayes_online(&h);
+    modem_says(&h, "RESTE");
+    hayes_line_hangup(&h);
+    CHECK(l.recv(l.ctx) == -1 && !l.carrier(l.ctx), "raccrochage : octets restants jetés");
+    hayes_online(&h);
+    modem_says(&h, "VIEUX\r\nNO CARRIER\r\n");
+    modem_reset_out();
+    CHECK(l.dial(l.ctx) && l.recv(l.ctx) == -1, "nouvel appel : octets de l'appel précédent jetés");
 
     // Juste après CONNECT : la fin de ligne de CONNECT tient lieu de CRLF
     hayes_online(&h);
