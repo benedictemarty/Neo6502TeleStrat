@@ -108,3 +108,14 @@ lecture par le tunnel OpenOCD du Pi (`outils/rp3s.py` de `~/Projets/RP3Sonde`).
 
 Non faits (besoin d'un humain devant la carte) : A1 à A3 (image, scintillement), B (vrai clavier, manette), C (écoute), E, F.
 Le décodage de l'image 4 bits de `tools/carte.py ecran --png` ne correspond plus au tampon d'image actuel (image illisible) : à réparer.
+
+### Modem et Minitel (2026-11-11, PicoWiFiModem, serveur de test sur le PC)
+
+Firmware : la file de touches de diagnostic accepte `0xFE` (FUNCT maintenue pour la touche suivante ; `carte.py taper '\fD'`). Numéro réglé en RAM (`modem+9`), clé non modifiée.
+
+| Essai | Résultat |
+|---|---|
+| FUNCT+D en APLIC 1 : appel du modem vers le PC (192.168.1.19:8615) | ✅ connexion, état Hayes « en ligne » |
+| P-02 : page Vidéotex de 1 167 octets (> file de 512) | ✅ page entière à l'écran, `rx.lost` = 0 (une seule page, rafale réseau local) |
+| Octets du Telestrat vers le serveur : `BONJOUR` + ENVOI (`$13 $41`) | ✅ reçus dans l'ordre |
+| P-16 (PRO2/PRO3), E4 (`rs232=uext`), E5 (modem muet), E6 (ACIA) | non faits |

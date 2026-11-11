@@ -111,7 +111,8 @@ def flasher(elf):
 
 def taper(texte):
     s = symboles()
-    codes = [0x0D if c == "\n" else ord(c) for c in texte.replace("\\n", "\n")]
+    # \f devant une touche : FUNCT maintenue (code 0xFE du firmware), comme -t du banc PC
+    codes = [0x0D if c == "\n" else 0xFE if c == "\f" else ord(c) for c in texte.replace("\\n", "\n").replace("\\f", "\f")]
     tete, queue = lire_mots(s["diag_keyq_head"], 2)
     if ((queue - tete) & 0xFFFFFFFF) + len(codes) > 256:
         raise SystemExit("file de touches pleine")

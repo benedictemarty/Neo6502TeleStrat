@@ -1878,7 +1878,9 @@ static void menu_draw(void) {}
 /*-- Recette par sonde SWD (tools/carte.py) ----------------------------------*/
 // Toujours présent (coût négligeable) : la sonde lit ces variables et remplit
 // la file de touches pendant que la carte tourne.
-volatile uint8_t diag_keyq[256];          // codes de touche Telestrat (ASCII, 0x146 exclu)
+volatile uint8_t diag_keyq[256];          // codes de touche Telestrat (ASCII) ; 0xFE : FUNCT maintenue pour la touche suivante
+#define DIAG_KEY_FUNCT 0xFE
+#define TELESTRAT_KEY_FUNCT 0x146
 volatile uint32_t diag_keyq_head, diag_keyq_tail;
 volatile uint32_t diag_frames;            // trames émulées depuis le démarrage
 volatile uint32_t diag_frame_us_sum, diag_frame_us_max, diag_frame_n;  // travail du cœur 0 par trame
@@ -2001,13 +2003,24 @@ static void diag_keys_poll(void) {
         return;
     }
 #endif
+    static bool funct = false;  // FUNCT maintenue pour la touche en cours (code DIAG_KEY_FUNCT devant elle)
     if (phase == 0 && diag_keyq_head != diag_keyq_tail) {
+        // Préfixe FUNCT : seulement si une touche le suit déjà dans la file
+        if (diag_keyq[diag_keyq_head & 255] == DIAG_KEY_FUNCT && diag_keyq_tail - diag_keyq_head >= 2) {
+            funct = true;
+            diag_keyq_head++;
+            telestrat_key_down(&state.telestrat, TELESTRAT_KEY_FUNCT);
+        }
         held = diag_keyq[diag_keyq_head & 255];
         telestrat_key_down(&state.telestrat, held);
         phase = 1;
     } else if (phase > 0) {
         phase++;
-        if (phase == 4) telestrat_key_up(&state.telestrat, held);
+        if (phase == 4) {
+            telestrat_key_up(&state.telestrat, held);
+            if (funct) telestrat_key_up(&state.telestrat, TELESTRAT_KEY_FUNCT);
+            funct = false;
+        }
         if (phase == 7) {
             diag_keyq_head++;
             phase = 0;
@@ -2022,7 +2035,6 @@ static uint32_t planes[3][FRAME_WIDTH / 32];
 struct dvi_inst dvi0;
 
 #define HID_CODE_GUI_LEFT (HID_KEY_GUI_LEFT | 0x100)
-#define TELESTRAT_KEY_FUNCT 0x146
 
 static int host_to_telestrat(int code) {
     if (code == HID_CODE_GUI_LEFT) return TELESTRAT_KEY_FUNCT;
