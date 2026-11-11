@@ -135,6 +135,7 @@ volatile uint32_t diag_io_n;
 
 #include "common_dvi_pin_configs.h"
 #include "dvi.h"
+#include "neo_video.h"   // Démarrage commun : horloge, DVI (verrous dédiés), cœur 1 (socle)
 #include "dvi_serialiser.h"
 
 #include "audio.h"
@@ -2267,30 +2268,20 @@ __attribute__((noinline, used, section(".time_critical.telestrat"))) void telest
 
 int main() {
     (void)diag_layout[0];  // lecture volatile : diag_layout, lue par la sonde, reste référencée à l'édition de liens
-    vreg_set_voltage(VREG_VSEL);
-    sleep_ms(10);
-    set_sys_clock_khz(DVI_TIMING.bit_clk_khz, true);
+    neo_clock_start(&DVI_TIMING, VREG_VSEL);
 
     stdio_init_all();
 
     tusb_init();
 
-    dvi0.timing = &DVI_TIMING;
-    dvi0.ser_cfg = DVI_DEFAULT_SERIAL_CONFIG;
-    // Verrous dédiés aux files DVI : next_striped_spin_lock_num() partage les
-    // verrous 16-23 avec FatFs et TinyUSB, le cœur 1 pouvait alors attendre le
-    // cœur 0 interruptions masquées (ligne en retard ; vu par Neo6502Trinity,
-    // correctif repris de reload)
-    dvi_init(&dvi0, spin_lock_claim_unused(true), spin_lock_claim_unused(true));
+    neo_dvi_init(&dvi0, &DVI_TIMING, &DVI_DEFAULT_SERIAL_CONFIG);
 
     telestrat_video_init();
     memset(planes, 0, sizeof(planes));
 
     // Priorité au cœur 1 et au DMA du DVI : le trafic du cœur 0 (bus du 65C02,
     // XIP) ne doit pas affamer le flux TMDS (réglage du BBC de reload-emulator)
-    hw_set_bits(&bus_ctrl_hw->priority,
-                BUSCTRL_BUS_PRIORITY_PROC1_BITS | BUSCTRL_BUS_PRIORITY_DMA_R_BITS | BUSCTRL_BUS_PRIORITY_DMA_W_BITS);
-    multicore_launch_core1(core1_main);
+    neo_core1_start(core1_main, NEO_BUS_PRIO_CORE1_DMA);
 
     app_init();
 
