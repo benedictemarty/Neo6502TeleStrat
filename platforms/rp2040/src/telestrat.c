@@ -607,17 +607,6 @@ static char cfg_bank[8][OSD_NAME_LEN];    // TELESTRA.CFG : bank1= … bank7=
 extern bool msc_inquiry_complete;
 void msc_poll(void);  // msc_app.c du socle : montage de la clé hors de tuh_task
 
-static bool has_ext(const char *name, const char *ext) {
-    size_t n = strlen(name), e = strlen(ext);
-    if (n < e) return false;
-    for (size_t i = 0; i < e; i++) {
-        char c = name[n - e + i];
-        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
-        if (c != ext[i]) return false;
-    }
-    return true;
-}
-
 // Fichier présent sur la clé (ouvert puis refermé)
 static bool usb_exists(const char *name) {
     neo_file_t f;
@@ -634,8 +623,8 @@ static bool usb_scan_entry(const neo_dirent_t *e, void *user) {
     const int vol = (int)(intptr_t)user;
     const char *prefix = vol == OSD_VOL_NET ? OSD_NET_PREFIX : "";
     if (e->dir || osd_name_ignored(e->name, e->hidden)) return true;
-    const bool dsk = has_ext(e->name, ".dsk"), rom = has_ext(e->name, ".rom"), tap = has_ext(e->name, ".tap"),
-               sta = has_ext(e->name, ".sta");
+    const bool dsk = neo_name_has_ext(e->name, ".dsk"), rom = neo_name_has_ext(e->name, ".rom"), tap = neo_name_has_ext(e->name, ".tap"),
+               sta = neo_name_has_ext(e->name, ".sta");
     if ((!dsk && !rom && !tap && !sta) || strlen(prefix) + strlen(e->name) >= OSD_NAME_LEN) return true;
     if (menu.nfiles >= OSD_MENU_FILES) {
         menu.truncated = true;
