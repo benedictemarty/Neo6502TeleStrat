@@ -21,6 +21,7 @@ import re
 import sys
 import tempfile
 import urllib.request
+import zipfile
 
 HOME = os.path.expanduser("~")
 RACINES = (os.path.join(HOME, "Projets"), HOME)  # clones locaux : ~/Projets/X puis ~/X
@@ -96,6 +97,40 @@ def verifie(nom, data, taille, md5, sha256):
     return None
 
 
+# Archives locales (relatives à ~) : (archive, membre) essayés après les clones ;
+# l'image n'est acceptée que si taille, MD5 et SHA-256 sont ceux attendus. Les
+# autres membres de ces archives (autres versions) sont ignorés par ce contrôle.
+ARCHIVES = {
+    "telestrat_telemon24": [("oriclib/games/zip/telemon.zip", "telemon-2.4.rom")],
+    "telestrat_hyperbas": [("oriclib/games/zip/HyperBasic.zip", "HyperBasic")],
+    "telestrat_teleass": [("oriclib/games/zip/teleass.zip", "teleass.rom")],
+}
+
+
+def depuis_archive(nom, taille, md5, sha256):
+    """(octets, source) ou (None, [motifs de refus]) depuis les archives locales."""
+    refus = []
+    for rel, membre in ARCHIVES.get(nom, []):
+        chemin = os.path.join(HOME, rel)
+        if not os.path.isfile(chemin):
+            continue
+        try:
+            with zipfile.ZipFile(chemin) as z:
+                info = z.getinfo(membre)
+                if info.file_size > MAX_TELECHARGEMENT:
+                    refus.append(f"{chemin}:{membre} : trop gros")
+                    continue
+                data = z.read(info)
+        except (OSError, KeyError, zipfile.BadZipFile) as e:
+            refus.append(f"{chemin}:{membre} : {e}")
+            continue
+        motif = verifie(nom, data, taille, md5, sha256)
+        if motif is None:
+            return data, f"archive locale {rel}"
+        refus.append(f"{chemin}:{membre} : {motif}")
+    return None, refus
+
+
 def candidats_locaux(rel):
     return [os.path.join(r, rel) for r in RACINES]
 
@@ -129,6 +164,10 @@ def charge(rom, offline, ancien):
         if motif is None:
             return data, "copie locale"
         essais.append(f"{chemin} : {motif}")
+    data, src = depuis_archive(nom, taille, md5, sha256)
+    if data is not None:
+        return data, src
+    essais.extend(src)
     for entete in ancien:
         banque = depuis_entete_genere(entete, nom)
         if banque is not None:

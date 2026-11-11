@@ -59,9 +59,14 @@ Sources essayées dans l'ordre, chaque image étant vérifiée (taille, MD5, SHA
 
 1. clone local `~/Projets/<dépôt>/…` puis `~/<dépôt>/…` (chemins relatifs dans
    `tools/fetch_roms.py`) ;
-2. l'en-tête déjà généré (`src/roms/telestrat_roms.h` ou la sortie demandée) : permet de
+2. archives locales `~/oriclib/games/zip/` (`telemon.zip` : `telemon-2.4.rom`,
+   `HyperBasic.zip` : `HyperBasic`, `teleass.zip` : `teleass.rom`), dont le MD5 et le
+   SHA-256 sont ceux attendus (vérifié le 2026-11-11) ; `TeleMatic.zip` (16 Ko, MD5
+   `3feac061d2cc52c93943cbc386bab502`, 1995) est une autre version et n'est pas utilisée,
+   et les archives STRATORIC de ce dossier ne contiennent pas `B7STRA40.ROM` ;
+3. l'en-tête déjà généré (`src/roms/telestrat_roms.h` ou la sortie demandée) : permet de
    régénérer sans réseau ni clones ;
-3. téléchargement HTTPS (taille limitée à 1 Mo, délai de 30 s), sauf `--offline`.
+4. téléchargement HTTPS (taille limitée à 1 Mo, délai de 30 s), sauf `--offline`.
 
 L'écriture est atomique (fichier temporaire du même répertoire, puis renommage) : un
 échec ne laisse pas un en-tête tronqué. `make` ne régénère l'en-tête que s'il est
