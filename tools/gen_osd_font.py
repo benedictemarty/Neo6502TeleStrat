@@ -17,7 +17,8 @@ Codage : ASCII 32-126, Latin-1 pour les lettres accentuées françaises
 (0xC0-0xFF), filets et icônes en 0x80-0x9F (voir ICONES). Sortie : 256 x 8
 octets, bit 0 = pixel de gauche (ordre de tmds_encode_1bpp).
 
-Usage : gen_osd_font.py [--maison] [sortie.h] [aperçu.png]
+Usage : gen_osd_font.py [--maison] [--verifie] [sortie.h] [aperçu.png]
+(sortie par défaut : src/osd/osd_font.h du dépôt, quel que soit le répertoire courant)
 """
 import os
 import sys
@@ -244,24 +245,43 @@ def build(maison=False):
     return table
 
 
+def rendu(table):
+    """Texte de l'en-tête C pour la table des 256 glyphes."""
+    f = ["#pragma once\n\n// osd_font.h — généré par tools/gen_osd_font.py. Ne pas modifier à la main.\n"
+         "// 8 x 8, bit 0 = pixel de gauche. Texte : unscii-8 de Viznut (domaine public,\n"
+         "// http://viznut.fi/unscii/) ; filets et icônes (0x80-0x9F) : dessin du projet.\n\n"
+         "#include <stdint.h>\n\n"]
+    for i, (name, _) in enumerate(ICONES):
+        f.append("#define OSD_%-8s 0x%02X\n" % (name, 0x80 + i))
+    f.append("\n// Section de la police (le firmware la met en RAM, lue par le cœur 1)\n"
+             "#ifndef OSD_FONT_SECTION\n#define OSD_FONT_SECTION\n#endif\n")
+    f.append("\nstatic const uint8_t OSD_FONT_SECTION osd_font[256][8] = {\n")
+    for code, g in enumerate(table):
+        vals = [sum(1 << x for x in range(8) if r[x] == "#") for r in g]
+        f.append("    {%s},  // 0x%02X\n" % (", ".join("0x%02X" % v for v in vals), code))
+    f.append("};\n")
+    return "".join(f)
+
+
 def main():
-    args = [a for a in sys.argv[1:] if a != "--maison"]
-    out = args[0] if args else "src/osd/osd_font.h"
+    # --maison : première version (glyphes dessinés à la main, conservée pour mémoire,
+    # plus utilisée) ; --verifie : ne rien écrire, échouer si le fichier de sortie
+    # n'est pas exactement ce que le générateur produit
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    out = args[0] if args else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "osd", "osd_font.h")
     table = build("--maison" in sys.argv)
-    with open(out, "w") as f:
-        f.write("#pragma once\n\n// osd_font.h — généré par tools/gen_osd_font.py. Ne pas modifier à la main.\n"
-                "// 8 x 8, bit 0 = pixel de gauche. Texte : unscii-8 de Viznut (domaine public,\n"
-                "// http://viznut.fi/unscii/) ; filets et icônes (0x80-0x9F) : dessin du projet.\n\n"
-                "#include <stdint.h>\n\n")
-        for i, (name, _) in enumerate(ICONES):
-            f.write("#define OSD_%-8s 0x%02X\n" % (name, 0x80 + i))
-        f.write("\n// Section de la police (le firmware la met en RAM, lue par le cœur 1)\n"
-                "#ifndef OSD_FONT_SECTION\n#define OSD_FONT_SECTION\n#endif\n")
-        f.write("\nstatic const uint8_t OSD_FONT_SECTION osd_font[256][8] = {\n")
-        for code, g in enumerate(table):
-            vals = [sum(1 << x for x in range(8) if r[x] == "#") for r in g]
-            f.write("    {%s},  // 0x%02X\n" % (", ".join("0x%02X" % v for v in vals), code))
-        f.write("};\n")
+    texte = rendu(table)
+    if "--verifie" in sys.argv:
+        try:
+            actuel = open(out, encoding="utf-8").read()
+        except OSError as e:
+            sys.exit("gen_osd_font : %s : %s" % (out, e))
+        if actuel != texte:
+            sys.exit("gen_osd_font : %s ne correspond pas au générateur (relancer tools/gen_osd_font.py)" % out)
+        print("gen_osd_font : %s conforme au générateur" % os.path.normpath(out))
+        return
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(texte)
     if len(args) > 1:
         from PIL import Image
         img = Image.new("RGB", (16 * 10, 16 * 20), (0, 0, 0))

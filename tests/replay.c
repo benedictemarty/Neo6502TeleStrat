@@ -76,6 +76,7 @@ static inline void replay_set_data(replaycpu_t* c, uint8_t d) {
 #include "devices/telestrat_fdc.h"
 #include "devices/mos6551acia.h"
 #include "systems/telestrat.h"
+#include "banc_config.h"
 
 static telestrat_t sys;
 
@@ -149,10 +150,6 @@ static int serial_rx(void* u) {
     return -1;
 }
 
-#define RAM(n) {.type = TELESTRAT_BANK_RAM}
-#define ROM(p) {.type = TELESTRAT_BANK_ROM, .rom = (p)}
-#define EMPTY  {.type = TELESTRAT_BANK_EMPTY}
-
 int main(int argc, char** argv) {
     if (argc < 3) {
         fprintf(stderr, "usage : %s préfixe config [disque]\n", argv[0]);
@@ -164,31 +161,34 @@ int main(int argc, char** argv) {
     trace = (const uint32_t*)load(path, &n, 1);
     trace_len = n / 4;
     snprintf(path, sizeof(path), "%s.ev", argv[1]);
-    const uint32_t* ev = (const uint32_t*)load(path, &n, 1);
+    size_t ev_bytes = 0;
+    const uint32_t* ev = (const uint32_t*)load(path, &ev_bytes, 1);
+    if (ev_bytes < 4) {
+        fprintf(stderr, "replay : %s tronqué (%zu octets)\n", path, ev_bytes);
+        return 2;
+    }
     snprintf(path, sizeof(path), "%s.aud", argv[1]);
     aud = load(path, &aud_len, 0);
+    if (!aud) fprintf(stderr, "replay : %s absent, comparaison audio ignorée\n", path);
     snprintf(path, sizeof(path), "%s.ser", argv[1]);
     ser = (const uint32_t*)load(path, &n, 0);
     ser_n = n / 8;
+    if (!ser) fprintf(stderr, "replay : %s absent, comparaison série ignorée\n", path);
     snprintf(path, sizeof(path), "%s.ring", argv[1]);
     const uint32_t* ring = (const uint32_t*)load(path, &n, 0);
     size_t ring_n = n / 8, ring_i = 0;
+    if (!ring) fprintf(stderr, "replay : %s absent, sonnerie non rejouée\n", path);
     snprintf(path, sizeof(path), "%s.fb", argv[1]);
     const uint32_t* fbh = (const uint32_t*)load(path, &n, 0);
     size_t fbh_n = n / 4;
+    if (!fbh) fprintf(stderr, "replay : %s absent, comparaison de l'image ignorée\n", path);
     unsigned long mism_fb = 0;
     long first_fb = -1;
 
     telestrat_desc_t desc = {0};
-    const telestrat_bank_desc_t standard[8] = {RAM(0), EMPTY, ROM(telestrat_teleass), ROM(telestrat_telematic),
-                                               EMPTY, EMPTY, ROM(telestrat_hyperbas), ROM(telestrat_telemon24)};
-    const telestrat_bank_desc_t oricutron[8] = {RAM(0), RAM(1), RAM(2), RAM(3),
-                                                RAM(4), ROM(telestrat_teleass), ROM(telestrat_hyperbas),
-                                                ROM(telestrat_telemon24)};
-    if (!strcmp(argv[2], "standard")) {
-        memcpy(desc.banks, standard, sizeof(desc.banks));
-    } else {
-        memcpy(desc.banks, oricutron, sizeof(desc.banks));
+    if (!banc_config_banks(argv[2], &desc)) {
+        fprintf(stderr, "replay : configuration inconnue : %s\n", argv[2]);
+        return 2;
     }
     desc.audio.callback.func = audio;
     desc.minitel.tx = serial_tx;
@@ -197,12 +197,22 @@ int main(int argc, char** argv) {
     uint8_t* disk = NULL;
     if (argc > 3) {
         disk = load(argv[3], &n, 1);
-        telestrat_insert_disk(&sys, 0, disk, n, false);
+        if (!telestrat_insert_disk(&sys, 0, disk, n, false)) {
+            fprintf(stderr, "replay : %s : image MFM_DISK invalide\n", argv[3]);
+            return 2;
+        }
     }
     telestrat_reset(&sys);
 
     uint32_t ev_n = ev[0], ev_i = 0;
+    if ((size_t)ev_n > ev_bytes / 4 - 1) {  // compte annoncé plus grand que le fichier
+        fprintf(stderr, "replay : %s.ev annonce %u événements pour %zu mots\n", argv[1], (unsigned)ev_n, ev_bytes / 4 - 1);
+        ev_n = (uint32_t)(ev_bytes / 4 - 1);
+    }
     size_t frames = trace_len / 20000;
+    if (trace_len % 20000)
+        fprintf(stderr, "replay : trace de %zu cycles, les %zu derniers (trame incomplète) ne sont pas rejoués\n", trace_len,
+                trace_len % 20000);
     for (size_t frame = 0; frame < frames; frame++) {
         while (ev_i < ev_n && (ev[1 + ev_i] >> 16) == frame) {
             uint32_t v = ev[1 + ev_i++];

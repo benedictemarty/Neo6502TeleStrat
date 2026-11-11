@@ -51,6 +51,10 @@ int main(int argc, char** argv) {
         perror(argv[2]);
         return 1;
     }
+    if (!printer_files_dir_ok(argv[3])) {
+        fprintf(stderr, "%s : répertoire de sortie absent (à créer d'abord)\n", argv[3]);
+        return 1;
+    }
     static printer_files_t pf;
     neo_storage_set(0, "Fichiers", &neo_storage_posix_ops, "");  // chemins tels quels
     const printer_out_t out = printer_files_out(&pf, 0, argv[3]);
@@ -75,6 +79,10 @@ int main(int argc, char** argv) {
         fx80_finish(&fx);
         while (fx80_busy(&fx)) fx80_service(&fx, 1 << 30);
         printf("%u page(s) PNG\n", (unsigned)fx.pages);
+    }
+    if (pf.failures) {
+        fprintf(stderr, "%u fichier(s) non écrit(s)\n", pf.failures);
+        return 1;
     }
     return 0;
 }

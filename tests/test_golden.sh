@@ -10,16 +10,16 @@
 # sa phase de clignotement dépend du minutage du démarrage (identique au
 # pixel près à la trame 420, v0.16.23).
 set -u
+. "$(dirname "$0")/lib.sh"
 BIN=${1:-build/telestrat_headless}
 DSK=${STRATSED_DSK:-$HOME/oriclib/games/dsk/STRATSED.DSK}
 GOLD=$(dirname "$0")/golden/stratsed_menu_oricutron.ppm.gz
 if [ ! -f "$DSK" ]; then
-    echo "test_golden : disquette absente ($DSK), ignoré"
-    exit 0
+    skip "disquette absente ($DSK)"
 fi
-TMP=$(mktemp -d)
+tmp_init
 cp "$DSK" "$TMP/a.dsk"
-"$BIN" -c oricutron -0 "$TMP/a.dsk" -P "$TMP/lp.txt" -f 400 -p "$TMP/nous.ppm" > /dev/null 2>&1
+banc -c oricutron -0 "$TMP/a.dsk" -P "$TMP/lp.txt" -f 400 -p "$TMP/nous.ppm" > /dev/null 2>&1
 python3 - "$GOLD" "$TMP/nous.ppm" <<'PY'
 import gzip, sys
 def pixels(data):
@@ -38,6 +38,7 @@ if not ok:
 print(f"test_golden : {n - (0 if ok else 1)}/{n} image identique à Oricutron (hors curseur)")
 sys.exit(0 if ok else 1)
 PY
-r=$?
-rm -rf "$TMP"
-exit $r
+fail=$?
+n=0
+banc_bilan
+[ "$fail" -eq 0 ]

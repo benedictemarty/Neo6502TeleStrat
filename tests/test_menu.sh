@@ -15,15 +15,15 @@
 #   5. .rom de taille invalide refusée ; une cartouche de trop refusée (un
 #      seul emplacement supplémentaire) ; image du menu (-O) produite.
 set -u
+. "$(dirname "$0")/lib.sh"
 BIN=${1:-build/telestrat_headless}
 DSK=${STRATSED_DSK:-$HOME/oriclib/games/dsk/STRATSED.DSK}
 ROM=${HYPERBAS_ROM:-$HOME/Hyper-Basic/original/hyperbas.rom}
 ROM2=${TELEASS_ROM:-$HOME/tele-ass/original/teleass.rom}
 if [ ! -f "$DSK" ] || [ ! -f "$ROM" ] || [ ! -f "$ROM2" ]; then
-    echo "test_menu : disquette, hyperbas.rom ou teleass.rom absente, ignoré"
-    exit 0
+    skip "disquette, hyperbas.rom ou teleass.rom absente"
 fi
-TMP=$(mktemp -d)
+tmp_init
 mkdir "$TMP/cle"
 cp "$DSK" "$TMP/cle/STRATSED.DSK"
 cp "$ROM" "$TMP/cle/hyperbas.rom"
@@ -32,28 +32,28 @@ head -c 1000 "$ROM" > "$TMP/cle/abime.rom"
 
 # Menu : h = lecteur A, e = sélecteur, S = STRATSED, e ; r d d = banque 5, e,
 # T = teleass.rom, e ; z u = Enregistrer, e ; u = RESET, e
-"$BIN" -c telemon -U "$TMP/cle" -M "400:heSerddeTezueue" -f 1700 -w 1600 -t '1~~~~~~' -s \
+banc -c telemon -U "$TMP/cle" -M "400:heSerddeTezueue" -f 1700 -w 1600 -t '1~~~~~~' -s \
     > "$TMP/ecran1.txt" 2> "$TMP/menu1.txt"
 # Démarrage suivant, configuration standard : TELESTRA.CFG seul, puis SAVE
 # sur la disquette de la clé
 cp "$TMP/cle/TELESTRA.CFG" "$TMP/cfg1"
 echo "bank6=hyperbas.rom" >> "$TMP/cle/TELESTRA.CFG"
-"$BIN" -c standard -U "$TMP/cle" -f 1800 -w 1200 -k 8 -t '1~~~~~~10 PRINT 42\nSAVE "MENUOK"\n~~~~~~~~~~' -s \
+banc -c standard -U "$TMP/cle" -f 1800 -w 1200 -k 8 -t '1~~~~~~10 PRINT 42\nSAVE "MENUOK"\n~~~~~~~~~~' -s \
     > "$TMP/ecran2.txt" 2>&1
 # Banque 5 : ROM abîmée puis teleass.rom ; banque 4 : hyperbas.rom de trop ;
 # image du menu
 rm "$TMP/cle/TELESTRA.CFG"
-"$BIN" -c telemon -U "$TMP/cle" -M "10:hrddeAeeTedeHe" -O "$TMP/menu.ppm" -f 20 > /dev/null 2> "$TMP/menu3.txt"
+banc -c telemon -U "$TMP/cle" -M "10:hrddeAeeTedeHe" -O "$TMP/menu.ppm" -f 20 > /dev/null 2> "$TMP/menu3.txt"
 
 # Périphériques : u × 6 = imprimante, e = coupée ; z u e = Enregistrer
 mkdir "$TMP/prn"
 cp "$DSK" "$TMP/prn/a.dsk"
-"$BIN" -c standard -U "$TMP/prn" -P "$TMP/lp0.txt" -M "5:uuuuuuezuex" -f 10 > /dev/null 2> "$TMP/prn_msg.txt"
+banc -c standard -U "$TMP/prn" -P "$TMP/lp0.txt" -M "5:uuuuuuezuex" -f 10 > /dev/null 2> "$TMP/prn_msg.txt"
 cp "$TMP/prn/TELESTRA.CFG" "$TMP/cfg_prn"
-"$BIN" -c standard -U "$TMP/prn" -0 "$TMP/prn/a.dsk" -P "$TMP/lp1.txt" -f 1500 -w 1200 -k 8 \
+banc -c standard -U "$TMP/prn" -0 "$TMP/prn/a.dsk" -P "$TMP/lp1.txt" -f 1500 -w 1200 -k 8 \
     -t '1~~~~~~LPRINT "IMPRIME"\n' > /dev/null 2>&1
-sed -i 's/^impression=non/impression=oui/' "$TMP/prn/TELESTRA.CFG"
-"$BIN" -c standard -U "$TMP/prn" -0 "$TMP/prn/a.dsk" -P "$TMP/lp2.txt" -f 1500 -w 1200 -k 8 \
+sed_i 's/^impression=non/impression=oui/' "$TMP/prn/TELESTRA.CFG"
+banc -c standard -U "$TMP/prn" -0 "$TMP/prn/a.dsk" -P "$TMP/lp2.txt" -f 1500 -w 1200 -k 8 \
     -t '1~~~~~~LPRINT "IMPRIME"\n' > /dev/null 2>&1
 
 fail=0
@@ -83,6 +83,6 @@ if [ "$fail" -ne 0 ]; then
     for f in menu1 menu3; do echo "--- $f :"; cat "$TMP/$f.txt"; done
     for f in ecran1 ecran2; do echo "--- $f :"; grep -v '^$' "$TMP/$f.txt" | head -12; done
 fi
-rm -rf "$TMP"
+banc_bilan
 echo "test_menu : $((n - fail))/$n vérifications réussies"
 [ "$fail" -eq 0 ]

@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <sys/stat.h>
 #include "devices/printer_out.h"
 #include "devices/neo_storage.h"
 #include "devices/neo_writer.h"
@@ -39,7 +40,14 @@ typedef struct {
     neo_writer_t w;
     uint8_t buf[4096];
     char name[512];     // dernier fichier ouvert
+    unsigned failures;  // fichiers non ouverts ou non écrits en entier (pages perdues)
 } printer_files_t;
+
+// Le répertoire de sortie existe-t-il (il n'est jamais créé : sans lui, toutes les pages seraient perdues) ?
+static inline bool printer_files_dir_ok(const char* dir) {
+    struct stat st;
+    return dir && stat(dir, &st) == 0 && S_ISDIR(st.st_mode);
+}
 
 static bool _printer_files_open(void* ctx, const char* ext) {
     printer_files_t* pf = (printer_files_t*)ctx;
@@ -48,13 +56,22 @@ static bool _printer_files_open(void* ctx, const char* ext) {
         bool taken = false;
         for (int k = 0; k < 2 && !taken; k++) {
             neo_file_t t;
-            snprintf(pf->name, sizeof(pf->name), "%s/IMPR%04d.%s", pf->dir, pf->next, k ? "SVG" : "PNG");
+            if (snprintf(pf->name, sizeof(pf->name), "%s/IMPR%04d.%s", pf->dir, pf->next, k ? "SVG" : "PNG") >=
+                (int)sizeof(pf->name)) {
+                fprintf(stderr, "imprimante : nom de fichier trop long (répertoire de plus de %d octets)\n",
+                        (int)sizeof(pf->name) - 16);
+                pf->failures++;
+                return false;
+            }
             if (neo_file_open(&t, pf->vol, pf->name, NEO_READ)) neo_file_close(&t), taken = true;
         }
         if (taken) continue;
         snprintf(pf->name, sizeof(pf->name), "%s/IMPR%04d.%s", pf->dir, pf->next, ext);
         pf->next++;
-        return neo_writer_open(&pf->w, pf->vol, pf->name, pf->buf, sizeof(pf->buf));
+        if (neo_writer_open(&pf->w, pf->vol, pf->name, pf->buf, sizeof(pf->buf))) return true;
+        fprintf(stderr, "imprimante : %s : ouverture impossible, page perdue\n", pf->name);
+        pf->failures++;
+        return false;
     }
     return false;
 }
@@ -71,7 +88,10 @@ static void _printer_files_seek(void* ctx, uint32_t pos) {
 
 static void _printer_files_close(void* ctx) {
     printer_files_t* pf = (printer_files_t*)ctx;
-    neo_writer_close(&pf->w);
+    if (neo_writer_is_open(&pf->w) && !neo_writer_close(&pf->w)) {
+        fprintf(stderr, "imprimante : %s : écriture incomplète\n", pf->name);
+        pf->failures++;
+    }
 }
 
 // vol : volume neo_storage (défini par l'appelant) ; dir : répertoire dans ce volume

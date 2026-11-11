@@ -8,48 +8,48 @@
 # fichier ESSAI.TAP écrit est rechargé par CLOAD et exécuté ; bandeau
 # « Écriture » pendant l'enregistrement.
 set -u
+. "$(dirname "$0")/lib.sh"
 BIN=${1:-build/telestrat_headless}
 if ! command -v python3 > /dev/null; then
-    echo "test_tape : python3 absent, ignoré"
-    exit 0
+    skip "python3 absent"
 fi
-TMP=$(mktemp -d)
+tmp_init
 W=$(printf '~%.0s' $(seq 1 120))   # attente du chargement (~2 s de bande)
-"$BIN" -c atmos -f 700 -w 150 -k 8 -t '10 PRINT "CASSETTE OK"\n20 PRINT 6*7\n' -r "$TMP/ram.bin" > /dev/null
+banc -c atmos -f 700 -w 150 -k 8 -t '10 PRINT "CASSETTE OK"\n20 PRINT 6*7\n' -r "$TMP/ram.bin" > /dev/null
 python3 "$(dirname "$0")/../tools/mktap.py" "$TMP/ram.bin" "$TMP/essai.tap" ESSAI > /dev/null
-"$BIN" -c atmos -K "$TMP/essai.tap" -f 1500 -w 150 -k 8 -t "CLOAD\"\"\n${W}LIST\nRUN\n" -s > "$TMP/ecran.txt"
+banc -c atmos -K "$TMP/essai.tap" -f 1500 -w 150 -k 8 -t "CLOAD\"\"\n${W}LIST\nRUN\n" -s > "$TMP/ecran.txt"
 # Sans cassette : la ROM cherche toujours
-"$BIN" -c atmos -f 700 -w 150 -k 8 -t 'CLOAD""\n' -s > "$TMP/vide.txt"
+banc -c atmos -f 700 -w 150 -k 8 -t 'CLOAD""\n' -s > "$TMP/vide.txt"
 # Chargement suivi : nom affiché pendant la lecture
-"$BIN" -c atmos -K "$TMP/essai.tap" -f 260 -w 150 -k 8 -t 'CLOAD""\n' -s > "$TMP/pendant.txt"
+banc -c atmos -K "$TMP/essai.tap" -f 260 -w 150 -k 8 -t 'CLOAD""\n' -s > "$TMP/pendant.txt"
 
 # Par le menu : h r e d d e = banque 7 <- ROM intégrée Atmos ; l d d d d e d e =
 # cassette <- essai.tap ; z u u e = RESET (à froid)
 mkdir "$TMP/cle"
 cp "$TMP/essai.tap" "$TMP/cle/essai.tap"
-"$BIN" -c standard -U "$TMP/cle" -M "300:hreddelddddedezuue" -f 1700 -w 450 -k 8 -t "CLOAD\"\"\n${W}RUN\n" -s \
+banc -c standard -U "$TMP/cle" -M "300:hreddelddddedezuue" -f 1700 -w 450 -k 8 -t "CLOAD\"\"\n${W}RUN\n" -s \
     > "$TMP/menu.txt" 2> "$TMP/menu_msg.txt"
-"$BIN" -c standard -U "$TMP/cle" -M "300:hreddelddddedezuue" -f 560 -w 450 -k 8 -t 'CLOAD""\n' -D "$TMP/dvi.ppm" \
+banc -c standard -U "$TMP/cle" -M "300:hreddelddddedezuue" -f 560 -w 450 -k 8 -t 'CLOAD""\n' -D "$TMP/dvi.ppm" \
     > /dev/null 2>&1
 
 # CSAVE vers un fichier, puis relecture
 mkdir "$TMP/rec"
-"$BIN" -c atmos -C "$TMP/rec" -f 1500 -w 150 -k 8 -t '10 PRINT "CSAVE OK"\n20 PRINT 6*7\nCSAVE"ESSAI"\n' -s \
+banc -c atmos -C "$TMP/rec" -f 1500 -w 150 -k 8 -t '10 PRINT "CSAVE OK"\n20 PRINT 6*7\nCSAVE"ESSAI"\n' -s \
     > "$TMP/csave.txt" 2> "$TMP/csave_msg.txt"
-"$BIN" -c atmos -K "$TMP/rec/ESSAI.TAP" -f 1500 -w 150 -k 8 -t "CLOAD\"\"\n${W}RUN\n" -s > "$TMP/relu.txt"
-"$BIN" -c atmos -C "$TMP/rec" -f 620 -w 150 -k 8 -t '10 PRINT "CSAVE OK"\n20 PRINT 6*7\nCSAVE"ESSAI"\n' \
+banc -c atmos -K "$TMP/rec/ESSAI.TAP" -f 1500 -w 150 -k 8 -t "CLOAD\"\"\n${W}RUN\n" -s > "$TMP/relu.txt"
+banc -c atmos -C "$TMP/rec" -f 620 -w 150 -k 8 -t '10 PRINT "CSAVE OK"\n20 PRINT 6*7\nCSAVE"ESSAI"\n' \
     -D "$TMP/ecrit.ppm" > /dev/null 2>&1
 
 # Cassette rapide (-Z) : CLOAD terminé là où la lecture normale commence à
 # peine ; moteur toujours en marche (-Y) : la bande défile sans CLOAD
-"$BIN" -c atmos -K "$TMP/essai.tap" -Z -f 240 -w 150 -k 8 -t 'CLOAD""\n' -s > "$TMP/rapide.txt"
-"$BIN" -c atmos -K "$TMP/essai.tap" -Z -f 1500 -w 150 -k 8 -t "CLOAD\"\"\n${W}RUN\n" -s > "$TMP/rapide_run.txt"
-"$BIN" -c atmos -K "$TMP/essai.tap" -f 20 -D "$TMP/relais.ppm" > /dev/null 2>&1
-"$BIN" -c atmos -K "$TMP/essai.tap" -Y -f 20 -D "$TMP/toujours.ppm" > /dev/null 2>&1
+banc -c atmos -K "$TMP/essai.tap" -Z -f 240 -w 150 -k 8 -t 'CLOAD""\n' -s > "$TMP/rapide.txt"
+banc -c atmos -K "$TMP/essai.tap" -Z -f 1500 -w 150 -k 8 -t "CLOAD\"\"\n${W}RUN\n" -s > "$TMP/rapide_run.txt"
+banc -c atmos -K "$TMP/essai.tap" -f 20 -D "$TMP/relais.ppm" > /dev/null 2>&1
+banc -c atmos -K "$TMP/essai.tap" -Y -f 20 -D "$TMP/toujours.ppm" > /dev/null 2>&1
 # Menu : u × 4 = cassette rapide, e ; r = moteur, e ; z u e = Enregistrer
 mkdir "$TMP/opt"
-"$BIN" -c standard -U "$TMP/opt" -M "5:uuuuerezuex" -f 10 > /dev/null 2> "$TMP/opt_msg.txt"
-"$BIN" -c standard -U "$TMP/opt" -M "5:" -O "$TMP/opt_menu.txt" -f 8 > /dev/null 2>&1
+banc -c standard -U "$TMP/opt" -M "5:uuuuerezuex" -f 10 > /dev/null 2> "$TMP/opt_msg.txt"
+banc -c standard -U "$TMP/opt" -M "5:" -O "$TMP/opt_menu.txt" -f 8 > /dev/null 2>&1
 
 fail=0
 n=0
@@ -57,8 +57,8 @@ n=0
 # la ROM ne fixe début et fin (BASIC 1.1 $E99D puis $EA9E) ; l'enregistreur va
 # jusqu'à l'arrêt du moteur (socle-2026-10-01-16)
 mkdir "$TMP/tab"
-"$BIN" -c atmos -C "$TMP/tab" -f 1700 -w 150 -k 10 -t 'DIM A(5)\nA(3)=42\nA(5)=7\nSTORE A,"TAB"\n' > /dev/null 2>&1
-"$BIN" -c atmos -K "$TMP/tab/TAB.TAP" -f 2300 -w 150 -k 10 \
+banc -c atmos -C "$TMP/tab" -f 1700 -w 150 -k 10 -t 'DIM A(5)\nA(3)=42\nA(5)=7\nSTORE A,"TAB"\n' > /dev/null 2>&1
+banc -c atmos -K "$TMP/tab/TAB.TAP" -f 2300 -w 150 -k 10 \
     -t 'DIM A(5)\nRECALL A,"TAB"\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~PRINT A(3);A(5)\n' -s > "$TMP/recall.txt" 2>&1
 
 check() {
@@ -112,6 +112,6 @@ if [ "$fail" -ne 0 ]; then
     cat "$TMP/menu_msg.txt" "$TMP/csave_msg.txt"
     for f in ecran vide pendant menu; do echo "--- $f :"; grep -v '^$' "$TMP/$f.txt" | head -14; done
 fi
-rm -rf "$TMP"
+banc_bilan
 echo "test_tape : $((n - fail))/$n vérifications réussies"
 [ "$fail" -eq 0 ]

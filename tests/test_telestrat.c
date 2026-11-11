@@ -157,7 +157,7 @@ static void test_rom_pool(void) {
 // ROM intégrées : cartouche STRATORIC complète (banques 7, 6, 5)
 // Chargeur de fichier .rom factice (profils de la clé)
 static int test_loads, test_load_bank;
-static char test_load_name[32];
+static char test_load_name[64];
 static bool test_load_fail;
 static bool test_load_cb(void* ctx, int bank, const char* name, const char** err) {
     (void)ctx;
@@ -279,21 +279,73 @@ static void test_bank_switch_and_ram(void) {
     CHECK(rom6[0] == 0x66, "la ROM n'a pas été modifiée");
 }
 
-static void test_bank_ddr_keeps_inputs(void) {
-    const uint8_t prog[] = {0x4C, 0x00, 0xC0};
-    load_program(prog, sizeof(prog));
+// Programme 6502 exécuté depuis la RAM ($0400, indépendante de la banque) : copié
+// depuis la ROM de la banque 7, puis exécuté 3000 cycles. Le programme se termine
+// par sa propre boucle d'arrêt (JMP sur lui-même).
+static void run_ram_stub(const uint8_t* stub, size_t len) {
+    uint8_t prog[256];
+    size_t n = 0;
+    prog[n++] = 0xA2; prog[n++] = 0x00;                    // LDX #0
+    prog[n++] = 0xBD; prog[n++] = 0x20; prog[n++] = 0xC0;  // LDA $C020,X
+    prog[n++] = 0x9D; prog[n++] = 0x00; prog[n++] = 0x04;  // STA $0400,X
+    prog[n++] = 0xE8;                                      // INX
+    prog[n++] = 0xE0; prog[n++] = (uint8_t)len;            // CPX #len
+    prog[n++] = 0xD0; prog[n++] = 0xF5;                    // BNE (retour au LDA)
+    prog[n++] = 0x4C; prog[n++] = 0x00; prog[n++] = 0x04;  // JMP $0400
+    while (n < 0x20) prog[n++] = 0xEA;
+    memcpy(prog + n, stub, len);
+    n += len;
+    load_program(prog, n);
+    memset(rom6, 0x66, sizeof(rom6));
     boot();
-    // DDRA = %001 : seul PA0 est piloté ; PA1-PA2 gardent la valeur (7 -> 6 ou 7)
-    _tv_write(&sys.via2, 3, 0x01);
-    _tv_write(&sys.via2, 1, 0x00);
-    // appliquer comme le fait une écriture CPU
-    sys.bank = 7;
-    {
-        uint8_t ddr = _tv_pa_ddr(&sys.via2) & 7;
-        uint8_t bank = (sys.bank & ~ddr) | (_tv_pa_outr(&sys.via2) & ddr);
-        telestrat_select_bank(&sys, bank);
-    }
-    CHECK(sys.bank == 6, "DDRA partiel : banque %d (attendu 6)", sys.bank);
+    run(3000);
+}
+
+// Banque = PA0-PA2 du VIA 2 ($0321 = ORA, $0323 = DDRA) : une ligne en entrée
+// (bit de DDRA à 0) garde la banque précédente. Le décodage est celui du système,
+// exercé par des écritures du processeur (et non recalculé par le test).
+static void test_bank_ddr_keeps_inputs(void) {
+    // DDRA = %001, ORA = 0 : seul PA0 est piloté (0), PA1-PA2 gardent 1 -> banque 6
+    const uint8_t a[] = {
+        0xA9, 0x01, 0x8D, 0x23, 0x03,  // LDA #$01 : STA $0323
+        0xA9, 0x00, 0x8D, 0x21, 0x03,  // LDA #$00 : STA $0321
+        0x4C, 0x0A, 0x04,              // JMP $040A (arrêt)
+    };
+    run_ram_stub(a, sizeof(a));
+    CHECK(sys.bank == 6, "DDRA = %%001, ORA = 0 : banque %d (attendu 6)", sys.bank);
+    CHECK(sys.bank_rd[6] == rom6, "DDRA partiel : la banque 6 est visible");
+
+    // DDRA = 0 (après RESET) : écrire ORA ne change rien, la banque 7 reste
+    const uint8_t b[] = {
+        0xA9, 0x00, 0x8D, 0x21, 0x03,  // LDA #$00 : STA $0321 (ORA = 0, aucune ligne pilotée)
+        0x4C, 0x05, 0x04,              // JMP $0405
+    };
+    run_ram_stub(b, sizeof(b));
+    CHECK(sys.bank == 7, "DDRA = 0, ORA = 0 : banque %d (attendu 7, lignes en entrée)", sys.bank);
+
+    // DDRA = %111, ORA = 3 -> banque 3 ; DDRA = %100 (PA0-PA1 repassent en entrée,
+    // gardent 3), ORA = 4 -> seul PA2 suit : banque 7
+    const uint8_t c[] = {
+        0xA9, 0x07, 0x8D, 0x23, 0x03,  // DDRA = %111
+        0xA9, 0x03, 0x8D, 0x21, 0x03,  // ORA = 3 : banque 3 (vide)
+        0xA9, 0x04, 0x8D, 0x23, 0x03,  // DDRA = %100
+        0xA9, 0x04, 0x8D, 0x21, 0x03,  // ORA = 4 : PA2 seul piloté -> 3 | 4 = 7
+        0x4C, 0x14, 0x04,              // JMP $0414
+    };
+    run_ram_stub(c, sizeof(c));
+    CHECK(sys.bank == 7, "DDRA = %%100, ORA = 4 : banque %d (attendu 7)", sys.bank);
+
+    // DDRA = %111, ORA = 5, puis DDRA = %010 et ORA = 0 : seul PA1 piloté (0),
+    // PA0 et PA2 gardent 5 -> banque 5 & ~2 = 5 ; avec ORA = 2 -> 7
+    const uint8_t d[] = {
+        0xA9, 0x07, 0x8D, 0x23, 0x03,  // DDRA = %111
+        0xA9, 0x05, 0x8D, 0x21, 0x03,  // ORA = 5 : banque 5
+        0xA9, 0x02, 0x8D, 0x23, 0x03,  // DDRA = %010
+        0xA9, 0x00, 0x8D, 0x21, 0x03,  // ORA = 0 : PA1 piloté à 0 -> 5
+        0x4C, 0x14, 0x04,              // JMP $0414
+    };
+    run_ram_stub(d, sizeof(d));
+    CHECK(sys.bank == 5, "DDRA = %%010, ORA = 0 : banque %d (attendu 5)", sys.bank);
 }
 
 // Fabrique une piste MFM de `nsec` secteurs de 256 octets (N = 1), numérotés

@@ -156,7 +156,9 @@ static uint8_t* _menu_pc_read(const menu_pc_t* p, const char* name, size_t* size
 static void _menu_pc_flush(menu_pc_t* p, telestrat_t* sys, int d) {
     if (neo_file_is_open(&p->disk_file[d])) wd1793_flush(&sys->fdc.wd);
     if (!p->disk[d] || !sys->fdc.wd.disk[d].modified) return;
-    neo_file_save(NEO_VOL_USB, p->disk_name[d], p->disk[d], (uint32_t)p->disk_size[d]);
+    // Échec d'écriture signalé (O-20) : les modifications de la disquette seraient perdues sans trace
+    if (!neo_file_save(NEO_VOL_USB, p->disk_name[d], p->disk[d], (uint32_t)p->disk_size[d]))
+        fprintf(stderr, "%s : écriture impossible, modifications de la disquette perdues\n", p->disk_name[d]);
 }
 
 // Disquette du réseau : lue et écrite piste par piste dans son fichier
@@ -334,6 +336,10 @@ static char* _menu_pc_read_cfg(const menu_pc_t* p) {
     uint8_t* d = _menu_pc_read(p, "TELESTRA.CFG", &size);
     if (!d) return NULL;
     char* s = realloc(d, size + 1);
+    if (!s) {  // échec : d reste valide, à libérer
+        free(d);
+        return NULL;
+    }
     s[size] = 0;
     return s;
 }
@@ -435,10 +441,14 @@ static void menu_pc_save(menu_pc_t* p) {
     const char* banks[8];
     for (int d = 0; d < 4; d++) drives[d] = p->disk_name[d];
     for (int b = 0; b < 8; b++) banks[b] = p->pool.name[b];
-    static char out[4096];
+    static char out[16384];
     const osd_options_t opt = {p->printer_on, p->printer_type, p->modem_on, p->tape_turbo, p->tape_motor_always, -1};
     size_t n = osd_config_merge_ex(old, drives, banks, &opt, out, sizeof(out));
     free(old);
+    if (n == 0) {  // tampon trop petit : rien n'est écrit (jamais un fichier vide annoncé réussi)
+        osd_menu_message(&p->menu, true, "TELESTRA.CFG : configuration trop longue, rien écrit");
+        return;
+    }
     const bool ok = neo_file_save(NEO_VOL_USB, "TELESTRA.CFG", (const uint8_t*)out, (uint32_t)n);
     osd_menu_message(&p->menu, !ok, ok ? "Configuration enregistrée dans TELESTRA.CFG" : "TELESTRA.CFG : écriture impossible");
 }
@@ -494,6 +504,9 @@ static bool menu_pc_state_load(menu_pc_t* p, telestrat_t* sys, const char* name,
         return false;
     }
     static char info[TELESTRAT_STATE_INFO_MAX + 1];
+    // Cartouches d'avant la reprise : remises en place si elle échoue (O-20)
+    char before[8][OSD_NAME_LEN];
+    for (int b = 0; b < 8; b++) snprintf(before[b], sizeof(before[b]), "%s", p->pool.name[b]);
     bool ok = telestrat_state_load_info(_menu_pc_state_read, &f, info, sizeof(info), err);
     for (char* line = ok ? strtok(info, "\n") : NULL; ok && line; line = strtok(NULL, "\n")) {
         for (int b = 1; b < 8; b++) {
@@ -515,6 +528,16 @@ static bool menu_pc_state_load(menu_pc_t* p, telestrat_t* sys, const char* name,
         ok = false;
     }
     neo_file_close(&f);
+    if (!ok) {  // retour arrière : cartouches d'origine de la reprise (erreurs ignorées)
+        const char* ignore = "";
+        for (int b = 1; b < 8; b++) {
+            if (!strcmp(before[b], p->pool.name[b])) continue;
+            const rom_builtin_t* rb = before[b][0] == '@' ? rom_builtin_find(before[b]) : NULL;
+            if (!before[b][0]) menu_pc_restore(p, sys, b);
+            else if (rb) (void)rom_pool_load_builtin(&p->pool, sys, b, rb, &ignore);
+            else (void)menu_pc_load_rom(p, sys, b, before[b], &ignore);
+        }
+    }
     return ok;
 }
 
@@ -559,9 +582,9 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
         case OSD_ACT_PRINTER:
             osd_printer_cycle(&p->printer_on, &p->printer_type, p->printer_types);
             if (p->printer_on) {
-                char msg[64];
-                snprintf(msg, sizeof(msg), "Imprimante : %s", osd_printer_names[p->printer_type]);
-                osd_menu_message(m, false, msg);
+                char pmsg[64];  // distinct de msg (variable de la fonction)
+                snprintf(pmsg, sizeof(pmsg), "Imprimante : %s", osd_printer_names[p->printer_type]);
+                osd_menu_message(m, false, pmsg);
             } else {
                 osd_menu_message(m, false, "Imprimante coupée");
             }
@@ -629,6 +652,11 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
             break;
         case OSD_ACT_TAPE_EJECT:
             telestrat_tape_insert(sys, 0, NULL, NULL);
+            neo_file_close(&p->tape_file);  // cassette du réseau
+            free(p->tape);                  // cassette de la clé
+            p->tape = NULL;
+            p->tape_size = 0;
+            p->tape_name[0] = 0;
             osd_menu_message(m, false, "Cassette éjectée");
             break;
         case OSD_ACT_LOAD_BUILTIN:

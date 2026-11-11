@@ -1,6 +1,70 @@
 # Tests
 
-`make` (ou `make test`) compile et lance tout. Aucune carte n'est nécessaire.
+`make` compile le banc PC et ses outils sans rien lancer ; `make test` compile et
+lance tout. Aucune carte n'est nécessaire.
+
+## Ignorés (SKIP), mode strict, sanitizers
+
+- **Un test ignoré n'est pas un test réussi.** Chaque test qui ne peut pas tourner
+  (disquette, ROM, `tnfsd` ou données absentes) écrit `SKIP nom : raison` et ajoute
+  une ligne à `$(BUILD)/skip.log` (variable `SKIP_LOG`, journal remis à zéro à chaque
+  `make test`). `make test` reste vert, puis affiche « N test(s) IGNORÉ(S) » avec les
+  raisons ; **`STRICT=1 make test` échoue dès qu'un test est ignoré.** Une partie
+  seulement ignorée (test_boot, test_printer, test_state, test_stratoric) est comptée
+  de la même façon (« (partie) »).
+- Les scripts (`tests/test_*.sh`) partagent `tests/lib.sh` : `set -u`, répertoire
+  temporaire `mktemp -d` (droits 700) supprimé par `trap` à la sortie ou à
+  l'interruption (`GARDE=1` le conserve et l'affiche), processus d'arrière-plan
+  arrêtés par le même `trap`, fonction `run` / `banc` qui **vérifie le code de
+  retour du banc** (un code non nul est un échec du test, compté en plus de ses
+  vérifications), `sed_i` portable.
+- **`make test-asan`** : `test_telestrat` et tous les scripts (banc, référence, rejeu,
+  rendu d'imprimante) compilés avec `-fsanitize=address,undefined` (`-O1`, sans
+  reprise sur erreur UBSan) dans `$(BUILD)/asan`. `ASAN_OPTIONS=detect_leaks=0` : le
+  banc ne libère pas tout en sortant.
+- `make WERROR=1 …` ajoute `-Werror`. `make compile_flags.txt` génère les options de
+  clangd pour le socle courant (fichier ignoré par git).
+- Hors de portée de `make test` : `make uf2`, `make charge`, la recette sur carte.
+
+## Socle reload-emulator
+
+L'étiquette du socle est **dans un seul fichier**, `tools/SOCLE` (lu par le Makefile,
+`tools/reload_socle.sh` et `platforms/rp2040/CMakeLists.txt`). `make` appelle
+`tools/reload_socle.sh`, sauf pour `make clean`. Le script cherche le dépôt
+reload-emulator dans `$RELOAD_REPO`, `~/Projets/reload-emulator`, `~/reload-emulator`
+(le premier qui porte l'étiquette), le clone sans réseau dans
+`${XDG_CACHE_HOME:-~/.cache}/reload-socle/<étiquette>` (sous-modules de la carte
+repris des copies locales de reload), puis écrit `.socle-ok` (« étiquette HASH »). Un
+cache existant n'est accepté que si son `HEAD` est ce HASH et, quand le dépôt est
+trouvé, si l'étiquette désigne toujours ce commit ; sinon erreur, sans suppression
+automatique. Construction dans un répertoire temporaire puis renommage (jamais de
+cache à moitié fait). Sans dépôt ni cache, le message explique comment obtenir le
+socle (`RELOAD_REPO=…` ou `make RELOAD_DIR=…`).
+
+**Reste manuel** : le socle n'existe que comme **étiquette locale** d'un dépôt local
+sans remote. Rien ne le publie ni ne le récupère par réseau ; un autre poste (ou le
+même après perte du dépôt) ne peut pas reconstruire le firmware tant que ce dépôt,
+l'étiquette et leurs sous-modules ne sont pas fournis à la main. Aucune URL n'est
+connue ici. Publier le socle (dépôt, étiquette, sous-modules) reste à faire.
+
+## ROM
+
+`src/roms/telestrat_roms.h` est généré (`make roms`, `docs/ROMS.md`) : ROM sans
+source = tableaux à zéro et macros `TELESTRAT_HAS_*` à 0 (optionnelles seulement).
+Les tests qui utilisent STRATORIC, Atmos ou BASIC 1.0 (test_stratoric, test_tape,
+test_state, test_telestrat) supposent que ces ROM sont présentes.
+
+## Réseau des tests
+
+Aucun port n'est choisi à l'avance : le banc ouvre `listen:0` et annonce
+`line_tcp : écoute sur 127.0.0.1:N` sur stderr ; les correspondants Python
+(`minitel_server.py`, `rs232_peer.py`) se lient au port 0 et écrivent leur port dans
+`SORTIE.pret`. Les scripts lisent ce port (`port_attend`). Le client Minitel envoie ses
+touches sur contenu reçu (`TOUCHE?MARQUEUR`), plus sur une durée de silence. Reste
+dépendant du temps réel : la fenêtre de 40 s des clients et, dans test_rs232.sh, le
+mode écoute qui tourne en temps réel (`-R`, ≈ 23 s) ; le banc ne cadence les autres
+tests que par trames. Une touche perdue « non examinée » à `-k 8` (test_boot, frappe
+rapide) n'a pas été étudiée : `-k 10` y est utilisé.
 
 ## Cœur 65C02 du PC — `make cpu_harte` (2 540 000 tests)
 
@@ -27,14 +91,16 @@ passés sur la copie locale `src/chips/w65c02cpu.h` (programme
 
 Seule la version PC utilise ce cœur. Sur la carte, c'est le vrai W65C02.
 
-## Tests unitaires — `tests/test_telestrat.c` (514 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (518 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
 - banque 7 au RESET et après exécution ;
 - commutation par V2DRA depuis la RAM (`$0400`) : écriture/relecture en banque
   RAM, écriture ignorée en ROM, `$FF` en banque vide, retour en banque 7 ;
-- DDRA partiel : les lignes en entrée gardent la banque précédente ;
+- DDRA partiel : les lignes en entrée gardent la banque précédente, vérifié par
+  des programmes 6502 exécutés en RAM qui écrivent DDRA (`$0323`) et ORA (`$0321`)
+  (DDRA = %001, DDRA = 0, DDRA = %100 puis %010), pas par un recalcul du test ;
 - VIA (v0.16.13) : T1 échu = IRQ ; T1 interdit par IER = IRQ relâchée,
   drapeau T1 gardé ; v0.16.29 : T1 en roue libre par pas de 4 cycles, demi-
   période N + 2 pour N = 25, 100, 1 000 (l'ancienne mos6522via : N + 8) ;
@@ -183,7 +249,7 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   sur 600 écrans aléatoires : texte, HIRES, attributs série, double hauteur,
   jeu alternatif, inversion, clignotement.
 
-## Tests de démarrage — `tests/test_boot.sh` (34 vérifications)
+## Tests de démarrage — `tests/test_boot.sh` (54 vérifications)
 
 Vraies ROM (`tools/fetch_roms.py`), 300 trames (6 s émulées), 4 configurations.
 Plus (v0.16.24) la frappe du banc : lignes à parenthèses et guillemets en mode
@@ -200,6 +266,13 @@ chaque configuration :
 | `standard` | 64 Ko RAM, 56 Ko ROM | somme des ROM de la notice (16+16+16+8) |
 | `telemon` | 64 Ko RAM, 16 Ko ROM | |
 
+### Options du banc (20 vérifications)
+
+Codes de retour : `-h` 0 ; option inconnue, `-f abc`, `-w -5`, `-X 1290` (sans `:`),
+`-M` sans `-U`, `-W` sans `-0`, configuration inconnue, ports de ligne invalides (`-L listen:abc`, `listen:99999`, `connect:hote`, `-S connect:…:0`) : 2 ; `-S connect:[::1]:1` (IPv6 entre crochets, rien n'écoute) : 1 ; `-G fx80:RÉP` avec un
+répertoire absent, image de lecteur invalide : 1 ; `-1`, `-2`, `-3` insèrent l'image
+dans les lecteurs B à D ; `-k 1` ramené à 2 avec avertissement.
+
 ### Sur disquette (12 vérifications)
 
 Image `STRATSED.DSK` (MFM_DISK, 2 faces x 80 pistes, STRATSED V2.0c,
@@ -215,7 +288,7 @@ copie puis, dans une nouvelle session, `LOAD`/`RUN` et `DIR` → 89 fichiers ;
 ## Télématique de bout en bout — `tests/test_telematic.sh` (7 vérifications)
 
 Configuration standard (TELEMATIC en banque 3), `STRATSED.DSK`, arborescence
-`DEMO` chargée, serveur lancé ; ligne `-L listen:PORT` (port libre) ; le
+`DEMO` chargée, serveur lancé ; ligne `-L listen:0` (port choisi et annoncé par le banc) ; le
 correspondant `tests/minitel_client.py` appelle, attend la page, envoie ENVOI,
 puis Connexion/Fin (`SEP $49`), raccroche. Vérifié : `ESC 9 o ESC 9 h` émis, `SEP $50 $59 $53` reçus, page
 d'accueil (« SERVEUR REALISE ENTIEREMENT… »), réponse à ENVOI (« taper quelque
@@ -225,18 +298,18 @@ communication » ; `ESC 9 g` (XDECON) émis à la fin de session.
 ## Émulation Minitel en appel sortant — `tests/test_minitel_emul.sh` (4 vérifications)
 
 TELEMATIC `APLIC 1` (configuration standard, `STRATSED.DSK`) ; serveur de test
-`tests/minitel_server.py` (port libre, fichier `.pret` une fois à l'écoute) ;
+`tests/minitel_server.py` (port 0, port annoncé dans le fichier `.pret` une fois à l'écoute) ;
 ligne `-L connect:`. FUNCT+D (`\fD` dans `-t`), puis « BONJOUR » et RETURN
 (ENVOI). Vérifié : `ESC 9 o ESC 9 h` émis, page du serveur affichée, `BONJOUR`
 + `SEP $41` reçus par le serveur, sa réponse « RECU: BONJOUR » affichée. L'écran
 de l'émulation est en HIRES : lu par `tests/hires_texte.py` dans l'image de la
 RAM (`-r`), cellule par cellule contre le jeu de caractères en `$9800`.
 
-## Prise RS232 — `tests/test_rs232.sh` (7 vérifications)
+## Prise RS232 — `tests/test_rs232.sh` (10 vérifications)
 
 HYPER-BASIC (configuration standard, `STRATSED.DSK`), prise RS232 du banc
-reliée par `-S connect:` au correspondant `tests/rs232_peer.py` (port libre,
-fichier `.pret`) ; trois sessions, touches à 8 trames (`-k 8`, sinon les
+reliée par `-S connect:` au correspondant `tests/rs232_peer.py` (port 0,
+port annoncé dans le fichier `.pret`) ; trois sessions, touches à 8 trames (`-k 8`, sinon les
 lettres doublées se perdent) :
 
 | Session | Vérifié |
@@ -244,6 +317,7 @@ lettres doublées se perdent) :
 | `SOUT 65:SOUT 66`, puis `SSAVE "ESSAI",A#9000,E#9010` d'un bloc « ABCDEFGHIJKLMNOP » | « AB » reçu ; en-tête : 50 x `$16`, `$24`, « ESSAI » ; données du bloc |
 | `SOUT 33:SLOAD` (le correspondant renvoie le fichier au « ! »), puis lecture de `#9000` | nom « ESSAI    COM » affiché ; mémoire restituée |
 | `CONSOLE`, « HELLO » tapé | « HELLO » reçu ; réponse « SALUT » affichée |
+| mode écoute `-S listen:0` (temps réel `-R`), `tests/rs232_client.py` : deux appels, le premier raccroche | le banc libère la ligne et accepte le second (`HELLO` reçu aux deux appels, `SALUT1` et `SALUT2` affichés) |
 
 ## Menu et clé USB — `tests/test_menu.sh` (14 vérifications)
 
@@ -303,7 +377,7 @@ Profils de la clé : proposés après les intégrés ; « Atmos et outil » choi
 BASIC 1.1, `outil.rom` en banque 4 (texte du menu) ; profil au fichier
 absent signalé ; `demarrage=Atmos et outil` sans page.
 
-## Imprimantes — `tests/test_printer.sh` (12 vérifications)
+## Imprimantes — `tests/test_printer.sh` (13 vérifications)
 
 `build/printer_render` rend un flux brut : FX-80 (texte, gras, condensé,
 `ESC K`, saut de page) → deux PNG valides (`tests/png_info.py` : CRC, zlib,

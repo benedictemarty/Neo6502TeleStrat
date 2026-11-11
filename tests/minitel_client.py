@@ -4,10 +4,15 @@ du banc (telestrat_headless -L listen:PORT), attend une première page, envoie
 éventuellement des touches, et enregistre tout ce qui est reçu.
 
 Usage : minitel_client.py PORT SORTIE DUREE SILENCE [TOUCHES...]
-  SILENCE : secondes sans données qui marquent la fin d'une page
+  SILENCE : secondes sans données qui marquent la fin d'une page (repli, quand
+            une touche n'a pas de marqueur)
   TOUCHES : texte à envoyer après la première page ; \\E = ENVOI ($13 $41),
             \\S = SOMMAIRE ($13 $46), \\R = RETOUR ($13 $42), \\F = touche
-            CONNEXION/FIN ($13 $49), \\X = le client raccroche (ligne coupée)
+            CONNEXION/FIN ($13 $49), \\X = le client raccroche (ligne coupée).
+            « TOUCHE?MARQUEUR » : la touche n'est envoyée qu'une fois MARQUEUR
+            (ASCII) reçu depuis l'envoi précédent — déterministe, indépendant
+            du temps réel ; sans marqueur, c'est le silence qui décide.
+            Un PORT négatif ou non numérique est refusé.
 """
 import socket
 import sys
@@ -57,13 +62,16 @@ def main():
         except socket.timeout:
             pass
         # Page complète : `quiet` secondes de silence après des données
-        if keys and data and time.time() - last > quiet:
-            k = keys.pop(0)
-            if k == "\\X":
-                break
-            marks.append(len(data))
-            s.sendall(encode(k))
-            last = time.time()
+        if keys and data:
+            k, _, marqueur = keys[0].partition("?")
+            pret = marqueur.encode("ascii") in data[marks[-1] if marks else 0:] if marqueur else time.time() - last > quiet
+            if pret:
+                keys.pop(0)
+                if k == "\\X":
+                    break
+                marks.append(len(data))
+                s.sendall(encode(k))
+                last = time.time()
     s.close()
     with open(path, "wb") as f:
         f.write(data)

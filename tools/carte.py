@@ -25,6 +25,7 @@ Variables : NEO_ELF, NEO_OPENOCD.
 """
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -92,8 +93,16 @@ def flasher(elf):
     # effacée : refus
     if not os.path.isfile(elf):
         raise SystemExit(f"{elf} absent : compilation en échec ?")
-    src = os.path.join(ICI, "..", "platforms", "rp2040", "src")
-    recent = max(os.path.getmtime(os.path.join(src, f)) for f in os.listdir(src))
+    # Sources du firmware : platforms/rp2040 (hors lib/ et build/) et src/ du dépôt
+    # (systèmes, puces, menu), récursivement, ainsi que les ROM générées
+    racine = os.path.join(ICI, "..")
+    recent = 0.0
+    for base in ("platforms/rp2040", "src", "third_party/tinyusb/src"):
+        for dossier, sous, fichiers in os.walk(os.path.join(racine, base)):
+            sous[:] = [d for d in sous if d not in ("lib", "build", "__pycache__", ".git")]
+            for f in fichiers:
+                if f.endswith((".c", ".h", ".cpp", ".S", ".txt", ".cmake", ".ld")):
+                    recent = max(recent, os.path.getmtime(os.path.join(dossier, f)))
     if os.path.getmtime(elf) < recent:
         raise SystemExit(f"{elf} plus ancien que les sources : recompiler (make uf2) avant de flasher")
     openocd(f"program {elf} verify reset", timeout=300, vitesse=5000)
@@ -104,7 +113,7 @@ def taper(texte):
     s = symboles()
     codes = [0x0D if c == "\n" else ord(c) for c in texte.replace("\\n", "\n")]
     tete, queue = lire_mots(s["diag_keyq_head"], 2)
-    if queue - tete + len(codes) > 256:
+    if ((queue - tete) & 0xFFFFFFFF) + len(codes) > 256:
         raise SystemExit("file de touches pleine")
     cmds = [f"mwb 0x{s['diag_keyq'] + ((queue + i) & 255):08x} 0x{c:02x}" for i, c in enumerate(codes)]
     cmds.append(f"mww 0x{s['diag_keyq_tail']:08x} {queue + len(codes)}")
@@ -136,8 +145,14 @@ def ecran(png=None):
         with open(ppm, "wb") as f:
             f.write(entete + brut)
         if not png.endswith(".ppm"):
-            subprocess.run(["convert", ppm, "-scale", "300%", png], check=True)
-            os.remove(ppm)
+            # Conversion par ImageMagick (convert ou magick) ; sans lui, le .ppm est gardé
+            outil = shutil.which("magick") or shutil.which("convert")
+            if not outil:
+                print(f"ImageMagick (convert/magick) absent : image gardée au format PPM ({ppm})", file=sys.stderr)
+                png = ppm
+            else:
+                subprocess.run([outil, ppm, "-scale", "300%", png], check=True)
+                os.remove(ppm)
         print(png)
 
 
@@ -149,14 +164,18 @@ ETATS_DEPOT = {1: "pas de clé", 2: "création ou ouverture impossible", 3: "éc
 def deposer(fichiers):
     """Dépose des fichiers à la racine de la clé : morceaux de 16 Ko chargés
     dans l'image du Telestrat (load_image), écrits par le firmware ; une seule
-    session OpenOCD (boucles Tcl)."""
+    session OpenOCD (boucles Tcl). Les fichiers temporaires sont supprimés."""
     import tempfile
+    with tempfile.TemporaryDirectory(prefix="telestrat-carte-") as tmp:
+        _deposer(fichiers, tmp)
+
+
+def _deposer(fichiers, tmp):
     s, _, fb, _ = disposition()
     bloc = 16384
     tcl = ["proc attendre {} { set n 0; while {[lindex [read_memory 0x%08x 32 1] 0] != 0} { sleep 20; incr n; "
            "if {$n > 1500} { error \"délai : le firmware ne répond pas\" } } }" % s["diag_up_cmd"],
            "proc etat {} { return [lindex [read_memory 0x%08x 32 1] 0] }" % s["diag_up_status"]]
-    tmp = tempfile.mkdtemp()
     for k, chemin in enumerate(fichiers):
         nom = os.path.basename(chemin).upper()[:39]
         data = open(chemin, "rb").read()
@@ -241,8 +260,9 @@ def mesure(secondes=10):
     lsum = lire_mots(s["diag_line_us_sum"], 1)[0]
     lmax = lire_mots(s["diag_line_us_max"], 1)[0]
     ln = lire_mots(s["diag_line_n"], 1)[0]
-    mhz = (t1 - t0) / secondes / 1e6
-    print(f"65C02 : {(t1 - t0) & 0xFFFFFFFF} cycles en {secondes} s = {mhz:.3f} MHz ; {f1 - f0} trames")
+    cycles = (t1 - t0) & 0xFFFFFFFF  # compteur 32 bits qui peut avoir bouclé
+    mhz = cycles / secondes / 1e6
+    print(f"65C02 : {cycles} cycles en {secondes} s = {mhz:.3f} MHz ; {(f1 - f0) & 0xFFFFFFFF} trames")
     print(f"cœur 0 : {somme / max(n, 1):.0f} µs de travail par trame de 19 968 µs en moyenne"
           f" ({100 * somme / max(n, 1) / 19968:.0f} %), {maxi} au pire")
     print(f"cœur 1 : {lsum / max(ln, 1):.1f} µs par ligne (max {lmax}) ; lignes rouges : {retard}")
@@ -332,6 +352,8 @@ def ligne(action, arg=None):
         sys.stdout.write(bytes(c if 32 <= c < 127 else 32 for c in data).decode() + "\n")
         return data
     elif action == "envoyer":
+        if not arg:
+            raise SystemExit("carte.py ligne envoyer TEXTE : texte manquant")
         cles = {"\\E": b"\x13\x41", "\\S": b"\x13\x46", "\\R": b"\x13\x42"}
         data, i = b"", 0
         while i < len(arg):
@@ -342,6 +364,9 @@ def ligne(action, arg=None):
                 data += arg[i].encode()
                 i += 1
         head, tail = lire_mots(s["diag_rx_head"], 2)
+        if ((tail - head) & 0xFFFFFFFF) + len(data) > 256:  # file de 256 octets
+            raise SystemExit("file de réception pleine (256 octets) : %d en attente, %d à envoyer"
+                             % ((tail - head) & 0xFFFFFFFF, len(data)))
         cmds = [f"mwb 0x{s['diag_rx'] + ((tail + j) & 255):08x} 0x{c:02x}" for j, c in enumerate(data)]
         cmds.append(f"mww 0x{s['diag_rx_tail']:08x} {tail + len(data)}")
         openocd(*cmds)

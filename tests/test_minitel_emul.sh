@@ -5,22 +5,21 @@
 # serveur affichée, « BONJOUR » + ENVOI (RETURN) reçus par le serveur, sa
 # réponse affichée (écran HIRES lu par tests/hires_texte.py).
 set -u
+. "$(dirname "$0")/lib.sh"
 BIN=${1:-build/telestrat_headless}
 DSK=${STRATSED_DSK:-$HOME/oriclib/games/dsk/STRATSED.DSK}
 if [ ! -f "$DSK" ] || ! command -v python3 >/dev/null; then
-    echo "test_minitel_emul : disquette ou python3 absent, ignoré"
-    exit 0
+    skip "disquette ou python3 absent"
 fi
-TMP=$(mktemp -d)
+tmp_init
 cp "$DSK" "$TMP/a.dsk"
-PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
 W=$(printf '~%.0s' $(seq 1 80))   # attente de la connexion (négociation du modem)
-python3 "$(dirname "$0")/minitel_server.py" "$PORT" "$TMP/recu.bin" 30 > /dev/null 2>&1 &
+# Le serveur choisit son port (0) et l'annonce dans recu.bin.pret une fois à l'écoute
+python3 "$(dirname "$0")/minitel_server.py" 0 "$TMP/recu.bin" 30 > /dev/null 2>&1 &
 SPID=$!
-# Attente de l'écoute du serveur (sans elle, l'appel échoue et rien n'est reçu)
-i=0
-while [ ! -f "$TMP/recu.bin.pret" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
-"$BIN" -c standard -0 "$TMP/a.dsk" -L "connect:127.0.0.1:$PORT" -f 4000 -w 500 \
+pid_add $SPID
+PORT=$(port_attend "$TMP/recu.bin.pret") || { echo "ÉCHEC [minitel] : le serveur n'est pas à l'écoute"; exit 1; }
+banc -c standard -0 "$TMP/a.dsk" -L "connect:127.0.0.1:$PORT" -f 4000 -w 500 \
     -t "1~~~~~~APLIC 1\n~~~~2\n~~~~~~\fD${W}BONJOUR\n~~~~~~~~~~" -T "$TMP/serie.txt" -r "$TMP/ram.bin" > /dev/null
 kill $SPID 2> /dev/null
 wait $SPID 2> /dev/null
@@ -45,6 +44,6 @@ if [ "$fail" -ne 0 ]; then
     echo "--- écran :"; grep -v '^$' "$TMP/ecran.txt"
     echo "--- émis :"; head -c 300 "$TMP/tx.txt"; echo
 fi
-[ -n "${GARDE:-}" ] && echo "$TMP" || rm -rf "$TMP"
+banc_bilan
 echo "test_minitel_emul : $((n - fail))/$n vérifications réussies"
 [ "$fail" -eq 0 ]

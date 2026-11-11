@@ -197,6 +197,8 @@ def straight_cost(path, sym, syms_segs):
     for vaddr, data, _ in segs:
         if vaddr <= addr < vaddr + len(data):
             blob = data[addr - vaddr:addr - vaddr + size]
+    if blob is None:
+        raise SystemExit("%s (0x%x) hors des segments chargés de %s" % (sym, addr, path))
     cost = 0
     listing = []
     for i in md.disasm(blob, addr):
@@ -299,6 +301,8 @@ def main():
     frames = n_cycles // 20000
     if args.frames:
         frames = min(frames, args.frames)
+    if frames < 1:
+        raise SystemExit("trace trop courte : %d cycles (au moins 20000, une trame, sont nécessaires)" % n_cycles)
     slice_costs, frame_costs, end_costs = [], [], []
     t0 = time.time()
     for f in range(frames):
@@ -386,10 +390,7 @@ def main():
             for a, c in cyc.blocks[baddr][3]:
                 inst[a] = inst.get(a, 0) + c * n
         addrs = sorted(inst)
-        out = subprocess.run(["arm-none-eabi-addr2line", "-i", "-f", "-C", "-e", args.bench_elf] +
-                             ["%x" % a for a in addrs], capture_output=True, text=True).stdout.splitlines()
-        # addr2line -i sort plusieurs paires (fonction, ligne) par adresse : on
-        # relit adresse par adresse avec -a pour les séparer
+        # addr2line -i sort plusieurs paires (fonction, ligne) par adresse : -a les sépare
         out = subprocess.run(["arm-none-eabi-addr2line", "-a", "-i", "-f", "-C", "-e", args.bench_elf] +
                              ["%x" % a for a in addrs], capture_output=True, text=True).stdout.splitlines()
         by_func, by_line, cur = {}, {}, None

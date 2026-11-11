@@ -2,10 +2,12 @@
 """Serveur Minitel minimal pour les tests : attend un appel TCP (le Telestrat en
 émulation Minitel, banc -L connect:127.0.0.1:PORT), envoie une page Videotex,
 puis à chaque ENVOI ($13 $41) répond « RECU: » suivi du texte tapé.
-Enregistre tout ce qu'il reçoit ; SORTIE.pret signale que l'écoute est ouverte.
+Enregistre tout ce qu'il reçoit ; SORTIE.pret contient le port d'écoute une fois ouverte
+(PORT 0 : choisi par le système).
 
 Usage : minitel_server.py PORT SORTIE DURÉE
 """
+import os
 import socket
 import sys
 import time
@@ -19,9 +21,12 @@ def main():
     port, path, duree = int(sys.argv[1]), sys.argv[2], float(sys.argv[3])
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("127.0.0.1", port))
+    srv.bind(("127.0.0.1", port))  # port 0 : choisi par le système, annoncé dans SORTIE.pret
     srv.listen(1)
-    open(path + ".pret", "w").close()  # le test peut appeler
+    # Annonce atomique du port effectif (le test le lit : aucun choix préalable de port)
+    with open(path + ".pret.tmp", "w") as f:
+        f.write("%d\n" % srv.getsockname()[1])
+    os.replace(path + ".pret.tmp", path + ".pret")
     srv.settimeout(duree)
     recu = b""
     try:

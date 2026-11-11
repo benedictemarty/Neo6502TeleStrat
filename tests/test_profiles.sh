@@ -10,8 +10,9 @@
 #      profils intégrés, choisis par la page ou par demarrage=Libellé ; une
 #      cartouche .rom de la clé et une ROM intégrée.
 set -u
+. "$(dirname "$0")/lib.sh"
 BIN=${1:-build/telestrat_headless}
-TMP=$(mktemp -d)
+tmp_init
 fail=0
 n=0
 check() {
@@ -23,27 +24,27 @@ check() {
 }
 mkdir "$TMP/c1" "$TMP/c2" "$TMP/c3"
 printf 'demarrage=choix\n' > "$TMP/c1/TELESTRA.CFG"
-"$BIN" -c standard -U "$TMP/c1" -M "5:" -O "$TMP/page.txt" -f 8 > /dev/null 2>&1
-"$BIN" -c standard -U "$TMP/c1" -M "5:dde" -f 400 -s > "$TMP/strat.txt" 2> "$TMP/strat_msg.txt"
-"$BIN" -c standard -U "$TMP/c1" -M "5:x" -f 300 -s > "$TMP/echap.txt" 2>&1
+banc -c standard -U "$TMP/c1" -M "5:" -O "$TMP/page.txt" -f 8 > /dev/null 2>&1
+banc -c standard -U "$TMP/c1" -M "5:dde" -f 400 -s > "$TMP/strat.txt" 2> "$TMP/strat_msg.txt"
+banc -c standard -U "$TMP/c1" -M "5:x" -f 300 -s > "$TMP/echap.txt" 2>&1
 printf 'demarrage=atmos\n' > "$TMP/c2/TELESTRA.CFG"
-"$BIN" -c standard -U "$TMP/c2" -f 300 -s > "$TMP/atmos.txt" 2>&1
+banc -c standard -U "$TMP/c2" -f 300 -s > "$TMP/atmos.txt" 2>&1
 printf 'demarrage=stratoric\n' > "$TMP/c3/TELESTRA.CFG"
-"$BIN" -c standard -U "$TMP/c3" -f 400 -s > "$TMP/strat2.txt" 2>&1
+banc -c standard -U "$TMP/c3" -f 400 -s > "$TMP/strat2.txt" 2>&1
 mkdir "$TMP/c4"
 printf 'demarrage=orix\n' > "$TMP/c4/TELESTRA.CFG"
-"$BIN" -c standard -U "$TMP/c4" -f 300 -s > "$TMP/inconnu.txt" 2>&1
+banc -c standard -U "$TMP/c4" -f 300 -s > "$TMP/inconnu.txt" 2>&1
 
 # 4. Profils de la clé (la ROM TELE-ASS copiée sur la clé tient lieu de cartouche)
 ROM2=${TELEASS_ROM:-$HOME/tele-ass/original/teleass.rom}
 mkdir "$TMP/c5"
 if [ -f "$ROM2" ]; then cp "$ROM2" "$TMP/c5/outil.rom"; else head -c 16384 /dev/zero > "$TMP/c5/outil.rom"; fi
 printf 'profil=Atmos et outil;bank7=@atmos;bank4=outil.rom\nprofil=Absent;bank5=absent.rom\ndemarrage=choix\n' > "$TMP/c5/TELESTRA.CFG"
-"$BIN" -c standard -U "$TMP/c5" -M "5:" -O "$TMP/page5.txt" -f 8 > /dev/null 2>&1
-"$BIN" -c standard -U "$TMP/c5" -M "5:dddde" -O "$TMP/menu5.txt" -f 300 -s > "$TMP/prof5.txt" 2> "$TMP/prof5_msg.txt"
-"$BIN" -c standard -U "$TMP/c5" -M "5:ddddde" -f 20 > /dev/null 2> "$TMP/prof6_msg.txt"
-sed -i 's/^demarrage=choix/demarrage=Atmos et outil/' "$TMP/c5/TELESTRA.CFG"
-"$BIN" -c standard -U "$TMP/c5" -f 300 -s > "$TMP/prof7.txt" 2>&1
+banc -c standard -U "$TMP/c5" -M "5:" -O "$TMP/page5.txt" -f 8 > /dev/null 2>&1
+banc -c standard -U "$TMP/c5" -M "5:dddde" -O "$TMP/menu5.txt" -f 300 -s > "$TMP/prof5.txt" 2> "$TMP/prof5_msg.txt"
+banc -c standard -U "$TMP/c5" -M "5:ddddde" -f 20 > /dev/null 2> "$TMP/prof6_msg.txt"
+sed_i 's/^demarrage=choix/demarrage=Atmos et outil/' "$TMP/c5/TELESTRA.CFG"
+banc -c standard -U "$TMP/c5" -f 300 -s > "$TMP/prof7.txt" 2>&1
 check "profils de la clé proposés après les intégrés" "grep -q 'ORIC BASIC 1.1 : mode Atmos simple' '$TMP/page5.txt' && grep -q 'Atmos et outil' '$TMP/page5.txt' && grep -q 'Absent' '$TMP/page5.txt'"
 check "profil de la clé choisi : BASIC 1.1, outil.rom en banque 4" "grep -q 'Démarrage : Atmos et outil' '$TMP/prof5_msg.txt' && grep -q 'ORIC EXTENDED BASIC V1.1' '$TMP/prof5.txt' && grep -q 'Banque 4 *outil.rom' '$TMP/menu5.txt' && grep -q 'Banque 7 *ORIC BASIC 1.1' '$TMP/menu5.txt'"
 check "profil de la clé : fichier absent signalé" "grep -q 'Démarrage : ' '$TMP/prof6_msg.txt' && ! grep -q 'Démarrage : Absent' '$TMP/prof6_msg.txt'"
@@ -54,6 +55,6 @@ check "Échap : Telestrat de la clé" "grep -q 'TELESTRAT' '$TMP/echap.txt' && !
 check "demarrage=atmos : BASIC 1.1" "grep -q 'ORIC EXTENDED BASIC V1.1' '$TMP/atmos.txt'"
 check "demarrage=stratoric : STRATORIC V4.0" "grep -q 'STRATORIC V4.0' '$TMP/strat2.txt'"
 check "profil inconnu : Telestrat de la clé" "grep -q 'TELESTRAT' '$TMP/inconnu.txt' && ! grep -q STRATORIC '$TMP/inconnu.txt'"
-rm -rf "$TMP"
+banc_bilan
 echo "test_profiles : $((n - fail))/$n vérifications réussies"
 [ "$fail" -eq 0 ]

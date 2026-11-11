@@ -13,21 +13,26 @@
 #
 # tnfsd écoute toujours le port 16384 (config.h). Port libre : ce binaire ;
 # sinon (autre serveur sur la machine) une copie de ses sources compilée dans
-# le répertoire temporaire sur un port libre. Ignoré sans tnfsd ni sources.
+# le répertoire temporaire sur un port libre. Ignoré (SKIP) sans tnfsd ni sources.
 #   TELESTRAT_TNFSD   binaire (défaut ~/spectranet/tnfs/tnfsd/bin/tnfsd)
-#   TELESTRAT_TNFSD_SRC sources (défaut : le répertoire parent du binaire)
+#   TELESTRAT_TNFSD_SRC sources, à fournir explicitement pour qu'elles soient
+#                     compilées (rien n'est compilé par défaut : du code tiers
+#                     n'est pas exécuté sans demande)
+# Le binaire et les sources doivent appartenir à l'utilisateur courant. Les
+# sources de tnfsd ne sont pas dans ce dépôt (absentes de cette machine) : si
+# tnfsd offre une option d'adresse d'écoute, elle n'est pas vérifiée ici ; le test
+# signale seulement (ss) un serveur à l'écoute sur une adresse non locale.
 set -u
+. "$(dirname "$0")/lib.sh"
 BIN=${1:-build/telestrat_headless}
 DSK=${STRATSED_DSK:-$HOME/oriclib/games/dsk/STRATSED.DSK}
 TNFSD=${TELESTRAT_TNFSD:-$HOME/spectranet/tnfs/tnfsd/bin/tnfsd}
-SRC=${TELESTRAT_TNFSD_SRC:-$(dirname "$TNFSD")/..}
+SRC=${TELESTRAT_TNFSD_SRC:-}
 if [ ! -f "$DSK" ] || ! command -v python3 > /dev/null; then
-    echo "test_tnfs : disquette ou python3 absent, ignoré"
-    exit 0
+    skip "disquette ou python3 absent"
 fi
-TMP=$(mktemp -d)
+tmp_init
 PID=
-trap '[ -n "$PID" ] && kill "$PID" 2> /dev/null' EXIT
 
 # Port UDP et TCP libre (tnfsd ouvre les deux)
 port_free() {
@@ -44,9 +49,9 @@ for t in (socket.SOCK_DGRAM, socket.SOCK_STREAM):
 }
 PORT=16384
 SERVER=
-if [ -x "$TNFSD" ] && port_free $PORT; then
+if [ -x "$TNFSD" ] && [ -O "$TNFSD" ] && port_free $PORT; then
     SERVER=$TNFSD
-elif [ -f "$SRC/config.h" ] && [ -f "$SRC/main.c" ] && command -v cc > /dev/null; then
+elif [ -n "$SRC" ] && [ -O "$SRC/config.h" ] && [ -O "$SRC/main.c" ] && command -v cc > /dev/null; then
     PORT=$(python3 -c "
 import socket
 for p in range(20000, 30000, 7):
@@ -63,7 +68,7 @@ for p in range(20000, 30000, 7):
         break")
     mkdir "$TMP/src"
     cp "$SRC"/*.c "$SRC"/*.h "$TMP/src/"
-    sed -i "s/^#define TNFSD_PORT.*/#define TNFSD_PORT $PORT/" "$TMP/src/config.h"
+    sed_i "s/^#define TNFSD_PORT.*/#define TNFSD_PORT $PORT/" "$TMP/src/config.h"
     # Options de son Makefile (OS=LINUX), sans optimisation : avec
     # _FORTIFY_SOURCE (-O1 et plus), tnfsd s'arrête sur « buffer overflow »
     if cc -w -O0 -DUNIX -DNEED_BSDCOMPAT -DENABLE_CHROOT -DNEED_ERRTABLE -o "$TMP/tnfsd" "$TMP"/src/*.c 2> "$TMP/cc.log"; then
@@ -71,51 +76,54 @@ for p in range(20000, 30000, 7):
     fi
 fi
 if [ -z "$SERVER" ]; then
-    echo "test_tnfs : tnfsd absent ou port 16384 occupé sans sources pour un autre port, ignoré"
-    exit 0
+    skip "tnfsd absent (TELESTRAT_TNFSD) ou port 16384 occupé sans sources (TELESTRAT_TNFSD_SRC) pour un autre port"
 fi
 
 mkdir "$TMP/tnfs" "$TMP/cle"
 cp "$DSK" "$TMP/tnfs/STRATSED.DSK"
 "$SERVER" "$TMP/tnfs" > "$TMP/tnfsd.log" 2>&1 &
 PID=$!
+pid_add $PID
 i=0
 while port_free $PORT && [ $i -lt 30 ]; do
     sleep 0.1
     i=$((i + 1))
 done
 if port_free $PORT; then
-    echo "test_tnfs : tnfsd n'écoute pas sur le port $PORT (voir $TMP/tnfsd.log), ignoré"
-    exit 0
+    GARDE=1
+    skip "tnfsd n'écoute pas sur le port $PORT (journal dans $TMP/tnfsd.log)"
 fi
 NET="127.0.0.1:$PORT"
+if command -v ss > /dev/null && ss -lnu 2> /dev/null | grep -E "(\*|0\.0\.0\.0|\[::\]):$PORT " > /dev/null; then
+    echo "AVERTISSEMENT [tnfs] : tnfsd écoute sur toutes les interfaces (port $PORT), pas seulement 127.0.0.1"
+fi
 
 # 1. Disquette du réseau désignée par TELESTRA.CFG, DIR
 echo "a=net:/STRATSED.DSK" > "$TMP/cle/TELESTRA.CFG"
-"$BIN" -c standard -U "$TMP/cle" -N "$NET" -f 1500 -w 1200 -k 8 -t '1~~~~~~DIR\n' -s > "$TMP/dir1.txt" 2> "$TMP/dir1_msg.txt"
+banc -c standard -U "$TMP/cle" -N "$NET" -f 1500 -w 1200 -k 8 -t '1~~~~~~DIR\n' -s > "$TMP/dir1.txt" 2> "$TMP/dir1_msg.txt"
 # 2. SAVE sur la disquette du réseau, puis DIR dans une nouvelle session
-"$BIN" -c standard -U "$TMP/cle" -N "$NET" -f 1800 -w 1200 -k 8 -t '1~~~~~~10 PRINT 4242\nSAVE "TNFSOK"\n~~~~~~~~~~' -s \
+banc -c standard -U "$TMP/cle" -N "$NET" -f 1800 -w 1200 -k 8 -t '1~~~~~~10 PRINT 4242\nSAVE "TNFSOK"\n~~~~~~~~~~' -s \
     > /dev/null 2>&1
-"$BIN" -c standard -U "$TMP/cle" -N "$NET" -f 1500 -w 1200 -k 8 -t '1~~~~~~DIR\n' -s > "$TMP/dir2.txt" 2>&1
+banc -c standard -U "$TMP/cle" -N "$NET" -f 1500 -w 1200 -k 8 -t '1~~~~~~DIR\n' -s > "$TMP/dir2.txt" 2>&1
 # 3. Menu : h e = lecteur A, source ; d e = Réseau ; S e = STRATSED.DSK ;
 # z u e = Enregistrer. Images du menu : choix de la source (curseur sur celle
 # de l'image en place : z = Réseau), sélecteur du réseau ; sans -N : le sélecteur de la clé directement (aucune image)
 rm "$TMP/cle/TELESTRA.CFG"
-"$BIN" -c standard -U "$TMP/cle" -N "$NET" -M "5:hedeSezue" -f 10 > /dev/null 2> "$TMP/menu_msg.txt"
+banc -c standard -U "$TMP/cle" -N "$NET" -M "5:hedeSezue" -f 10 > /dev/null 2> "$TMP/menu_msg.txt"
 cp "$TMP/cle/TELESTRA.CFG" "$TMP/cfg_menu"
-"$BIN" -c standard -U "$TMP/cle" -N "$NET" -M "5:he" -O "$TMP/source.txt" -f 10 > /dev/null 2>&1
-"$BIN" -c standard -U "$TMP/cle" -N "$NET" -M "5:heze" -O "$TMP/reseau.txt" -f 10 > /dev/null 2>&1
-"$BIN" -c standard -U "$TMP/cle" -M "5:he" -O "$TMP/sans.txt" -f 10 > /dev/null 2>&1
+banc -c standard -U "$TMP/cle" -N "$NET" -M "5:he" -O "$TMP/source.txt" -f 10 > /dev/null 2>&1
+banc -c standard -U "$TMP/cle" -N "$NET" -M "5:heze" -O "$TMP/reseau.txt" -f 10 > /dev/null 2>&1
+banc -c standard -U "$TMP/cle" -M "5:he" -O "$TMP/sans.txt" -f 10 > /dev/null 2>&1
 # 4. Instantané avec la disquette du réseau (TELESTRA.CFG du menu)
-"$BIN" -c standard -U "$TMP/cle" -N "$NET" -f 300 -X "299:$TMP/etat.sta" > /dev/null 2>&1
+banc -c standard -U "$TMP/cle" -N "$NET" -f 300 -X "299:$TMP/etat.sta" > /dev/null 2>&1
 # 5. Cassette du réseau par le menu (programme tapé, relevé, mis en cassette
 # par tools/mktap.py) : h r e e d d e = banque 7, Clé USB (ROM intégrées),
 # ROM Atmos ; l d d d d e d e d e = cassette, Réseau, ESSAI.TAP ; z u u e = RESET
 rm "$TMP/cle/TELESTRA.CFG"
 W=$(printf '~%.0s' $(seq 1 120))
-"$BIN" -c atmos -f 700 -w 150 -k 8 -t '10 PRINT "RESEAU OK"\n20 PRINT 6*7\n' -r "$TMP/ram.bin" > /dev/null
+banc -c atmos -f 700 -w 150 -k 8 -t '10 PRINT "RESEAU OK"\n20 PRINT 6*7\n' -r "$TMP/ram.bin" > /dev/null
 python3 "$(dirname "$0")/../tools/mktap.py" "$TMP/ram.bin" "$TMP/tnfs/ESSAI.TAP" ESSAI > /dev/null
-"$BIN" -c standard -U "$TMP/cle" -N "$NET" -M "300:hreeddelddddededezuue" -f 1700 -w 450 -k 8 \
+banc -c standard -U "$TMP/cle" -N "$NET" -M "300:hreeddelddddededezuue" -f 1700 -w 450 -k 8 \
     -t "CLOAD\"\"\n${W}RUN\n" -s > "$TMP/cload.txt" 2> "$TMP/cload_msg.txt"
 
 fail=0
@@ -139,5 +147,6 @@ check "menu : sans -N, sélecteur de la clé directement" "grep -q 'Aucune image
 check "instantané : a=net:/STRATSED.DSK dans son texte" "grep -aq 'a=net:/STRATSED.DSK' '$TMP/etat.sta'"
 check "menu : cassette du réseau insérée" "grep -q 'Cassette : net:/ESSAI.TAP' '$TMP/cload_msg.txt'"
 check "cassette du réseau : CLOAD puis RUN" "grep -q '^  RESEAU OK' '$TMP/cload.txt' && grep -q '^   42' '$TMP/cload.txt'"
+banc_bilan
 echo "test_tnfs : $((n - fail))/$n vérifications réussies"
-[ $fail -eq 0 ] || { echo "test_tnfs : fichiers dans $TMP"; exit 1; }
+[ $fail -eq 0 ] || { echo "test_tnfs : fichiers dans $TMP"; GARDE=1; exit 1; }

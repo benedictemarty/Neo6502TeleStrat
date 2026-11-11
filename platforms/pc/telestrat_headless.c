@@ -3,8 +3,11 @@
 // Telestrat sans fenêtre ni son, pour les tests automatiques (cœur W65C02S
 // cycle à cycle de reload-emulator à la place du vrai 65C02 du Neo6502).
 //
-//   telestrat_headless [-c config] [-f N] [-w N] [-t TEXTE] [-s] [-b] [-p f.ppm] [-r f.bin]
-//                      [-0 disque.dsk] [-1 ...] [-2 ...] [-3 ...] [-W f.dsk] [-P f.txt]
+//   telestrat_headless [-c config] [-f N] [-w N] [-t TEXTE] [-k N] [-s] [-b] [-p f.ppm] [-r f.bin]
+//                      [-0 disque.dsk] [-1 ...] [-2 ...] [-3 ...] [-W f.dsk] [-P f.txt] [-G type:rép]
+//                      [-T f.txt] [-L ligne] [-S liaison] [-U rép] [-N hôte[:port]] [-M t:touches]
+//                      [-O f.ppm] [-D f.ppm] [-C rép] [-K f.tap] [-Z] [-Y] [-X t:f.sta] [-J f.sta]
+//                      [-Q t] [-R] [-B préfixe]      (« telestrat_headless -h » : aide)
 //
 //   -c CONFIG  standard (défaut) : 0 RAM, 2 TELE-ASS, 3 TELEMATIC, 6 HYPER-BASIC, 7 TELEMON
 //              ram64k : cartouche RAM 64 Ko à droite (1-4 RAM), 6 HYPER-BASIC, 7 TELEMON
@@ -22,21 +25,25 @@
 //   -p FICHIER écrit l'image 240 x 224 (PPM binaire)
 //   -r FICHIER écrit les 48 Ko de RAM de base
 //   -0..-3 F   insère l'image MFM_DISK F dans le lecteur A..D (copie en mémoire)
-//   -W FICHIER écrit l'image du lecteur A (éventuellement modifiée) en fin d'exécution
+//   -W FICHIER écrit l'image du lecteur A (éventuellement modifiée, y compris
+//              changée par le menu) en fin d'exécution ; exige -0
+//   -h         cette aide
 //   -P FICHIER branche une imprimante dont la sortie va dans FICHIER (octets bruts)
 //   -G TYPE:RÉP branche une imprimante rendue : fx80 (Epson FX-80, pages PNG) ou
 //              mcp40 (table traçante MCP-40, SVG), fichiers RÉP/IMPR0001.PNG… ;
 //              avec -U, le menu propose texte, fx80 et mcp40 (imprimante_type=)
 //   -T FICHIER trace les octets émis par l'ACIA (hexadécimal, avec le numéro de trame)
 //   -L LIGNE   branche un Minitel sur l'ACIA et sa ligne sur TCP :
-//              listen:PORT (appel entrant = client TCP) ou connect:HOTE:PORT
+//              listen:PORT (appel entrant = client TCP ; PORT 0 : port choisi et
+//              annoncé sur stderr) ou connect:HOTE:PORT
 //   -S LIAISON branche la prise RS232 (PA4 = 1) sur TCP, liaison directe sans
-//              modem : listen:PORT (le premier client) ou connect:HOTE:PORT ;
+//              modem : listen:PORT (les clients à la suite : un correspondant qui
+//              raccroche libère la liaison) ou connect:HOTE:PORT ;
 //              -T la trace en RTX/RRX (-B ne trace que la prise Minitel) ;
 //              -T note aussi les bascules de prise (PA4)
 //   -U RÉP     répertoire tenant lieu de clé USB pour le menu (.dsk, .rom,
 //              TELESTRA.CFG : a= … d=, bank1= … bank7= appliqués au démarrage)
-//   -M T:TOUCHES ouvre le menu à la trame T et y tape TOUCHES : u d l r
+//   -M T:TOUCHES (exige -U) ouvre le menu à la trame T et y tape TOUCHES : u d l r
 //              (flèches), e (Entrée), x (Échap), s (Suppr), h / z (début / fin),
 //              majuscule = saut à l'initiale ; le menu se ferme sur Reprendre
 //              ou RESET, sinon à la fin des touches
@@ -59,12 +66,18 @@
 //   -Q T       démarrage à froid (RAM effacée, RESET) à la trame T, comme le RESET du
 //              menu ; aussi dans le banc de référence
 //   -J FICHIER reprend un instantané au démarrage (même configuration -c ; avec
-//              -U, les cartouches de l'instantané sont remises)
+//              -U, les cartouches de l'instantané sont remises et seul le NOM
+//              du fichier compte : cherché dans le répertoire de -U)
 //   -R         temps réel (trames de 20 ms cadencées), pour dialoguer avec la ligne
 //   -B PRÉFIXE enregistre la trace (tests/replay.c, tools/rp2040_load.py) : PRÉFIXE.trace
 //              (un mot par cycle : adresse | R/W << 16 | IRQ << 17 | donnée << 24),
 //              .ev (clavier), .aud (échantillons audio), .ser (octets série et leur
 //              cycle), .ring (sonnerie par tranche de 1 ms)
+//              Les cycles sont stockés sur 32 bits (≈ 72 min émulées, 2^32 cycles) :
+//              au-delà, l'enregistrement est tronqué et le banc le signale.
+//
+// Code de retour : 0 réussite ; 1 erreur d'exécution ou fichier de sortie non écrit
+// en entier ; 2 option ou configuration invalide.
 //
 // Fichiers de la machine (disquettes, cassettes, imprimante, instantanés, clé
 // du menu) : par neo_storage du socle, comme sur la carte (pilote POSIX) ;
@@ -143,33 +156,9 @@
 #endif
 #include <time.h>
 
-#define RAM(n)  {.type = TELESTRAT_BANK_RAM}
-#define ROM(p)  {.type = TELESTRAT_BANK_ROM, .rom = (p)}
-#define EMPTY   {.type = TELESTRAT_BANK_EMPTY}
+#include "banc_config.h"
 
-static int config_banks(const char* name, telestrat_desc_t* d) {
-    const telestrat_bank_desc_t standard[8] = {RAM(0), EMPTY, ROM(telestrat_teleass), ROM(telestrat_telematic),
-                                               EMPTY, EMPTY, ROM(telestrat_hyperbas), ROM(telestrat_telemon24)};
-    const telestrat_bank_desc_t ram64k[8] = {RAM(0), RAM(1), RAM(2), RAM(3),
-                                             RAM(4), EMPTY, ROM(telestrat_hyperbas), ROM(telestrat_telemon24)};
-    const telestrat_bank_desc_t oricutron[8] = {RAM(0), RAM(1), RAM(2), RAM(3),
-                                                RAM(4), ROM(telestrat_teleass), ROM(telestrat_hyperbas),
-                                                ROM(telestrat_telemon24)};
-    const telestrat_bank_desc_t telemon[8] = {RAM(0), EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
-                                              ROM(telestrat_telemon24)};
-    // Cartouche Atmos (BASIC 1.1) en banque 7 : mode Atmos, lecteur de cassette
-    const telestrat_bank_desc_t atmos[8] = {RAM(0), EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
-                                            ROM(telestrat_atmos)};
-    const telestrat_bank_desc_t* src;
-    if (!strcmp(name, "standard")) src = standard;
-    else if (!strcmp(name, "ram64k")) src = ram64k;
-    else if (!strcmp(name, "oricutron")) src = oricutron;
-    else if (!strcmp(name, "telemon")) src = telemon;
-    else if (!strcmp(name, "atmos")) src = atmos;
-    else return 0;
-    memcpy(d->banks, src, sizeof(d->banks));
-    return 1;
-}
+#define config_banks banc_config_banks
 
 // Imprimante et ligne coupées par le menu (-U : impression=non, modem=non)
 static bool printer_enabled = true, modem_enabled = true;
@@ -231,7 +220,9 @@ static void printer_out(uint8_t data, void* user_data) {
 
 // Trace de bus pour la mesure de charge du RP2040
 static FILE* bench_trace = NULL;
-static uint32_t bench_events[4096];
+#define BENCH_EVENTS_MAX 65536
+static uint32_t bench_events[BENCH_EVENTS_MAX];
+static bool bench_events_lost = false;  // touches au-delà de la capacité : perdues, signalé en fin
 static uint32_t bench_event_count = 0;
 
 static FILE *bench_aud = NULL, *bench_ser = NULL, *bench_ring = NULL, *bench_fb = NULL;
@@ -256,8 +247,11 @@ static void bench_serial(uint32_t cycle, int dir, uint8_t data) {
 }
 
 static void bench_key(int frame, int down, int code) {
-    if (bench_trace && bench_event_count < 4096) {
+    if (!bench_trace) return;
+    if (bench_event_count < BENCH_EVENTS_MAX) {
         bench_events[bench_event_count++] = ((uint32_t)frame << 16) | (down ? 0x8000u : 0) | (uint32_t)(code & 0x7FFF);
+    } else {
+        bench_events_lost = true;
     }
 }
 
@@ -337,7 +331,10 @@ static void write_dvi(const char* path, const char* tape_name) {
         fwrite(rgb, 1, sizeof(rgb), f);
         fwrite(rgb, 1, sizeof(rgb), f);
     }
-    fclose(f);
+    if (ferror(f) || fclose(f) != 0) {
+        fprintf(stderr, "%s : écriture incomplète\n", path);
+        exit(1);
+    }
 }
 #endif
 
@@ -410,7 +407,41 @@ static void write_ppm(const char* path) {
             fwrite(rgb, 1, 3, f);
         }
     }
-    fclose(f);
+    if (ferror(f) || fclose(f) != 0) {
+        fprintf(stderr, "%s : écriture incomplète\n", path);
+        exit(1);
+    }
+}
+
+static void usage(FILE* out, const char* prog) {
+    fprintf(out,
+            "usage : %s [options]\n"
+            "  -c CONFIG   standard (défaut), ram64k, oricutron, telemon, atmos\n"
+            "  -f N -w N -t TEXTE -k N   trames, attente avant la frappe, texte tapé, trames par touche\n"
+            "  -s -b -p F.ppm -r F.bin   écran texte, banques, image PPM, RAM\n"
+            "  -0..-3 DSK -W DSK         disquettes des lecteurs A..D, écriture du lecteur A (exige -0)\n"
+            "  -P F -G TYPE:RÉP          imprimante brute, imprimante rendue (fx80, mcp40)\n"
+            "  -T F -L LIGNE -S LIAISON  trace série, ligne Minitel TCP, prise RS232 TCP\n"
+            "  -U RÉP -M T:TOUCHES -O F  clé USB du menu, touches du menu (exige -U), image du menu\n"
+            "  -N HÔTE[:PORT]            volume Réseau (TNFS)\n"
+            "  -D F.ppm -C RÉP -K TAP    sortie DVI, cassettes enregistrées, cassette insérée\n"
+            "  -Z -Y                     cassette rapide, moteur toujours en marche\n"
+            "  -X T:F.sta -J F.sta -Q T  instantané, reprise, démarrage à froid\n"
+            "  -R -B PRÉFIXE             temps réel, trace pour tests/replay.c\n"
+            "  -h                        cette aide (détails : en-tête de platforms/pc/telestrat_headless.c)\n",
+            prog);
+}
+
+// Entier d'option : tout le texte doit être un nombre >= min, éventuellement suivi
+// de `fin` (0 : rien d'autre ; ':' : le séparateur de -M et -X) ; sinon sortie 2
+static int parse_int(char opt, const char* s, int min, char fin) {
+    char* end = NULL;
+    long v = strtol(s, &end, 10);
+    if (end == s || v < min || v > 0x7FFFFFFF || (*end && !(fin && *end == fin))) {
+        fprintf(stderr, "-%c : nombre >= %d attendu, reçu « %s »\n", opt, min, s);
+        exit(2);
+    }
+    return (int)v;
 }
 
 int main(int argc, char** argv) {
@@ -442,15 +473,16 @@ int main(int argc, char** argv) {
 #endif
     int realtime = 0;
     int key_period = 4;
+    int exit_code = 0;  // 1 dès qu'un fichier de sortie n'est pas écrit en entier
     const char* bench_prefix = NULL;
     static line_tcp_t line;
     int show_screen = 0, show_banks = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "c:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:ZYX:J:Q:N:")) != -1) {
+    while ((opt = getopt(argc, argv, "hc:f:w:t:sbp:r:0:1:2:3:W:P:G:T:L:S:U:M:O:K:D:C:RB:k:ZYX:J:Q:N:")) != -1) {
         switch (opt) {
             case 'c': config = optarg; break;
-            case 'f': frames = atoi(optarg); break;
-            case 'w': wait = atoi(optarg); break;
+            case 'f': frames = parse_int('f', optarg, 0, 0); break;
+            case 'w': wait = parse_int('w', optarg, 0, 0); break;
             case 't': text = optarg; break;
             case 's': show_screen = 1; break;
             case 'b': show_banks = 1; break;
@@ -465,23 +497,34 @@ int main(int argc, char** argv) {
             case 'U': usb_dir = optarg; break;
             case 'N': net_spec = optarg; break;
             case 'M':
-                menu_frame = atoi(optarg);
+                menu_frame = parse_int('M', optarg, 0, ':');
                 menu_script = strchr(optarg, ':') ? strchr(optarg, ':') + 1 : "";
                 break;
             case 'O': menu_ppm = optarg; break;
-            case 'Q': cold_frame = atoi(optarg); break;
+            case 'Q': cold_frame = parse_int('Q', optarg, 0, 0); break;
             case 'K': tape_file = optarg; break;
             case 'Z': tape_turbo = true; break;
             case 'X':
-                state_frame = atoi(optarg);
-                state_save = strchr(optarg, ':') ? strchr(optarg, ':') + 1 : NULL;
+                state_frame = parse_int('X', optarg, 0, ':');
+                if (!strchr(optarg, ':') || !strchr(optarg, ':')[1]) {
+                    fprintf(stderr, "-X T:FICHIER attendu : %s\n", optarg);
+                    return 2;
+                }
+                state_save = strchr(optarg, ':') + 1;
                 break;
             case 'J': state_load = optarg; break;
             case 'Y': tape_motor_always = true; break;
             case 'D': dvi_file = optarg; break;
             case 'C': rec_dir = optarg; break;
             case 'R': realtime = 1; break;
-            case 'k': key_period = atoi(optarg) < 2 ? 2 : atoi(optarg); break;
+            case 'k':
+                key_period = parse_int('k', optarg, 0, 0);
+                if (key_period < 2) {
+                    fprintf(stderr, "-k %d ramené à 2 (une touche tient au moins 2 trames)\n", key_period);
+                    key_period = 2;
+                }
+                break;
+            case 'h': usage(stdout, argv[0]); return 0;
             case 'B': bench_prefix = optarg; break;
             case 'T':
                 serial_trace = fopen(optarg, "w");
@@ -490,11 +533,19 @@ int main(int argc, char** argv) {
                     return 1;
                 }
                 break;
-            default:
-                fprintf(stderr, "usage : %s [-c config] [-f N] [-w N] [-t texte] [-s] [-b] [-p f.ppm] [-r f.bin]\n",
-                        argv[0]);
-                return 2;
+            default: usage(stderr, argv[0]); return 2;
         }
+    }
+    if (text && wait >= frames) {
+        fprintf(stderr, "avertissement : -w %d >= -f %d, le texte de -t ne sera jamais tapé\n", wait, frames);
+    }
+    if (menu_script && !usb_dir) {
+        fprintf(stderr, "-M exige -U RÉP (le répertoire courant ne sert plus de clé USB)\n");
+        return 2;
+    }
+    if (write_disk && !disks[0]) {
+        fprintf(stderr, "-W exige -0 (image du lecteur A à écrire)\n");
+        return 2;
     }
 
     telestrat_desc_t desc = {0};
@@ -556,6 +607,10 @@ int main(int argc, char** argv) {
             fprintf(stderr, "-G fx80:RÉP ou mcp40:RÉP\n");
             return 2;
         }
+        if (!printer_files_dir_ok(dir + 1)) {
+            fprintf(stderr, "-G : %s : répertoire absent (à créer d'abord)\n", dir + 1);
+            return 1;
+        }
         const printer_out_t out = printer_files_out(&printer_files, NEO_VOL_HOST, dir + 1);
         fx80_init(&printer_fx, &out, osd_font);
         mcp40_init(&printer_mcp, &out);
@@ -575,12 +630,28 @@ int main(int argc, char** argv) {
         }
         snprintf(path, sizeof(path), "%s.aud", bench_prefix);
         bench_aud = fopen(path, "wb");
+        if (!bench_aud) {
+            perror(path);
+            return 1;
+        }
         snprintf(path, sizeof(path), "%s.ser", bench_prefix);
         bench_ser = fopen(path, "wb");
+        if (!bench_ser) {
+            perror(path);
+            return 1;
+        }
         snprintf(path, sizeof(path), "%s.ring", bench_prefix);
         bench_ring = fopen(path, "wb");
+        if (!bench_ring) {
+            perror(path);
+            return 1;
+        }
         snprintf(path, sizeof(path), "%s.fb", bench_prefix);
         bench_fb = fopen(path, "wb");
+        if (!bench_fb) {
+            perror(path);
+            return 1;
+        }
         desc.audio.callback.func = bench_audio;
     }
     if (line_spec) {
@@ -609,7 +680,6 @@ int main(int argc, char** argv) {
         desc.minitel.rx = serial_rx;
     }
 #ifndef TELESTRAT_REF
-    if (menu_script && !usb_dir) usb_dir = ".";
     // ROM en mémoire modifiable (lecture accélérée : BASIC 1.1 patché) ; avec
     // -U, les emplacements du menu en tiennent lieu (et gardent l'adresse
     // d'origine qui nomme les ROM intégrées)
@@ -695,6 +765,9 @@ int main(int argc, char** argv) {
         if (usb_dir) {
             // Par le menu : cartouches de l'instantané remises
             const char* base = strrchr(state_load, '/');
+            if (base)
+                fprintf(stderr, "avertissement : -J avec -U, seul le nom « %s » compte (cherché dans %s)\n", base + 1,
+                        usb_dir);
             ok = menu_pc_state_load(&menu_pc, &sys, base ? base + 1 : state_load, &err);
         } else {
             neo_file_t sf;
@@ -769,19 +842,28 @@ int main(int argc, char** argv) {
             }
         }
         current_frame = frame;
+        // Cycles de la trace sur 32 bits (system_ticks aussi) : au-delà de 2^32 la
+        // comparaison de tests/replay.c diverge ; signalé une fois (O-18)
+        if (bench_prefix && frame == 214748)
+            fprintf(stderr, "avertissement : 2^32 cycles dépassés (≈ 72 min émulées), cycles de la trace tronqués\n");
         if (frame == cold_frame) telestrat_cold_reset(&sys);
 #ifndef TELESTRAT_REF
         if (printer_idle >= 0 && ++printer_idle >= PRINTER_IDLE_FRAMES) printer_job_end();
         if (frame == state_frame && state_save) {
-            static char info[TELESTRAT_STATE_INFO_MAX];
+            static char info[TELESTRAT_STATE_INFO_MAX + 1];  // même taille qu'à la reprise (O-19)
             info[0] = 0;
             if (usb_dir) menu_pc_state_info(&menu_pc, &sys, info, sizeof(info));
             neo_file_t sf;
             const char* err = "écriture impossible";
             const bool open = neo_file_open(&sf, NEO_VOL_HOST, state_save, NEO_WRITE | NEO_CREATE);
-            if (!open || !telestrat_state_save(&sys, info, state_file_write, &sf, &err))
+            if (!open || !telestrat_state_save(&sys, info, state_file_write, &sf, &err)) {
                 fprintf(stderr, "%s : %s\n", state_save, err);
-            neo_file_close(&sf);
+                exit_code = 1;
+            }
+            if (open && !neo_file_close(&sf)) {
+                fprintf(stderr, "%s : fermeture en erreur\n", state_save);
+                exit_code = 1;
+            }
         }
         if (frame == menu_frame) {
             menu_pc_script(&menu_pc, &sys, menu_script);
@@ -851,27 +933,63 @@ int main(int argc, char** argv) {
 #else
     (void)dvi_file;
 #endif
-    if (write_disk && images[0] && !neo_file_save(NEO_VOL_HOST, write_disk, images[0], (uint32_t)image_sizes[0])) {
-        perror(write_disk);
-        return 1;
+    if (write_disk) {
+        // Lecteur A : l'image changée par le menu (-U) prime sur celle de -0
+        const uint8_t* wimg = images[0];
+        size_t wsize = image_sizes[0];
+#ifndef TELESTRAT_REF
+        if (usb_dir && menu_pc.disk[0]) {
+            wimg = menu_pc.disk[0];
+            wsize = menu_pc.disk_size[0];
+        }
+#endif
+        if (wimg && !neo_file_save(NEO_VOL_HOST, write_disk, wimg, (uint32_t)wsize)) {
+            perror(write_disk);
+            return 1;
+        }
     }
-    if (printer) neo_writer_close(printer);
-    neo_writer_close(&rec_w);  // enregistrement en cours (CSAVE interrompu par la fin du banc)
+#ifndef TELESTRAT_REF
+    if (printer_files.failures) {
+        fprintf(stderr, "imprimante : %u fichier(s) non écrit(s)\n", printer_files.failures);
+        exit_code = 1;
+    }
+#endif
+    if (printer && !neo_writer_close(printer)) {
+        fprintf(stderr, "imprimante : écriture incomplète\n");
+        exit_code = 1;
+    }
+    if (neo_writer_is_open(&rec_w) && !neo_writer_close(&rec_w)) {  // enregistrement en cours (CSAVE interrompu par la fin du banc)
+        fprintf(stderr, "cassette : écriture incomplète\n");
+        exit_code = 1;
+    }
     neo_file_close(&tape);
-    if (bench_aud) fclose(bench_aud);
-    if (bench_ser) fclose(bench_ser);
-    if (bench_ring) fclose(bench_ring);
-    if (bench_fb) fclose(bench_fb);
+    if (serial_trace && (fflush(serial_trace) != 0 || ferror(serial_trace))) {
+        fprintf(stderr, "trace série : écriture incomplète\n");
+        exit_code = 1;
+    }
+    FILE* const bench_files[] = {bench_aud, bench_ser, bench_ring, bench_fb, bench_trace};
+    for (size_t i = 0; i < sizeof(bench_files) / sizeof(bench_files[0]); i++) {
+        if (bench_files[i] && (ferror(bench_files[i]) || fclose(bench_files[i]) != 0)) {
+            fprintf(stderr, "trace %s : écriture incomplète\n", bench_prefix);
+            exit_code = 1;
+        }
+    }
     if (bench_trace) {
-        fclose(bench_trace);
         char path[512];
         snprintf(path, sizeof(path), "%s.ev", bench_prefix);
         FILE* f = fopen(path, "wb");
         if (f) {
             fwrite(&bench_event_count, 4, 1, f);
             fwrite(bench_events, 4, bench_event_count, f);
-            fclose(f);
+            if (ferror(f) || fclose(f) != 0) f = NULL;
         }
+        if (!f) {
+            fprintf(stderr, "%s : écriture impossible\n", path);
+            exit_code = 1;
+        }
+        if (bench_events_lost)
+            fprintf(stderr, "avertissement : plus de %d événements clavier, la suite n'est pas enregistrée\n",
+                    BENCH_EVENTS_MAX);
     }
     if (ramfile) {
         FILE* f = fopen(ramfile, "wb");
@@ -880,7 +998,10 @@ int main(int argc, char** argv) {
             return 1;
         }
         fwrite(sys.ram, 1, sizeof(sys.ram), f);
-        fclose(f);
+        if (ferror(f) || fclose(f) != 0) {
+            fprintf(stderr, "%s : écriture incomplète\n", ramfile);
+            exit_code = 1;
+        }
     }
-    return 0;
+    return exit_code;
 }

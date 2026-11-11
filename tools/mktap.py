@@ -18,6 +18,9 @@ def main():
     out, name = sys.argv[2], sys.argv[3].encode("ascii")
     start = ram[0x9A] | ram[0x9B] << 8
     end = ram[0x9C] | ram[0x9D] << 8  # premier octet après le programme
+    if end <= start or end > len(ram):
+        sys.exit("mktap : programme absent ou incohérent (début $%04X, fin $%04X, RAM de %d octets) : "
+                 "un programme BASIC est-il en mémoire ?" % (start, end, len(ram)))
     data = ram[start:end]
     last = end - 1
     header = bytes([0x16, 0x16, 0x16, 0x24, 0, 0, 0x00, 0x00, last >> 8, last & 0xFF, start >> 8, start & 0xFF, 0])
