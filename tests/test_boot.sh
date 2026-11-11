@@ -148,6 +148,22 @@ code 1 "-S connect:[::1]:1 : crochets IPv6 acceptés, connexion refusée (rien n
 code 1 "-G : répertoire absent" -- -G "fx80:$TMP/absent" -f 10
 code 0 "-k 1 ramené à 2 (avertissement)" -- -k 1 -f 20
 if ! grep -q 'ramené à 2' "$TMP/opt.err"; then fail=$((fail + 1)); echo "ÉCHEC [options] : -k 1 sans avertissement"; fi
+# -R : trames cadencées sur le temps réel (20 ms) ; sans -R le banc va aussi vite
+# que possible. Borne basse seulement (l'hôte peut être lent, jamais plus rapide).
+t0=$(date +%s%N)
+banc -c standard -R -f 60 > /dev/null 2>&1
+t1=$(date +%s%N)
+n=$((n + 1))
+if [ $(((t1 - t0) / 1000000)) -lt 1100 ]; then
+    fail=$((fail + 1)); echo "ÉCHEC [-R] : 60 trames en $(((t1 - t0) / 1000000)) ms (au moins 1100 ms attendues)"
+fi
+t0=$(date +%s%N)
+banc -c standard -f 60 > /dev/null 2>&1
+t1=$(date +%s%N)
+n=$((n + 1))
+if [ $(((t1 - t0) / 1000000)) -ge 1100 ]; then
+    fail=$((fail + 1)); echo "ÉCHEC [-R] : 60 trames sans -R en $(((t1 - t0) / 1000000)) ms (le banc devrait aller plus vite que le temps réel)"
+fi
 n=$((n + 1))
 banc_bilan
 echo "test_boot : $((n - fail))/$n vérifications réussies"
