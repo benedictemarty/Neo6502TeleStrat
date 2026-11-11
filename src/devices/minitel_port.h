@@ -23,8 +23,18 @@
 //   connexion établie -> SEP $53 vers la prise et le modem (80 ms après) ;
 //                       en mode opposé, après au moins 3 s de 390 Hz
 //                       (standard : 1,7 s de 1300 Hz) ; échec (40 s) : SEP $59
-//   déconnexion (PRO1 DECONNEXION, perte de porteuse > 440 ms)
+//   déconnexion (PRO1 DECONNEXION, perte de porteuse)
 //                    -> SEP $59 puis SEP $53
+// La STUM donne pour la perte de porteuse un délai de plus de 440 ms ; ce code
+// ne l'applique pas : la déconnexion est signalée dès que la ligne
+// (minitel_line_t.carrier) annonce la porteuse perdue, le filtrage éventuel
+// étant celui de la ligne (modem ou réseau).
+// Échec d'appel : si la ligne sait dire que l'appel n'est plus en cours
+// d'établissement (minitel_line_t.pending, BUSY / NO ANSWER / ERROR du modem),
+// l'échec est signalé aussitôt (SEP $59) sans attendre les 40 s ; sans
+// `pending` (ligne TCP), seuls la porteuse et les 40 s décident.
+// PRO2 et PRO3 (ESC 3A, ESC 3B) sont consommés en entier (4 et 5 octets), sans
+// réponse du Minitel et hors de pro1_count ; si TELEMON en émet : à vérifier.
 // Le délai de connexion sert aussi TELEMON : son attente ($EF47) vide le
 // tampon de réception puis patiente 0,1 s avant de guetter $13 $53.
 // Hypothèse restante (non vérifiée sur matériel) : cadence de sonnerie
@@ -83,6 +93,8 @@ typedef struct {
     int (*recv)(void* ctx);       // octet reçu ou -1
     void (*send)(void* ctx, uint8_t data);
     void* ctx;
+    // Dernier membre (les initialisations positionnelles existantes restent valides)
+    bool (*pending)(void* ctx);   // appel en cours d'établissement (NULL : inconnu)
 } minitel_line_t;
 
 typedef enum {
@@ -104,6 +116,7 @@ typedef struct {
     // Réponses du Minitel vers le Telestrat
     uint8_t queue[MINITEL_QUEUE];
     int q_head, q_count;
+    uint32_t q_lost;      // octets de réponse jetés, file pleine
     uint32_t connect_us;  // temps écoulé depuis CONNEXION
     // Sonnerie
     uint32_t ring_us;
@@ -119,32 +132,48 @@ static inline void minitel_port_init(minitel_port_t* p, const minitel_line_t* li
     p->line = l;
 }
 
-static inline void _minitel_push(minitel_port_t* p, uint8_t b) {
-    if (p->q_count >= MINITEL_QUEUE) return;
+// Remet le Minitel au repos sans toucher à la ligne : séquence interrompue,
+// réponses en file (SEP périmés) effacées, appel non suivi. À appeler quand la
+// prise passe à un autre usage (ex. bascule vers la RS232)
+static inline void minitel_port_reset(minitel_port_t* p) {
+    p->state = MINITEL_IDLE;
+    p->seq_len = p->seq_need = 0;
+    p->opposition = false;
+    p->q_head = p->q_count = 0;
+    p->connect_us = 0;
+    p->ring_us = 0;
+    p->ring_level = false;
+}
+
+static inline void minitel_push_(minitel_port_t* p, uint8_t b) {
+    if (p->q_count >= MINITEL_QUEUE) {
+        p->q_lost++;
+        return;
+    }
     p->queue[(p->q_head + p->q_count) % MINITEL_QUEUE] = b;
     p->q_count++;
 }
 
-static inline void _minitel_sep(minitel_port_t* p, uint8_t code) {
-    _minitel_push(p, MINITEL_SEP);
-    _minitel_push(p, code);
+static inline void minitel_sep_(minitel_port_t* p, uint8_t code) {
+    minitel_push_(p, MINITEL_SEP);
+    minitel_push_(p, code);
 }
 
 // Retour à l'état local après une connexion : SEP $59, SEP $53
-static inline void _minitel_disconnected(minitel_port_t* p) {
-    _minitel_sep(p, MINITEL_SEP_LINE);
-    _minitel_sep(p, MINITEL_SEP_CONNECTED);
+static inline void minitel_disconnected_(minitel_port_t* p) {
+    minitel_sep_(p, MINITEL_SEP_LINE);
+    minitel_sep_(p, MINITEL_SEP_CONNECTED);
     p->state = MINITEL_IDLE;
     p->opposition = false;
 }
 
-static inline void _minitel_pro1(minitel_port_t* p, uint8_t code) {
+static inline void minitel_pro1_(minitel_port_t* p, uint8_t code) {
     p->pro1_count++;
     p->last_pro1 = code;
     switch (code) {
         case MINITEL_CONNEXION:
             if (p->state != MINITEL_IDLE) break;
-            _minitel_sep(p, MINITEL_SEP_LINE);  // bascule de la ligne
+            minitel_sep_(p, MINITEL_SEP_LINE);  // bascule de la ligne
             p->connect_us = 0;
             if (p->line.incoming && p->line.incoming(p->line.ctx)) {
                 if (p->line.answer) p->line.answer(p->line.ctx);
@@ -152,19 +181,19 @@ static inline void _minitel_pro1(minitel_port_t* p, uint8_t code) {
             } else if (p->line.dial && p->line.dial(p->line.ctx)) {
                 p->state = MINITEL_CONNECTING;
             } else {
-                _minitel_sep(p, MINITEL_SEP_LINE);  // échec immédiat
+                minitel_sep_(p, MINITEL_SEP_LINE);  // échec immédiat
                 p->opposition = false;
             }
             break;
         case MINITEL_DECONNEX:
             if (p->state == MINITEL_IDLE) break;
             if (p->line.hangup) p->line.hangup(p->line.ctx);
-            _minitel_disconnected(p);
+            minitel_disconnected_(p);
             break;
         case MINITEL_OPPOSITION:
             if (p->state == MINITEL_IDLE) {
                 p->opposition = true;
-                _minitel_sep(p, MINITEL_SEP_OPPOSITION);
+                minitel_sep_(p, MINITEL_SEP_OPPOSITION);
             }
             break;
         default: break;  // autres commandes PRO1 : sans effet ici
@@ -194,7 +223,7 @@ static inline void minitel_port_from_telestrat(minitel_port_t* p, uint8_t data) 
             }
         }
         if (p->seq_len >= p->seq_need) {
-            if (p->seq[1] == MINITEL_PRO1) _minitel_pro1(p, p->seq[2]);
+            if (p->seq[1] == MINITEL_PRO1) minitel_pro1_(p, p->seq[2]);
             p->seq_need = 0;
         }
         return;
@@ -228,22 +257,28 @@ static inline bool minitel_port_tick(minitel_port_t* p, uint32_t us) {
             p->connect_us += us;
             if (carrier && p->connect_us >= (p->opposition ? MINITEL_CONNECT_OPPO_US : MINITEL_CONNECT_STD_US)) {
                 // SEP $53 vers la prise et vers le modem (le correspondant)
-                _minitel_sep(p, MINITEL_SEP_CONNECTED);
+                minitel_sep_(p, MINITEL_SEP_CONNECTED);
                 if (p->line.send) {
                     p->line.send(p->line.ctx, MINITEL_SEP);
                     p->line.send(p->line.ctx, MINITEL_SEP_CONNECTED);
                 }
                 p->state = MINITEL_ONLINE;
+            } else if (!carrier && p->line.pending && !p->line.pending(p->line.ctx)) {
+                // Appel refusé (BUSY, NO ANSWER, ERROR…) : échec sans attendre les 40 s
+                if (p->line.hangup) p->line.hangup(p->line.ctx);
+                minitel_sep_(p, MINITEL_SEP_LINE);
+                p->state = MINITEL_IDLE;
+                p->opposition = false;
             } else if (p->connect_us >= MINITEL_CONNECT_MAX_US) {
                 // Pas de porteuse en 40 s : échec, second SEP $59
                 if (p->line.hangup) p->line.hangup(p->line.ctx);
-                _minitel_sep(p, MINITEL_SEP_LINE);
+                minitel_sep_(p, MINITEL_SEP_LINE);
                 p->state = MINITEL_IDLE;
                 p->opposition = false;
             }
             break;
         case MINITEL_ONLINE:
-            if (!carrier) _minitel_disconnected(p);
+            if (!carrier) minitel_disconnected_(p);
             break;
         default: break;
     }

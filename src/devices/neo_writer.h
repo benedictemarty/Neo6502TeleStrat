@@ -41,10 +41,15 @@ typedef struct {
     bool ok;        // toutes les écritures ont réussi
 } neo_writer_t;
 
+static inline bool neo_writer_close(neo_writer_t* w);
+
 static inline bool neo_writer_is_open(const neo_writer_t* w) { return neo_file_is_open(&w->file); }
 
-// Crée (ou vide) path ; false si impossible
+// Crée (ou vide) path ; false si impossible. Un écrivain déjà ouvert est
+// d'abord fermé (tampon écrit, fichier refermé : son handle n'est pas perdu).
+// Le neo_writer_t doit être mis à zéro avant la première ouverture.
 static inline bool neo_writer_open(neo_writer_t* w, int vol, const char* path, uint8_t* buf, uint32_t cap) {
+    if (neo_writer_is_open(w)) neo_writer_close(w);
     w->buf = buf;
     w->cap = cap;
     w->pos = w->n = 0;

@@ -15,6 +15,22 @@
 // Un modem branché pendant que la RS232 le tient n'est pas initialisé : il
 // l'est au retour sur la prise Minitel.
 //
+// Bascule vers la RS232 pendant une communication Minitel (appel en cours,
+// en ligne ou raccrochage en garde) : la communication est raccrochée
+// proprement (garde, « +++ », garde, ATH, voir hayes_line.h) au lieu d'être
+// abandonnée ouverte. Tant que ce raccrochage dure (`hanging`, environ 2,2 s
+// de modem_mux_tick), les octets du modem vont à hayes_line et rien n'est
+// transmis dans un sens ni dans l'autre sur la prise RS232 ; la réponse « OK »
+// à l'ATH final peut encore arriver côté RS232. Un retour sur la prise
+// Minitel pendant ce temps réinitialise le modem une fois l'ATH parti. Le
+// Minitel émulé (minitel_port.h) n'est pas touché ici : l'appelant utilise
+// minitel_port_reset() pour effacer SEP et séquences périmés.
+//
+// Réception RS232 : file de MODEM_MUX_RXQ octets ; pleine, les octets sont
+// jetés et comptés (`rx_lost`) ; modem_mux_rx_room() donne la place libre pour
+// ne pas lire plus d'octets du CDC. Cadence réelle du modem : non établie
+// (à vérifier).
+//
 // Indépendant de la plate-forme (testé dans tests/test_telestrat.c).
 //
 // ## Licence zlib/libpng
@@ -37,6 +53,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "devices/hayes_line.h"
@@ -52,9 +69,11 @@ typedef struct {
     int listen;
     bool attached;  // modem présent
     bool rs232;     // le modem appartient à la prise RS232
+    bool hanging;   // raccrochage en cours après une bascule en pleine communication
     // Octets du modem vers la prise RS232
     uint8_t rxq[MODEM_MUX_RXQ];
     int rx_head, rx_count;
+    uint32_t rx_lost;  // octets du modem jetés, file RS232 pleine
 } modem_mux_t;
 
 static inline void modem_mux_init(modem_mux_t* m, hayes_line_t* h) {
@@ -63,7 +82,7 @@ static inline void modem_mux_init(modem_mux_t* m, hayes_line_t* h) {
     memset(h, 0, sizeof(*h));
 }
 
-static inline void _modem_mux_hayes_init(modem_mux_t* m) {
+static inline void modem_mux_hayes_init_(modem_mux_t* m) {
     hayes_line_init(m->hayes, m->write, m->ctx, m->dial, m->listen);
 }
 
@@ -76,13 +95,23 @@ static inline void modem_mux_attach(modem_mux_t* m, void (*write)(void*, const u
     snprintf(m->dial, sizeof(m->dial), "%s", dial ? dial : "");
     m->listen = listen;
     m->attached = true;
-    if (!m->rs232) _modem_mux_hayes_init(m);
+    if (!m->rs232 && !m->hanging) modem_mux_hayes_init_(m);
 }
 
 static inline void modem_mux_detach(modem_mux_t* m) {
     m->attached = false;
+    m->hanging = false;
     memset(m->hayes, 0, sizeof(*m->hayes));
     m->rx_count = 0;
+}
+
+// Ligne Minitel au repos (plus de sonnerie ni de porteuse), écriture conservée
+static inline void modem_mux_hayes_idle_(modem_mux_t* m) {
+    void (*w)(void*, const uint8_t*, uint32_t) = m->hayes->write;
+    void* c = m->hayes->ctx;
+    memset(m->hayes, 0, sizeof(*m->hayes));
+    m->hayes->write = w;
+    m->hayes->ctx = c;
 }
 
 // Prise tenant le modem (PA4 du VIA 2)
@@ -91,35 +120,49 @@ static inline void modem_mux_select(modem_mux_t* m, bool rs232) {
     m->rs232 = rs232;
     m->rx_count = 0;
     if (rs232) {
-        // Ligne Minitel au repos pendant ce temps (plus de sonnerie ni de porteuse)
-        void (*w)(void*, const uint8_t*, uint32_t) = m->hayes->write;
-        void* c = m->hayes->ctx;
-        memset(m->hayes, 0, sizeof(*m->hayes));
-        m->hayes->write = w;
-        m->hayes->ctx = c;
-    } else if (m->attached) {
-        _modem_mux_hayes_init(m);
+        // Communication Minitel en cours : raccrochée par hayes_line (garde en cours : poursuivie)
+        if (m->hayes->state != HAYES_COMMAND) {
+            hayes_line_hangup(m->hayes);
+            m->hanging = m->hayes->state != HAYES_COMMAND;
+        }
+        if (!m->hanging) modem_mux_hayes_idle_(m);
+    } else if (m->attached && !m->hanging) {
+        modem_mux_hayes_init_(m);
     }
 }
 
 // Octet venant du modem
 static inline void modem_mux_feed(modem_mux_t* m, uint8_t b) {
-    if (!m->rs232) {
+    if (!m->rs232 || m->hanging) {
         hayes_line_feed(m->hayes, b);
         return;
     }
-    if (m->rx_count >= MODEM_MUX_RXQ) return;
+    if (m->rx_count >= MODEM_MUX_RXQ) {
+        m->rx_lost++;
+        return;
+    }
     m->rxq[(m->rx_head + m->rx_count) % MODEM_MUX_RXQ] = b;
     m->rx_count++;
 }
 
+// Place libre pour les octets du modem (contrôle de flux côté hôte)
+static inline int modem_mux_rx_room(const modem_mux_t* m) {
+    return (m->rs232 && !m->hanging ? MODEM_MUX_RXQ - m->rx_count : hayes_line_rx_room(m->hayes));
+}
+
 static inline void modem_mux_tick(modem_mux_t* m, uint32_t us) {
-    if (!m->rs232) hayes_line_tick(m->hayes, us);
+    if (!m->rs232 || m->hanging) hayes_line_tick(m->hayes, us);
+    if (m->hanging && m->hayes->state == HAYES_COMMAND) {
+        // ATH parti : le modem passe à l'usage de la prise courante
+        m->hanging = false;
+        if (m->rs232) modem_mux_hayes_idle_(m);
+        else if (m->attached) modem_mux_hayes_init_(m);
+    }
 }
 
 // Prise RS232 : octet émis par le Telestrat
 static inline void modem_mux_rs232_send(modem_mux_t* m, uint8_t data) {
-    if (m->rs232 && m->attached && m->write) m->write(m->ctx, &data, 1);
+    if (m->rs232 && !m->hanging && m->attached && m->write) m->write(m->ctx, &data, 1);
 }
 
 // Prise RS232 : octet reçu du modem, -1 s'il n'y en a pas

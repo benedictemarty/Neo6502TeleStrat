@@ -40,7 +40,7 @@ typedef struct {
 static inline bool printer_out_ok(const printer_out_t* o) { return o->open && o->write && o->close; }
 
 // CRC-32 (polynôme 0xEDB88320), quatre bits à la fois
-static const uint32_t _printer_crc_nibble[16] = {
+static const uint32_t printer_crc_nibble_[16] = {
     0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC, 0x76DC4190, 0x6B6B51F4, 0x4DB26158, 0x5005713C,
     0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C, 0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C,
 };
@@ -49,8 +49,8 @@ static inline uint32_t printer_crc32(uint32_t crc, const uint8_t* p, uint32_t n)
     crc = ~crc;
     while (n--) {
         crc ^= *p++;
-        crc = _printer_crc_nibble[crc & 15] ^ (crc >> 4);
-        crc = _printer_crc_nibble[crc & 15] ^ (crc >> 4);
+        crc = printer_crc_nibble_[crc & 15] ^ (crc >> 4);
+        crc = printer_crc_nibble_[crc & 15] ^ (crc >> 4);
     }
     return ~crc;
 }

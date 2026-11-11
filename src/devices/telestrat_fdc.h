@@ -19,6 +19,9 @@
 //   $0314        écriture : bit 0 INTENA, bit 4 face, bits 5-6 lecteur
 //                lecture  : bit 7 = /INTRQ (0 = interruption en attente)
 //   $0318        lecture  : bit 7 = /DRQ
+//   autres       $0315-$0317 et $0319-$031B : non décodés ici (les fonctions
+//                rendent false) ; ce que le système en fait (reflets sur le
+//                VIA 1) n'est pas établi sur matériel, à vérifier
 //
 // Décodage d'après Oricutron (disk.c : microdisc_read/microdisc_write).
 //
@@ -42,6 +45,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+
+#include "devices/wd1793.h"
 
 #define TELESTRAT_FDC_CTRL_INTENA (0x01)
 #define TELESTRAT_FDC_CTRL_SIDE   (0x10)
@@ -73,7 +78,9 @@ static inline bool telestrat_fdc_irq(const telestrat_fdc_t* f) {
 // Avance de `cycles` cycles CPU (= µs à 1 MHz). Chemin chaud, sans appel dans
 // les cas courants (sur le RP2040, wd1793_tick_n est en flash) : au repos ou
 // en attente du processeur, wd1793_tick_n ne fait rien ; pendant une attente
-// plus longue que `cycles`, il ne fait que la décompter
+// plus longue que `cycles`, il ne fait que la décompter. Cette copie des deux
+// premiers cas de wd1793_tick_n est voulue (performance) ; l'équivalence est
+// vérifiée par tests/test_revue_peripheriques.c
 static inline void telestrat_fdc_tick(telestrat_fdc_t* f, uint32_t cycles) {
     wd1793_t* w = &f->wd;
     if (w->state == WD1793_IDLE || w->state == WD1793_CPU) return;

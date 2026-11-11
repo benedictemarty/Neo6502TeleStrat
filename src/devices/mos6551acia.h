@@ -30,6 +30,15 @@
 //   - émission (b2-3 = 01) : événement, levé quand le registre d'émission se
 //     vide, ou quand la commande est écrite avec l'IRQ d'émission autorisée et
 //     le registre vide ; effacé par la lecture de l'état.
+//   - DTR (b0 de la commande) à 0 : récepteur et interruptions coupés, la
+//     broche /IRQ reste inactive même avec un événement d'émission en attente
+//     (fiche 6551) ; l'événement garde son bit dans l'état jusqu'à la lecture.
+//   - lecture de l'état : n'efface pas la broche /IRQ tant que la donnée reçue
+//     n'est pas lue (RDRF actif, IRQ de réception autorisée). Choix de ce
+//     code, non vérifié sur matériel (à vérifier).
+//   - commande b2-3 = 00 (émetteur coupé) : l'octet écrit est quand même
+//     émis ; b2-3 = 11 (BREAK) n'est pas modélisé. Comportement de la fiche
+//     non établi pour ces deux cas, TELEMON non examiné (à vérifier).
 // TELEMON (routine série $C8C0) réécrit la commande à chaque octet mis en
 // file et n'émet que sur IRQ ; une IRQ d'émission de niveau l'étoufferait
 // (il compte 65536 appels avant de couper l'émission, tampon vide).
@@ -55,6 +64,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// Parité, trame et écrasement ne sont jamais levés : l'émulation ne reçoit que
+// des octets sains et ne propose un octet que si le précédent est lu ; les bits
+// restent définis pour l'effacement par les lectures et les instantanés.
 #define MOS6551_ST_PARITY  (0x01)
 #define MOS6551_ST_FRAMING (0x02)
 #define MOS6551_ST_OVERRUN (0x04)
@@ -71,7 +83,7 @@
 #define MOS6551_CMD_PARITY (0xE0)
 
 #define MOS6551_CTL_BAUD   (0x0F)
-#define MOS6551_CTL_INTCLK (0x10)
+#define MOS6551_CTL_INTCLK (0x10)  // source d'horloge : sans effet ici (débit toujours interne)
 #define MOS6551_CTL_WLEN   (0x60)
 #define MOS6551_CTL_STOP2  (0x80)
 
@@ -105,19 +117,27 @@ typedef struct {
 static const uint16_t mos6551acia_bauds[16] = {1200, 50, 75, 110, 135, 150, 300, 600,
                                                1200, 1800, 2400, 3600, 4800, 7200, 9600, 19200};
 
+// Bits de stop : deux si b7 du contrôle, sauf 8 bits avec parité (un seul
+// d'après la fiche) ; le cas 5 bits sans parité (1,5) est rendu par 2. Même
+// règle pour la durée (char_cycles) et pour le format d'un UART réel.
+static inline uint8_t mos6551acia_stop_bits(const mos6551acia_t* a) {
+    const int data_bits = 8 - ((a->control & MOS6551_CTL_WLEN) >> 5);
+    const bool parity = (a->command & 0x20) != 0;
+    return (a->control & MOS6551_CTL_STOP2) && !(data_bits == 8 && parity) ? 2 : 1;
+}
+
 // Durée d'un caractère en cycles CPU : start + données + parité + stop
 static inline int32_t mos6551acia_char_cycles(const mos6551acia_t* a) {
     int bits = 1 + (8 - ((a->control & MOS6551_CTL_WLEN) >> 5));
     if (a->command & 0x20) bits++;  // parité active
-    bits += (a->control & MOS6551_CTL_STOP2) ? 2 : 1;
+    bits += mos6551acia_stop_bits(a);
     return (int32_t)((a->cpu_freq * (uint32_t)bits) / mos6551acia_bauds[a->control & MOS6551_CTL_BAUD]);
 }
 
 // Format de liaison programmé, pour régler un UART réel (prise RS232 du
 // Neo6502). Parité (bits 5-7 de la commande, fiche 6551) : 0 aucune,
-// 1 impaire, 2 paire, 3 marque, 4 espace. Deux bits de stop, sauf 8 bits
-// avec parité (un seul d'après la fiche) ; le cas 5 bits sans parité (1,5)
-// est rendu par 2.
+// 1 impaire, 2 paire, 3 marque, 4 espace. Bits de stop : voir
+// mos6551acia_stop_bits().
 typedef struct {
     uint32_t baud;
     uint8_t data_bits;
@@ -130,7 +150,7 @@ static inline mos6551acia_format_t mos6551acia_format(const mos6551acia_t* a) {
     f.baud = mos6551acia_bauds[a->control & MOS6551_CTL_BAUD];
     f.data_bits = (uint8_t)(8 - ((a->control & MOS6551_CTL_WLEN) >> 5));
     f.parity = (a->command & 0x20) ? (uint8_t)(1 + ((a->command >> 6) & 3)) : 0;
-    f.stop_bits = (a->control & MOS6551_CTL_STOP2) && !(f.data_bits == 8 && f.parity) ? 2 : 1;
+    f.stop_bits = mos6551acia_stop_bits(a);
     return f;
 }
 
@@ -155,37 +175,43 @@ static inline void mos6551acia_reset(mos6551acia_t* a) {
 
 static inline bool mos6551acia_irq(const mos6551acia_t* a) { return a->irq; }
 
-static inline bool _mos6551acia_tx_irq_enabled(const mos6551acia_t* a) {
+static inline bool mos6551acia_tx_irq_enabled_(const mos6551acia_t* a) {
     return (a->command & MOS6551_CMD_TXCTL) == 0x04;
 }
 
-static inline bool _mos6551acia_rx_irq_enabled(const mos6551acia_t* a) {
+static inline bool mos6551acia_rx_irq_enabled_(const mos6551acia_t* a) {
     return (a->command & MOS6551_CMD_DTR) && !(a->command & MOS6551_CMD_IRQDIS);
 }
 
 // Broche /IRQ = événement d'émission, ou réception pleine et autorisée ;
 // bit 7 de l'état = broche ou octet arrivé (même IRQ de réception interdite)
-static inline void _mos6551acia_update_irq(mos6551acia_t* a) {
-    if (!_mos6551acia_tx_irq_enabled(a)) a->tx_irq = false;
-    bool irq = a->tx_irq || ((a->status & MOS6551_ST_RXFULL) && _mos6551acia_rx_irq_enabled(a));
+static inline void mos6551acia_update_irq_(mos6551acia_t* a) {
+    if (!mos6551acia_tx_irq_enabled_(a)) a->tx_irq = false;
+    // DTR = 0 : récepteur et interruptions coupés
+    bool irq = (a->command & MOS6551_CMD_DTR) &&
+               (a->tx_irq || ((a->status & MOS6551_ST_RXFULL) && mos6551acia_rx_irq_enabled_(a)));
     a->irq = irq;
-    if (irq || a->rx_event) {
+    if (irq || a->tx_irq || a->rx_event) {
         a->status |= MOS6551_ST_IRQ;
     } else {
         a->status &= ~MOS6551_ST_IRQ;
     }
 }
 
-// Passe le registre d'émission dans le registre à décalage s'il est libre
-static inline void _mos6551acia_load_tsr(mos6551acia_t* a) {
+// Passe le registre d'émission dans le registre à décalage s'il est libre ;
+// carry (≤ 0) : cycles écoulés au-delà de la fin du caractère précédent,
+// retranchés du nouveau pour ne pas dériver en débit
+static inline void mos6551acia_load_tsr_(mos6551acia_t* a, int32_t carry) {
     if (a->tsr_busy || !a->tdr_full) return;
     a->tsr = a->tdr;
     a->tdr_full = false;
     a->tsr_busy = true;
-    a->tx_timer = mos6551acia_char_cycles(a);
+    const int32_t cc = mos6551acia_char_cycles(a);
+    if (carry < -cc) carry = -cc;
+    a->tx_timer = cc + carry;
     a->status |= MOS6551_ST_TXEMPTY;
-    if (_mos6551acia_tx_irq_enabled(a)) a->tx_irq = true;
-    _mos6551acia_update_irq(a);
+    if (mos6551acia_tx_irq_enabled_(a)) a->tx_irq = true;
+    mos6551acia_update_irq_(a);
 }
 
 static inline uint8_t mos6551acia_read(mos6551acia_t* a, uint8_t reg) {
@@ -193,7 +219,7 @@ static inline uint8_t mos6551acia_read(mos6551acia_t* a, uint8_t reg) {
         case 0: {
             uint8_t d = a->rx;
             a->status &= ~(MOS6551_ST_RXFULL | MOS6551_ST_OVERRUN | MOS6551_ST_FRAMING | MOS6551_ST_PARITY);
-            _mos6551acia_update_irq(a);
+            mos6551acia_update_irq_(a);
             return d;
         }
         case 1: {
@@ -201,7 +227,7 @@ static inline uint8_t mos6551acia_read(mos6551acia_t* a, uint8_t reg) {
             // La lecture de l'état efface les événements
             a->tx_irq = false;
             a->rx_event = false;
-            _mos6551acia_update_irq(a);
+            mos6551acia_update_irq_(a);
             return d;
         }
         case 2: return a->command;
@@ -216,18 +242,18 @@ static inline void mos6551acia_write(mos6551acia_t* a, uint8_t reg, uint8_t data
             a->tdr_full = true;
             a->status &= ~MOS6551_ST_TXEMPTY;
             a->tx_irq = false;
-            _mos6551acia_update_irq(a);
-            _mos6551acia_load_tsr(a);
+            mos6551acia_update_irq_(a);
+            mos6551acia_load_tsr_(a, 0);
             break;
         case 1:  // RESET logiciel : commande b0-4 à 0 sauf IRQ interdite, écrasement effacé
             a->command = (a->command & MOS6551_CMD_PARITY) | MOS6551_CMD_IRQDIS;
             a->status &= ~MOS6551_ST_OVERRUN;
-            _mos6551acia_update_irq(a);
+            mos6551acia_update_irq_(a);
             break;
         case 2:
             a->command = data;
-            if (_mos6551acia_tx_irq_enabled(a) && (a->status & MOS6551_ST_TXEMPTY)) a->tx_irq = true;
-            _mos6551acia_update_irq(a);
+            if (mos6551acia_tx_irq_enabled_(a) && (a->status & MOS6551_ST_TXEMPTY)) a->tx_irq = true;
+            mos6551acia_update_irq_(a);
             break;
         default: a->control = data; break;
     }
@@ -241,7 +267,7 @@ static inline void mos6551acia_tick(mos6551acia_t* a, int cycles) {
         if (a->tx_timer <= 0) {
             a->tsr_busy = false;
             if (a->tx_cb) a->tx_cb(a->tsr, a->user_data);
-            _mos6551acia_load_tsr(a);
+            mos6551acia_load_tsr_(a, a->tx_timer);
         }
     }
     // Réception : le temps passe ; l'arrivée d'un octet est testée par
@@ -261,12 +287,60 @@ static inline void mos6551acia_poll_rx(mos6551acia_t* a) {
             a->status |= MOS6551_ST_RXFULL;
             a->rx_event = true;
             a->rx_timer = mos6551acia_char_cycles(a);
-            if (a->command & MOS6551_CMD_ECHO) {
+            // Écho : l'octet reçu repart, sauf si un octet attend déjà dans le
+            // registre d'émission (l'écho est alors perdu, jamais l'octet du logiciel)
+            if ((a->command & MOS6551_CMD_ECHO) && !a->tdr_full) {
                 a->tdr = a->rx;
                 a->tdr_full = true;
-                _mos6551acia_load_tsr(a);
+                mos6551acia_load_tsr_(a, 0);
             }
-            _mos6551acia_update_irq(a);
+            mos6551acia_update_irq_(a);
         }
     }
+}
+
+// Instantané portable : champs de taille fixe, sans les rappels ni user_data
+// (pointeurs de l'hôte, qui ne se copient pas d'une machine à l'autre). Le
+// chargement conserve les rappels de l'ACIA destinataire.
+typedef struct {
+    uint8_t rx, status, command, control, tdr, tdr_full, tsr, tsr_busy, irq, tx_irq, rx_event, reserved;
+    int32_t tx_timer, rx_timer;
+    uint32_t cpu_freq;
+} mos6551acia_snapshot_t;
+
+_Static_assert(sizeof(mos6551acia_snapshot_t) == 24, "instantané ACIA : taille fixe");
+
+static inline void mos6551acia_snapshot_save(const mos6551acia_t* a, mos6551acia_snapshot_t* s) {
+    s->rx = a->rx;
+    s->status = a->status;
+    s->command = a->command;
+    s->control = a->control;
+    s->tdr = a->tdr;
+    s->tdr_full = a->tdr_full;
+    s->tsr = a->tsr;
+    s->tsr_busy = a->tsr_busy;
+    s->irq = a->irq;
+    s->tx_irq = a->tx_irq;
+    s->rx_event = a->rx_event;
+    s->reserved = 0;
+    s->tx_timer = a->tx_timer;
+    s->rx_timer = a->rx_timer;
+    s->cpu_freq = a->cpu_freq;
+}
+
+static inline void mos6551acia_snapshot_load(mos6551acia_t* a, const mos6551acia_snapshot_t* s) {
+    a->rx = s->rx;
+    a->status = s->status;
+    a->command = s->command;
+    a->control = s->control;
+    a->tdr = s->tdr;
+    a->tdr_full = s->tdr_full != 0;
+    a->tsr = s->tsr;
+    a->tsr_busy = s->tsr_busy != 0;
+    a->irq = s->irq != 0;
+    a->tx_irq = s->tx_irq != 0;
+    a->rx_event = s->rx_event != 0;
+    a->tx_timer = s->tx_timer;
+    a->rx_timer = s->rx_timer;
+    a->cpu_freq = s->cpu_freq ? s->cpu_freq : 1000000;
 }

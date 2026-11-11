@@ -5,8 +5,15 @@
 // Affectation de départ des lecteurs (le menu, F1, les change ensuite). Une
 // image n'est jamais dans deux lecteurs à la fois : chaque lecteur garde son
 // fichier ouvert en écriture. TELESTRA.CFG « a=NOM.DSK » … « d=NOM.DSK » (nom
-// sans distinction de casse) ; sans « a= », la première image libre va dans
-// A ; B à D restent vides sans réglage.
+// sans distinction de casse) ; sans « a= » (absent ou vide), la première image
+// libre va dans A ; avec un « a= » qui ne correspond à aucune image, A reste
+// vide (signalé dans `unmatched`) ; B à D restent vides sans réglage.
+//
+// Noms : DRIVE_SET_NAME_LEN octets au plus, zéro final compris (48 comme
+// OSD_NAME_LEN, FatFs avec noms longs). Un nom trop long est refusé
+// (drive_set_add rend false, compté dans `rejected`), jamais tronqué : un nom
+// tronqué désignerait une autre image. Au-delà de DRIVE_SET_MAX images, le
+// refus est compté de la même façon.
 //
 // Indépendant de la plate-forme (testé dans tests/test_telestrat.c).
 //
@@ -29,15 +36,21 @@
 //     distribution.
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
 #define DRIVE_SET_MAX    32
 #define DRIVE_SET_DRIVES 4
+#ifndef DRIVE_SET_NAME_LEN
+#define DRIVE_SET_NAME_LEN 48  // taille d'un nom, zéro final compris (OSD_NAME_LEN)
+#endif
 
 typedef struct {
-    char names[DRIVE_SET_MAX][13];  // noms 8.3
+    char names[DRIVE_SET_MAX][DRIVE_SET_NAME_LEN];
     int count;
     int slot[DRIVE_SET_DRIVES];     // image de chaque lecteur, -1 : vide
+    int rejected;                   // images refusées par drive_set_add (nom trop long, liste pleine)
+    uint8_t unmatched;              // bit d : le lecteur d a un réglage sans image correspondante
 } drive_set_t;
 
 static inline void drive_set_init(drive_set_t* s) {
@@ -46,14 +59,16 @@ static inline void drive_set_init(drive_set_t* s) {
 }
 
 static inline bool drive_set_add(drive_set_t* s, const char* name) {
-    if (s->count >= DRIVE_SET_MAX) return false;
-    strncpy(s->names[s->count], name, 12);
-    s->names[s->count][12] = 0;
+    if (s->count >= DRIVE_SET_MAX || strlen(name) >= DRIVE_SET_NAME_LEN) {
+        s->rejected++;
+        return false;
+    }
+    memcpy(s->names[s->count], name, strlen(name) + 1);
     s->count++;
     return true;
 }
 
-static inline bool _drive_set_same(const char* a, const char* b) {
+static inline bool drive_set_same_(const char* a, const char* b) {
     for (;; a++, b++) {
         char x = *a, y = *b;
         if (x >= 'a' && x <= 'z') x = (char)(x - 32);
@@ -65,7 +80,7 @@ static inline bool _drive_set_same(const char* a, const char* b) {
 
 static inline int drive_set_find(const drive_set_t* s, const char* name) {
     for (int i = 0; i < s->count; i++)
-        if (_drive_set_same(s->names[i], name)) return i;
+        if (drive_set_same_(s->names[i], name)) return i;
     return -1;
 }
 
@@ -78,12 +93,15 @@ static inline bool drive_set_in_use(const drive_set_t* s, int image, int except_
 // Affectation de départ ; wanted[d] : nom réglé pour le lecteur d (NULL ou "" : aucun)
 static inline void drive_set_assign(drive_set_t* s, const char* const wanted[DRIVE_SET_DRIVES]) {
     for (int d = 0; d < DRIVE_SET_DRIVES; d++) s->slot[d] = -1;
+    s->unmatched = 0;
     for (int d = 0; d < DRIVE_SET_DRIVES; d++) {
         if (!wanted[d] || !wanted[d][0]) continue;
         int i = drive_set_find(s, wanted[d]);
         if (i >= 0 && !drive_set_in_use(s, i, d)) s->slot[d] = i;
+        else s->unmatched |= (uint8_t)(1u << d);
     }
-    if (s->slot[0] < 0) {
+    // Règle « première image libre » : seulement sans réglage « a= »
+    if (s->slot[0] < 0 && !(wanted[0] && wanted[0][0])) {
         for (int i = 0; i < s->count; i++) {
             if (!drive_set_in_use(s, i, 0)) {
                 s->slot[0] = i;

@@ -23,7 +23,11 @@
 // Non fait : Proportionnel (imprimé en Pica), caractères définis par
 // l'utilisateur (ESC & : données lues et ignorées), jeux internationaux
 // autres que États-Unis et France, tampon de ligne (CAN, DEL sans effet :
-// chaque caractère est imprimé dès sa réception).
+// chaque caractère est imprimé dès sa réception). ESC e et ESC f (tabulations
+// à pas fixe) sont absents ici : leur paramètre est imprimé comme du texte ;
+// si la FX-80 les connaît : à vérifier sur le manuel ou la machine.
+// Points hors page : au-delà de 8,5 pouces (marge droite ESC Q jusqu'à 9
+// pouces) les points ne sont pas tracés ; ils sont comptés dans `dots_lost`.
 // Police : unscii-8 (8 x 8, domaine public, celle du menu), pas celle de la
 // FX-80 (9 x 11) ; une rangée de glyphe par aiguille, la 9e aiguille pour le
 // souligné.
@@ -58,7 +62,6 @@
 
 #include "devices/printer_out.h"
 
-#define FX80_DPI       144
 #define FX80_WIDTH     1224                 // 8,5 pouces
 #define FX80_ROW_BYTES (FX80_WIDTH / 8)
 #define FX80_BAND      28                   // lignes de pixels en mémoire
@@ -128,16 +131,17 @@ typedef struct {
     bool finishing;     // page à terminer (saut de page, fin de travail)
     int32_t v_next;     // position de la tête sur la page suivante
     uint32_t pages;     // pages écrites
+    uint32_t dots_lost; // points jetés à droite du papier (marge droite au-delà de 8,5 pouces)
     // Flux PNG (un seul bloc IDAT, taille connue d'avance)
     uint32_t crc, adler;
     uint32_t raw_left, block_left;
     uint8_t band[FX80_BAND][FX80_ROW_BYTES];  // bit à 1 : papier blanc
 } fx80_t;
 
-static const uint8_t _fx80_gfx_step[7] = {24, 12, 12, 6, 18, 20, 16};  // modes ESC * 0-6
+static const uint8_t fx80_gfx_step_[7] = {24, 12, 12, 6, 18, 20, 16};  // modes ESC * 0-6
 
 // Réglages de mise sous tension (ESC @)
-static inline void _fx80_defaults(fx80_t* p) {
+static inline void fx80_defaults_(fx80_t* p) {
     p->spacing = 36;  // 1/6 pouce
     p->form = 11 * 216;
     p->lmargin = 0;
@@ -152,7 +156,9 @@ static inline void _fx80_defaults(fx80_t* p) {
     p->nhtab = 32;  // une tabulation tous les 8 caractères
     for (int i = 0; i < 32; i++) p->htab[i] = (i + 1) * 8 * 144;
     p->nvtab = 0;
-    if (!p->page_open) p->page_rows = (uint16_t)(p->form * 2 / 3);
+    // Page blanche déjà avancée (band_top > 0) : page_rows ne doit pas passer
+    // sous la première ligne non écrite (même garde que ESC C)
+    if (!p->page_open && !p->band_top) p->page_rows = (uint16_t)(p->form * 2 / 3);
 }
 
 static inline void fx80_init(fx80_t* p, const printer_out_t* out, const uint8_t (*font)[8]) {
@@ -161,49 +167,49 @@ static inline void fx80_init(fx80_t* p, const printer_out_t* out, const uint8_t 
     p->font = font;
     memset(p->band, 0xFF, sizeof(p->band));
     p->pending = -1;
-    _fx80_defaults(p);
+    fx80_defaults_(p);
 }
 
-static inline bool _fx80_writing(const fx80_t* p) {
+static inline bool fx80_writing_(const fx80_t* p) {
     return p->finishing || p->debt || p->band_top < p->target;
 }
 
-static inline bool fx80_busy(const fx80_t* p) { return p->pending >= 0 || _fx80_writing(p); }
+static inline bool fx80_busy(const fx80_t* p) { return p->pending >= 0 || fx80_writing_(p); }
 
 /*-- Flux PNG ------------------------------------------------------------------*/
 
-static inline void _fx80_w(fx80_t* p, const void* d, uint32_t n) {
+static inline void fx80_w_(fx80_t* p, const void* d, uint32_t n) {
     p->crc = printer_crc32(p->crc, (const uint8_t*)d, n);
     p->out.write(p->out.ctx, d, n);
 }
 
-static inline void _fx80_chunk(fx80_t* p, const char* type, uint32_t len) {
+static inline void fx80_chunk_(fx80_t* p, const char* type, uint32_t len) {
     uint8_t b[4];
     printer_be32(b, len);
     p->out.write(p->out.ctx, b, 4);
     p->crc = 0;
-    _fx80_w(p, type, 4);
+    fx80_w_(p, type, 4);
 }
 
-static inline void _fx80_chunk_end(fx80_t* p) {
+static inline void fx80_chunk_end_(fx80_t* p) {
     uint8_t b[4];
     printer_be32(b, p->crc);
     p->out.write(p->out.ctx, b, 4);
 }
 
 // Données zlib brutes : blocs « stockés » de 65535 octets au plus
-static inline void _fx80_idat(fx80_t* p, const uint8_t* d, uint32_t n) {
+static inline void fx80_idat_(fx80_t* p, const uint8_t* d, uint32_t n) {
     while (n) {
         if (!p->block_left) {
             const uint32_t len = p->raw_left < 65535 ? p->raw_left : 65535;
             const uint8_t hdr[5] = {(uint8_t)(len == p->raw_left), (uint8_t)len, (uint8_t)(len >> 8),
                                     (uint8_t)~len, (uint8_t)(~len >> 8)};
-            _fx80_w(p, hdr, 5);
+            fx80_w_(p, hdr, 5);
             p->block_left = len;
         }
         const uint32_t k = n < p->block_left ? n : p->block_left;
         p->adler = printer_adler32(p->adler, d, k);
-        _fx80_w(p, d, k);
+        fx80_w_(p, d, k);
         p->block_left -= k;
         p->raw_left -= k;
         d += k;
@@ -211,56 +217,56 @@ static inline void _fx80_idat(fx80_t* p, const uint8_t* d, uint32_t n) {
     }
 }
 
-static inline uint32_t _fx80_raw_size(uint16_t rows) { return (uint32_t)rows * (FX80_ROW_BYTES + 1); }
+static inline uint32_t fx80_raw_size_(uint16_t rows) { return (uint32_t)rows * (FX80_ROW_BYTES + 1); }
 
-static inline void _fx80_png_begin(fx80_t* p) {
+static inline void fx80_png_begin_(fx80_t* p) {
     static const uint8_t sig[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
     p->out.write(p->out.ctx, sig, 8);
     uint8_t ihdr[13] = {0};
     printer_be32(ihdr, FX80_WIDTH);
     printer_be32(ihdr + 4, p->page_rows);
     ihdr[8] = 1;  // 1 bit par pixel, niveaux de gris (0 : noir)
-    _fx80_chunk(p, "IHDR", 13);
-    _fx80_w(p, ihdr, 13);
-    _fx80_chunk_end(p);
+    fx80_chunk_(p, "IHDR", 13);
+    fx80_w_(p, ihdr, 13);
+    fx80_chunk_end_(p);
     uint8_t phys[9];
     printer_be32(phys, 5669);  // 144 points par pouce, en points par mètre
     printer_be32(phys + 4, 5669);
     phys[8] = 1;
-    _fx80_chunk(p, "pHYs", 9);
-    _fx80_w(p, phys, 9);
-    _fx80_chunk_end(p);
-    const uint32_t raw = _fx80_raw_size(p->page_rows);
+    fx80_chunk_(p, "pHYs", 9);
+    fx80_w_(p, phys, 9);
+    fx80_chunk_end_(p);
+    const uint32_t raw = fx80_raw_size_(p->page_rows);
     const uint32_t blocks = (raw + 65534) / 65535;
-    _fx80_chunk(p, "IDAT", 2 + 5 * blocks + raw + 4);
+    fx80_chunk_(p, "IDAT", 2 + 5 * blocks + raw + 4);
     static const uint8_t zhdr[2] = {0x78, 0x01};
-    _fx80_w(p, zhdr, 2);
+    fx80_w_(p, zhdr, 2);
     p->adler = 1;
     p->raw_left = raw;
     p->block_left = 0;
 }
 
-static inline void _fx80_png_end(fx80_t* p) {
+static inline void fx80_png_end_(fx80_t* p) {
     uint8_t b[4];
     printer_be32(b, p->adler);
-    _fx80_w(p, b, 4);
-    _fx80_chunk_end(p);
-    _fx80_chunk(p, "IEND", 0);
-    _fx80_chunk_end(p);
+    fx80_w_(p, b, 4);
+    fx80_chunk_end_(p);
+    fx80_chunk_(p, "IEND", 0);
+    fx80_chunk_end_(p);
 }
 
-static inline void _fx80_row(fx80_t* p, const uint8_t* row) {
+static inline void fx80_row_(fx80_t* p, const uint8_t* row) {
     static const uint8_t filter = 0;
-    _fx80_idat(p, &filter, 1);
-    _fx80_idat(p, row, FX80_ROW_BYTES);
+    fx80_idat_(p, &filter, 1);
+    fx80_idat_(p, row, FX80_ROW_BYTES);
 }
 
 /*-- Page ----------------------------------------------------------------------*/
 
-static inline void _fx80_char(fx80_t* p, uint8_t c, bool italic);
+static inline void fx80_char_(fx80_t* p, uint8_t c, bool italic);
 
 // Premier point de la page : ouverture du fichier
-static inline bool _fx80_ink(fx80_t* p) {
+static inline bool fx80_ink_(fx80_t* p) {
     if (p->page_open) return true;
     if (p->page_nofile || !printer_out_ok(&p->out)) return false;
     if (!p->out.open(p->out.ctx, "PNG")) {
@@ -268,16 +274,20 @@ static inline bool _fx80_ink(fx80_t* p) {
         return false;
     }
     p->page_open = true;
-    _fx80_png_begin(p);
+    fx80_png_begin_(p);
     p->debt = p->band_top;  // lignes déjà sautées : blanches
     return true;
 }
 
-static inline void _fx80_dot(fx80_t* p, int32_t h, int32_t v) {
+static inline void fx80_dot_(fx80_t* p, int32_t h, int32_t v) {
     if (h < 0 || v < 0) return;
     const int32_t x = (FX80_LEFT + h) / 10, y = v * 2 / 3;
-    if (x + 1 >= FX80_WIDTH || y < p->band_top || y + 1 >= p->band_top + FX80_BAND || y + 1 >= p->page_rows) return;
-    if (!_fx80_ink(p)) return;
+    if (x + 1 >= FX80_WIDTH) {
+        p->dots_lost++;
+        return;
+    }
+    if (y < p->band_top || y + 1 >= p->band_top + FX80_BAND || y + 1 >= p->page_rows) return;
+    if (!fx80_ink_(p)) return;
     for (int dy = 0; dy < 2; dy++) {
         uint8_t* r = p->band[(y + dy) % FX80_BAND];
         r[x >> 3] &= (uint8_t)~(0x80 >> (x & 7));
@@ -287,28 +297,28 @@ static inline void _fx80_dot(fx80_t* p, int32_t h, int32_t v) {
 
 // Tête déplacée : les lignes qu'elle ne peut plus atteindre (plus bas que la
 // 9e aiguille, avec double frappe) sont à écrire avant la suite
-static inline void _fx80_need(fx80_t* p) {
+static inline void fx80_need_(fx80_t* p) {
     int32_t top = (p->v + 27) * 2 / 3 + 2 - FX80_BAND;
     if (top > p->page_rows) top = p->page_rows;
     if (top > p->target) p->target = (uint16_t)top;
 }
 
-static inline void _fx80_new_page(fx80_t* p, int32_t v_next) {
+static inline void fx80_new_page_(fx80_t* p, int32_t v_next) {
     p->finishing = true;
     p->target = p->page_rows;
     p->v_next = v_next;
 }
 
-static inline void _fx80_vmove(fx80_t* p, int32_t v) {
+static inline void fx80_vmove_(fx80_t* p, int32_t v) {
     if (p->finishing) return;
     if (v < 0) v = 0;
     if (v >= p->form) {
         v -= p->form;
-        _fx80_new_page(p, v < p->form ? v : 0);
+        fx80_new_page_(p, v < p->form ? v : 0);
         return;
     }
     p->v = v;
-    _fx80_need(p);
+    fx80_need_(p);
 }
 
 // Écrit au plus max lignes ; retourne le nombre écrit
@@ -318,17 +328,16 @@ static inline int fx80_service(fx80_t* p, int max) {
         // Page blanche jusqu'ici : rien à écrire
         if (p->target > p->band_top) p->band_top = p->target;
     } else {
-        static const uint8_t blank[FX80_ROW_BYTES] = {
-            [0 ... FX80_ROW_BYTES - 1] = 0xFF,
-        };
+        uint8_t blank[FX80_ROW_BYTES];
+        memset(blank, 0xFF, sizeof(blank));
         while (p->debt && n < max) {
-            _fx80_row(p, blank);
+            fx80_row_(p, blank);
             p->debt--;
             n++;
         }
         while (!p->debt && p->band_top < p->target && n < max) {
             uint8_t* r = p->band[p->band_top % FX80_BAND];
-            _fx80_row(p, r);
+            fx80_row_(p, r);
             memset(r, 0xFF, FX80_ROW_BYTES);
             p->band_top++;
             n++;
@@ -336,7 +345,7 @@ static inline int fx80_service(fx80_t* p, int max) {
     }
     if (p->finishing && !p->debt && p->band_top >= p->page_rows) {
         if (p->page_open) {
-            _fx80_png_end(p);
+            fx80_png_end_(p);
             p->out.close(p->out.ctx);
             p->pages++;
         }
@@ -347,12 +356,12 @@ static inline int fx80_service(fx80_t* p, int max) {
         p->page_rows = (uint16_t)(p->form * 2 / 3);
         p->v = p->v_next;
         p->h = p->lmargin;
-        _fx80_need(p);
+        fx80_need_(p);
     }
-    if (p->pending >= 0 && !_fx80_writing(p)) {
+    if (p->pending >= 0 && !fx80_writing_(p)) {
         const int c = p->pending;
         p->pending = -1;
-        _fx80_char(p, (uint8_t)(c & 0x7F), c >= 128);
+        fx80_char_(p, (uint8_t)(c & 0x7F), c >= 128);
     }
     return n;
 }
@@ -362,7 +371,7 @@ static inline int fx80_service(fx80_t* p, int max) {
 static inline bool fx80_finish(fx80_t* p) {
     if (fx80_busy(p)) return false;
     if (p->page_open) {
-        _fx80_new_page(p, 0);
+        fx80_new_page_(p, 0);
     } else {
         p->v = 0;
         p->h = p->lmargin;
@@ -375,24 +384,25 @@ static inline bool fx80_finish(fx80_t* p) {
 /*-- Texte ---------------------------------------------------------------------*/
 
 // Pas des caractères, 1/1440 pouce
+// (nom avec souligné initial conservé : utilisé par tests/test_telestrat.c)
 static inline int32_t _fx80_adv(const fx80_t* p) {
     int32_t a = (p->mode & FX80_ELITE) ? 120 : (p->mode & FX80_CONDENSED) ? 84 : 144;
     if ((p->mode & FX80_EXPANDED) || p->so_expanded) a *= 2;
     return a;
 }
 
-static inline void _fx80_cr(fx80_t* p) {
+static inline void fx80_cr_(fx80_t* p) {
     p->h = p->lmargin;
     p->so_expanded = false;
 }
 
-static inline void _fx80_lf(fx80_t* p) {
+static inline void fx80_lf_(fx80_t* p) {
     p->so_expanded = false;
-    _fx80_vmove(p, p->v + p->spacing);
+    fx80_vmove_(p, p->v + p->spacing);
 }
 
 // Jeu français (ESC R 1) : table ESC/P usuelle, codes 35 à 126 remplacés
-static inline uint8_t _fx80_intl(const fx80_t* p, uint8_t c) {
+static inline uint8_t fx80_intl_(const fx80_t* p, uint8_t c) {
     if (p->intl != 1) return c;
     switch (c) {
         case '@': return 0xE0;  // à
@@ -407,10 +417,10 @@ static inline uint8_t _fx80_intl(const fx80_t* p, uint8_t c) {
     }
 }
 
-static inline void _fx80_char(fx80_t* p, uint8_t c, bool italic) {
+static inline void fx80_char_(fx80_t* p, uint8_t c, bool italic) {
     const int32_t adv = _fx80_adv(p);
     if (p->font && c != ' ') {
-        const uint8_t* g = p->font[_fx80_intl(p, c)];
+        const uint8_t* g = p->font[fx80_intl_(p, c)];
         const bool narrow = (p->mode & (FX80_ELITE | FX80_CONDENSED)) != 0;
         const bool emph = (p->mode & FX80_EMPHASIZED) && !narrow;
         const bool dbl = (p->mode & FX80_DOUBLE) || p->script >= 0;
@@ -423,31 +433,32 @@ static inline void _fx80_char(fx80_t* p, uint8_t c, bool italic) {
             for (int cx = 0; cx < 8; cx++) {
                 if (!(g[r] >> cx & 1)) continue;
                 const int32_t x = p->h + dx + cx * adv / 8;
-                _fx80_dot(p, x, vy);
-                if (wide) _fx80_dot(p, x + adv / 16, vy);
-                if (emph) _fx80_dot(p, x + 6, vy);
-                if (dbl) _fx80_dot(p, x, vy + 1);
+                fx80_dot_(p, x, vy);
+                if (wide) fx80_dot_(p, x + adv / 16, vy);
+                if (emph) fx80_dot_(p, x + 6, vy);
+                if (dbl) fx80_dot_(p, x, vy + 1);
             }
         }
     }
     if (p->mode & FX80_UNDERLINE)
-        for (int32_t x = 0; x < adv; x += 6) _fx80_dot(p, p->h + x, p->v + 24);
+        for (int32_t x = 0; x < adv; x += 6) fx80_dot_(p, p->h + x, p->v + 24);
     p->h += adv;
 }
 
 /*-- Graphiques ----------------------------------------------------------------*/
 
-static inline void _fx80_gfx_col(fx80_t* p, uint8_t b, bool pin9) {
+static inline void fx80_gfx_col_(fx80_t* p, uint8_t b, bool pin9) {
     if (p->h <= p->rmargin) {
         for (int i = 0; i < 8; i++)
-            if (b & (0x80 >> i)) _fx80_dot(p, p->h, p->v + 3 * i);
-        if (pin9) _fx80_dot(p, p->h, p->v + 24);
+            if (b & (0x80 >> i)) fx80_dot_(p, p->h, p->v + 3 * i);
+        if (pin9) fx80_dot_(p, p->h, p->v + 24);
     }
-    p->h += p->gfx_step;
+    // Position bornée : au-delà de la marge rien n'est tracé, mais h ne doit pas déborder
+    if (p->h < (1 << 28)) p->h += p->gfx_step;
 }
 
-static inline void _fx80_gfx_begin(fx80_t* p, int mode, uint32_t n, bool nine) {
-    p->gfx_step = _fx80_gfx_step[mode >= 0 && mode < 7 ? mode : 0];
+static inline void fx80_gfx_begin_(fx80_t* p, int mode, uint32_t n, bool nine) {
+    p->gfx_step = fx80_gfx_step_[mode >= 0 && mode < 7 ? mode : 0];
     p->gfx9 = nine;
     p->gfx_half = false;
     p->left = nine ? 2 * n : n;
@@ -456,7 +467,7 @@ static inline void _fx80_gfx_begin(fx80_t* p, int mode, uint32_t n, bool nine) {
 
 /*-- Séquences ESC -------------------------------------------------------------*/
 
-static inline int _fx80_nargs(uint8_t cmd) {
+static inline int fx80_nargs_(uint8_t cmd) {
     switch (cmd) {
         case '!': case '-': case '/': case '3': case 'A': case 'C': case 'I': case 'J': case 'N': case 'Q':
         case 'R': case 'S': case 'U': case 'W': case 'b': case 'i': case 'j': case 'l': case 'p': case 's':
@@ -470,7 +481,7 @@ static inline int _fx80_nargs(uint8_t cmd) {
     }
 }
 
-static inline void _fx80_tabs_begin(fx80_t* p, uint8_t max) {
+static inline void fx80_tabs_begin_(fx80_t* p, uint8_t max) {
     p->parse = FX80_P_TABS;
     p->tab_max = max;
     p->tab_last = 0;
@@ -478,7 +489,7 @@ static inline void _fx80_tabs_begin(fx80_t* p, uint8_t max) {
     else p->nvtab = 0;
 }
 
-static inline void _fx80_exec(fx80_t* p) {
+static inline void fx80_exec_(fx80_t* p) {
     const uint8_t* a = p->args;
     p->parse = FX80_P_NONE;
     switch (p->cmd) {
@@ -496,7 +507,7 @@ static inline void _fx80_exec(fx80_t* p) {
         case '#': p->msb = 0; break;
         case '=': p->msb = 1; break;
         case '>': p->msb = 2; break;
-        case '@': _fx80_defaults(p); break;
+        case '@': fx80_defaults_(p); break;
         case 'C':
             if (a[0] == 0 && p->argc == 1) {
                 // ESC C 0 n : longueur en pouces
@@ -509,9 +520,17 @@ static inline void _fx80_exec(fx80_t* p) {
             if (p->form > FX80_PAGE_MAX) p->form = FX80_PAGE_MAX;
             if (!p->page_open && !p->band_top) p->page_rows = (uint16_t)(p->form * 2 / 3);
             break;
-        case 'D': _fx80_tabs_begin(p, 32); break;
-        case 'B': _fx80_tabs_begin(p, 16); break;
-        case 'b': if (!a[0]) _fx80_tabs_begin(p, 16); else { p->parse = FX80_P_TABS; p->tab_max = 0; } break;
+        case 'D': fx80_tabs_begin_(p, 32); break;
+        case 'B': fx80_tabs_begin_(p, 16); break;
+        case 'b':
+            if (!a[0]) {
+                fx80_tabs_begin_(p, 16);
+            } else {  // autre canal : liste lue et ignorée
+                p->parse = FX80_P_TABS;
+                p->tab_max = 0;
+                p->tab_last = 0;
+            }
+            break;
         case 'E': p->mode |= FX80_EMPHASIZED; break;
         case 'F': p->mode &= ~FX80_EMPHASIZED; break;
         case 'G': p->mode |= FX80_DOUBLE; break;
@@ -523,8 +542,8 @@ static inline void _fx80_exec(fx80_t* p) {
         case 'S': p->script = (int8_t)(a[0] & 1); break;
         case 'T': p->script = -1; break;
         case 'R': p->intl = a[0]; break;
-        case 'J': _fx80_vmove(p, p->v + a[0]); break;
-        case 'j': _fx80_vmove(p, p->v - a[0]); break;
+        case 'J': fx80_vmove_(p, p->v + a[0]); break;
+        case 'j': fx80_vmove_(p, p->v - a[0]); break;
         case 'l': {
             const int32_t m = a[0] * _fx80_adv(p);
             if (m < p->rmargin) p->lmargin = m;
@@ -543,11 +562,11 @@ static inline void _fx80_exec(fx80_t* p) {
         }
         case 'K': case 'L': case 'Y': case 'Z': {
             const int i = p->cmd == 'K' ? 0 : p->cmd == 'L' ? 1 : p->cmd == 'Y' ? 2 : 3;
-            _fx80_gfx_begin(p, p->gfx_map[i], (uint32_t)a[0] | (uint32_t)a[1] << 8, false);
+            fx80_gfx_begin_(p, p->gfx_map[i], (uint32_t)a[0] | (uint32_t)a[1] << 8, false);
             break;
         }
-        case '*': _fx80_gfx_begin(p, a[0], (uint32_t)a[1] | (uint32_t)a[2] << 8, false); break;
-        case '^': _fx80_gfx_begin(p, a[0] ? 1 : 0, (uint32_t)a[1] | (uint32_t)a[2] << 8, true); break;
+        case '*': fx80_gfx_begin_(p, a[0], (uint32_t)a[1] | (uint32_t)a[2] << 8, false); break;
+        case '^': fx80_gfx_begin_(p, a[0] ? 1 : 0, (uint32_t)a[1] | (uint32_t)a[2] << 8, true); break;
         case '&':
             // Caractères de l'utilisateur : attribut et 11 octets par caractère
             if (a[2] >= a[1]) {
@@ -559,7 +578,7 @@ static inline void _fx80_exec(fx80_t* p) {
     }
 }
 
-static inline void _fx80_control(fx80_t* p, uint8_t c) {
+static inline void fx80_control_(fx80_t* p, uint8_t c) {
     switch (c) {
         case 8: {
             const int32_t h = p->h - _fx80_adv(p);
@@ -573,23 +592,23 @@ static inline void _fx80_control(fx80_t* p, uint8_t c) {
                     break;
                 }
             break;
-        case 10: _fx80_lf(p); break;
+        case 10: fx80_lf_(p); break;
         case 11: {
             // Tabulation verticale ; sans tabulation plus bas : saut de ligne
             for (int i = 0; i < p->nvtab; i++)
                 if (p->vtab[i] > p->v) {
                     p->so_expanded = false;
-                    _fx80_vmove(p, p->vtab[i]);
+                    fx80_vmove_(p, p->vtab[i]);
                     return;
                 }
-            _fx80_lf(p);
+            fx80_lf_(p);
             break;
         }
         case 12:
             p->so_expanded = false;
-            _fx80_new_page(p, 0);
+            fx80_new_page_(p, 0);
             break;
-        case 13: _fx80_cr(p); break;
+        case 13: fx80_cr_(p); break;
         case 14: p->so_expanded = true; break;
         case 15: p->mode |= FX80_CONDENSED; break;
         case 18: p->mode &= ~FX80_CONDENSED; break;
@@ -610,14 +629,14 @@ static inline void fx80_feed(fx80_t* p, uint8_t c) {
         case FX80_P_CMD:
             p->cmd = c & 0x7F;
             p->argc = 0;
-            p->need = (uint8_t)_fx80_nargs(p->cmd);
+            p->need = (uint8_t)fx80_nargs_(p->cmd);
             memset(p->args, 0, sizeof(p->args));
             if (p->need) p->parse = FX80_P_ARGS;
-            else _fx80_exec(p);
+            else fx80_exec_(p);
             return;
         case FX80_P_ARGS:
             p->args[p->argc++] = c;
-            if (p->argc >= p->need) _fx80_exec(p);
+            if (p->argc >= p->need) fx80_exec_(p);
             return;
         case FX80_P_GFX:
             if (p->gfx9) {
@@ -625,11 +644,11 @@ static inline void fx80_feed(fx80_t* p, uint8_t c) {
                     p->gfx_first = c;
                     p->gfx_half = true;
                 } else {
-                    _fx80_gfx_col(p, p->gfx_first, (c & 0x80) != 0);
+                    fx80_gfx_col_(p, p->gfx_first, (c & 0x80) != 0);
                     p->gfx_half = false;
                 }
             } else {
-                _fx80_gfx_col(p, c, false);
+                fx80_gfx_col_(p, c, false);
             }
             if (--p->left == 0) p->parse = FX80_P_NONE;
             return;
@@ -654,18 +673,18 @@ static inline void fx80_feed(fx80_t* p, uint8_t c) {
     const uint8_t lo = c & 0x7F;
     if (lo < 32 || lo == 127) {
         if (c >= 128 && c < 160 && p->print_hi) return;  // caractères internationaux italiques : absents
-        _fx80_control(p, lo);
+        fx80_control_(p, lo);
         return;
     }
     // 160-254 : italique. Fin de ligne : retour à la ligne automatique ; le
     // caractère attend alors l'écriture des lignes quittées.
     if (p->h + _fx80_adv(p) > p->rmargin) {
-        _fx80_cr(p);
-        _fx80_lf(p);
-        if (_fx80_writing(p)) {
+        fx80_cr_(p);
+        fx80_lf_(p);
+        if (fx80_writing_(p)) {
             p->pending = (int16_t)(lo | (c & 0x80));
             return;
         }
     }
-    _fx80_char(p, lo, c >= 128);
+    fx80_char_(p, lo, c >= 128);
 }

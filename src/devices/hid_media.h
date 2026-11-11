@@ -30,7 +30,7 @@
 typedef struct {
     uint8_t report_id;  // 0 : pas d'identifiant de rapport
     bool array;
-    uint16_t bit_off;   // position du champ après l'identifiant
+    uint32_t bit_off;   // position du champ après l'identifiant
     uint8_t size, count;
     // tableau : valeur de l'élément pour chaque touche (-1 : absente) ;
     // variable : numéro du bit dans le champ (-1 : absente)
@@ -43,7 +43,7 @@ typedef struct {
     hid_media_field_t field[HID_MEDIA_MAX_FIELDS];
 } hid_media_t;
 
-static inline int _hid_media_key(uint32_t usage) {
+static inline int hid_media_key_(uint32_t usage) {
     switch (usage) {
         case 0x000C00E9: return 0;
         case 0x000C00EA: return 1;
@@ -63,10 +63,12 @@ static inline bool hid_media_parse(hid_media_t* m, const uint8_t* desc, uint16_t
     bool have_range = false;
     // bits d'entrée déjà placés, par identifiant de rapport
     uint8_t id_of[HID_MEDIA_MAX_IDS];
-    uint16_t bits[HID_MEDIA_MAX_IDS];
+    uint32_t bits[HID_MEDIA_MAX_IDS];
     int nid = 0;
 
-    for (uint16_t i = 0; i < len;) {
+    // Indice sur 32 bits : un élément long près de la fin d'un descripteur de
+    // 64 Ko ne peut pas faire reboucler la lecture
+    for (uint32_t i = 0; i < len;) {
         const uint8_t p = desc[i++];
         if (p == 0xFE) {  // élément long : ignoré
             if (i + 1 >= len) break;
@@ -106,9 +108,10 @@ static inline bool hid_media_parse(hid_media_t* m, const uint8_t* desc, uint16_t
                     id_of[nid] = (uint8_t)g.report_id;
                     bits[nid++] = 0;
                 }
-                const uint16_t off = bits[slot];
-                const uint32_t total = g.report_size * g.report_count;
-                bits[slot] = (uint16_t)(off + total);
+                const uint32_t off = bits[slot];
+                // Positions saturées à 2^31 bits : ni bouclage ni débordement
+                const uint64_t total = (uint64_t)g.report_size * g.report_count;
+                bits[slot] = off + total > 0x80000000u ? 0x80000000u : (uint32_t)(off + total);
                 const bool constant = u & 1, variable = u & 2;
                 if (!constant && g.report_size && g.report_size <= 16 && m->num_fields < HID_MEDIA_MAX_FIELDS) {
                     hid_media_field_t f = {(uint8_t)g.report_id, !variable, off, (uint8_t)g.report_size,
@@ -118,7 +121,7 @@ static inline bool hid_media_parse(hid_media_t* m, const uint8_t* desc, uint16_t
                         for (uint32_t b = 0; b < f.count; b++) {
                             uint32_t us = have_range ? umin + b : (b < (uint32_t)nu ? usages[b] : (nu ? usages[nu - 1] : 0));
                             if (have_range && us > umax) break;
-                            int k = _hid_media_key(us);
+                            int k = hid_media_key_(us);
                             if (k >= 0 && f.key[k] < 0) { f.key[k] = (int16_t)b; any = true; }
                         }
                     } else if (have_range) {
@@ -128,7 +131,7 @@ static inline bool hid_media_parse(hid_media_t* m, const uint8_t* desc, uint16_t
                         }
                     } else {
                         for (int j = 0; j < nu; j++) {
-                            int k = _hid_media_key(usages[j]);
+                            int k = hid_media_key_(usages[j]);
                             if (k >= 0 && f.key[k] < 0) { f.key[k] = (int16_t)(g.lmin + j); any = true; }
                         }
                     }
@@ -143,7 +146,7 @@ static inline bool hid_media_parse(hid_media_t* m, const uint8_t* desc, uint16_t
     return m->num_fields > 0;
 }
 
-static inline uint32_t _hid_media_bits(const uint8_t* data, uint16_t len, uint32_t off, uint8_t n) {
+static inline uint32_t hid_media_bits_(const uint8_t* data, uint16_t len, uint32_t off, uint8_t n) {
     uint32_t v = 0;
     for (uint8_t b = 0; b < n; b++) {
         const uint32_t pos = off + b;
@@ -167,7 +170,7 @@ static inline uint8_t hid_media_keys(const hid_media_t* m, const uint8_t* report
         const hid_media_field_t* f = &m->field[i];
         if (f->report_id != id) continue;
         for (uint32_t e = 0; e < f->count; e++) {
-            const uint32_t v = _hid_media_bits(report, len, f->bit_off + e * f->size, f->size);
+            const uint32_t v = hid_media_bits_(report, len, f->bit_off + e * f->size, f->size);
             for (int k = 0; k < 3; k++) {
                 if (f->key[k] < 0) continue;
                 if (f->array ? (int32_t)v == f->key[k] : (e == (uint32_t)f->key[k] && v)) keys |= 1 << k;
@@ -211,6 +214,8 @@ static inline bool hid_volume_keys(hid_volume_t* v, uint8_t pressed) {
     return old.level != v->level || old.muted != v->muted;
 }
 
+// Gain appliqué à un échantillon (hid_volume_gain en 256es). Le firmware
+// applique le gain dans sa boucle audio ; cette forme sert aux tests.
 static inline uint8_t hid_volume_apply(const hid_volume_t* v, uint8_t sample) {
     return (uint8_t)((sample * hid_volume_gain(v)) >> 8);
 }
