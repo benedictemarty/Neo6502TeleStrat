@@ -97,7 +97,7 @@ static inline uint32_t telestrat_state_signature(void) {
                           (uint32_t)sizeof(telestrat_regs_t), (uint32_t)sizeof(int), (uint32_t)sizeof(bool),
                           // Positions de champs clés (un champ ajouté ou déplacé change la disposition)
                           (uint32_t)offsetof(TELESTRAT_VIA_T, ifr), (uint32_t)offsetof(TELESTRAT_VIA_T, irq_callback),
-                          (uint32_t)offsetof(ay38910psg_t, tone), (uint32_t)offsetof(ay38910psg_t, dcadj_buf),
+                          (uint32_t)offsetof(ay38910psg_t, tone), (uint32_t)offsetof(ay38910psg_t, sample),
                           (uint32_t)offsetof(kbd_t, key_buffer), (uint32_t)offsetof(mos6551acia_t, tx_cb),
                           (uint32_t)offsetof(_telestrat_state_misc_t, system_ticks)};
     for (size_t i = 0; i < sizeof(v) / sizeof(v[0]); i++) s = (s ^ v[i]) * 16777619u;

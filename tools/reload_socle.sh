@@ -1,12 +1,12 @@
 #!/bin/sh
-# reload_socle.sh — socle reload-emulator épinglé sur une étiquette vérifiée
+# reload_socle.sh — socle Neo6502Socle épinglé sur une étiquette vérifiée
 #
 #   tools/reload_socle.sh [ÉTIQUETTE] [DÉPÔT_RELOAD]
 #
 # ÉTIQUETTE : par défaut le contenu de tools/SOCLE (seule source de l'étiquette,
 # lue aussi par le Makefile et platforms/rp2040/CMakeLists.txt).
 # DÉPÔT_RELOAD : par défaut le premier trouvé parmi $RELOAD_REPO,
-# ~/Projets/reload-emulator, ~/reload-emulator qui contienne l'étiquette.
+# ~/Projets/Neo6502Socle, ~/Projets/reload-emulator, ~/reload-emulator qui contienne l'étiquette.
 #
 # Clone local (sans réseau) du dépôt à l'étiquette dans
 # ${RELOAD_SOCLE_DIR:-${XDG_CACHE_HOME:-~/.cache}/reload-socle}/ÉTIQUETTE, avec les
@@ -30,7 +30,7 @@ fi
 
 # Dépôt reload : argument, RELOAD_REPO, puis les emplacements habituels
 SRC=
-for c in "${2:-}" "${RELOAD_REPO:-}" "$HOME/Projets/reload-emulator" "$HOME/reload-emulator"; do
+for c in "${2:-}" "${RELOAD_REPO:-}" "$HOME/Projets/Neo6502Socle" "$HOME/Projets/reload-emulator" "$HOME/reload-emulator"; do
     [ -n "$c" ] || continue
     if git -C "$c" rev-parse -q --verify "refs/tags/$TAG^{commit}" > /dev/null 2>&1; then
         SRC=$c
@@ -40,12 +40,12 @@ done
 
 aide() {
     cat >&2 << MSG
-reload_socle : socle reload-emulator « $TAG » introuvable.
-  L'étiquette est locale au dépôt reload-emulator (aucun remote ne la publie).
+reload_socle : socle Neo6502Socle « $TAG » introuvable.
+  L'étiquette est locale au dépôt Neo6502Socle (aucun remote ne la publie).
   Pour obtenir le socle :
-    - avoir un dépôt reload-emulator portant l'étiquette $TAG, puis
+    - avoir un dépôt Neo6502Socle portant l'étiquette $TAG, puis
       RELOAD_REPO=/chemin/du/dépôt make … (cherchés : \$RELOAD_REPO,
-      ~/Projets/reload-emulator, ~/reload-emulator) ;
+      ~/Projets/Neo6502Socle, ~/Projets/reload-emulator, ~/reload-emulator) ;
     - ou fournir un arbre déjà prêt : make RELOAD_DIR=/chemin/de/l/arbre … ;
     - l'étiquette retenue est dans tools/SOCLE.
 MSG
