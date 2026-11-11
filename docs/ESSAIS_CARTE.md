@@ -89,3 +89,22 @@ Légende du résultat : ✅ conforme · ❌ écart (créer une US) · ➖ sans e
 1. Passer chaque point vérifié en ✅ dans CRITIQUE.md et BACKLOG.md.
 2. Chaque ❌ devient une US du sprint 6.
 3. Rendre la sonde et noter le firmware laissé sur la carte.
+
+## Relevé du 2026-11-11 (v0.17.0, par RP3Sonde, Pi 192.168.1.116)
+
+Firmware `build/rp2040/telestrat.uf2` (image 414 208 o) flashé et vérifié en 12,9 s ;
+lecture par le tunnel OpenOCD du Pi (`outils/rp3s.py` de `~/Projets/RP3Sonde`).
+`tools/carte.py` suppose la Debugprobe locale : non utilisé ici.
+
+| Essai | Résultat |
+|---|---|
+| Démarrage avec clé (`demarrage=choix`) | ✅ page de choix attendue, 65C02 arrêté tant qu'aucun profil n'est validé (normal) |
+| Entrée sur le premier profil | ✅ TELEMON 2.4, STRATSED 2.0c, HYPER-BASIC, TELEMATIC, TELE-ASS, menu « 1- HYPER-BASIC / 2- TELE-ASS » |
+| Cadence du 65C02 | ✅ 1,018 à 1,037 MHz |
+| Charge cœur 0 au repos | ✅ 49 % (référence v0.16.34 : 54 %) |
+| Charge cœur 0 pendant `DIR` | ✅ 62 % (référence : 62 %) |
+| Lignes DVI rouges | ✅ 0 (cœur 1 : 31 µs par ligne) |
+| Frappe par la file de touches, `DIR` du lecteur A (STRATSED.DSK) | ✅ 92 fichiers, 2229 secteurs libres |
+
+Non faits (besoin d'un humain devant la carte) : A1 à A3 (image, scintillement), B (vrai clavier, manette), C (écoute), E, F.
+Le décodage de l'image 4 bits de `tools/carte.py ecran --png` ne correspond plus au tampon d'image actuel (image illisible) : à réparer.
