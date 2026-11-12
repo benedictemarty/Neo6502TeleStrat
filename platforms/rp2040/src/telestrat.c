@@ -1521,7 +1521,7 @@ static void usb_unplugged(void) {
 // (ni appel, ni sonnerie, ni prise RS232), puis hayes_line est réinitialisé.
 // Pas de repli sur l'UDP du port AT (choix de l'Oric pour un modem sans
 // second port) : il prendrait la ligne Minitel. Une tentative par branchement
-// du modem ; l'émulation attend pendant ce temps (jusqu'à ~35 s sans Wi-Fi).
+// du modem, menée sans bloquer l'émulation (neo_net_poll, une lecture par image).
 // Le montage est neo_net.c du socle (relais seul, essai seulement ligne au repos : options relay_only et can_try) ;
 // ici seulement les réactions de la machine à ses événements
 static neo_net_t net;            // volume NEO_VOL_NET (net.tnfs), prêt quand monté
@@ -1636,26 +1636,33 @@ static void net_save(void) {
                                : "Réseau désactivé dans TELESTRA.CFG");
 }
 
-// Recherche des réseaux Wi-Fi demandée par la page Réseau : faite une image après la touche, « Recherche… » affiché
-// (le modem bloque l'émulation quelques secondes, comme un essai de montage ; elle est déjà en pause menu ouvert)
+// Recherche des réseaux Wi-Fi demandée par la page Réseau (Entrée sur le champ Wi-Fi) : neo_net_scan_start, puis
+// neo_net_poll (à chaque image) la fait avancer sans bloquer ; la liste est écrite directement dans la page (netcfg.ap).
+// net_scanning laisse can_try accepter la ligne AT menu ouvert pendant la recherche.
 static void net_scan_service(void) {
-    static bool armed;
-    if (!osd_netcfg_scan_pending(&menu.netcfg)) {
-        armed = false;
+    osd_netcfg_t *c = &menu.netcfg;
+    if (!osd_netcfg_scan_pending(c)) {   // abandonnée (Échap) : la recherche en cours est lue jusqu'au bout, sans suite
+        if (net_scanning && neo_net_scan_poll(&net) != NEO_NET_SCAN_PENDING) {
+            net_scanning = false;
+            modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
+        }
         return;
     }
-    if (!armed) {
-        armed = true;
+    if (!net_scanning) {
+        net_scanning = true;
+        if (!neo_net_scan_start(&net, c->ap, NEO_WIFI_AP_MAX)) {   // pas de modem, ou occupé
+            net_scanning = false;
+            osd_netcfg_scan_failed(c);
+            menu_draw();
+        }
         return;
     }
-    armed = false;
-    neo_wifi_ap_t ap[NEO_WIFI_AP_MAX];
-    net_scanning = true;
-    const int n = neo_net_scan(&net, ap, NEO_WIFI_AP_MAX);   // can_try refusé (ligne occupée) : -1, page « Recherche impossible »
+    const int n = neo_net_scan_poll(&net);
+    if (n == NEO_NET_SCAN_PENDING) return;
     net_scanning = false;
     modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);   // ligne Minitel réinitialisée après le dialogue AT
-    if (n < 0) osd_netcfg_scan_failed(&menu.netcfg);
-    else osd_netcfg_set_aps(&menu.netcfg, ap, n);
+    if (n < 0) osd_netcfg_scan_failed(c);
+    else osd_netcfg_set_aps(c, c->ap, n);
     menu_draw();
 }
 
@@ -2411,7 +2418,7 @@ int main() {
         usb_poll();
 #ifdef TELESTRAT_NET
         net_poll();
-        if (osd_open && menu.page == OSD_PAGE_NET) net_scan_service();
+        if (net_scanning || (osd_open && menu.page == OSD_PAGE_NET)) net_scan_service();
 #endif
         printer_service(start_time_in_micros);
         diag_keys_poll();

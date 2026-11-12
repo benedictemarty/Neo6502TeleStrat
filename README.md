@@ -140,8 +140,8 @@ fermeture du menu. Au branchement du modem, le
 firmware active au besoin son second port série « TNFS » (`AT$TNFSUSB=1`
 puis `AT+RST`, une fois : le modem redémarre et le garde), lui donne le
 serveur (`AT$TNFS="hôte",port`) et monte le volume ; le dialogue AT passe par
-la ligne Minitel, seulement quand elle est au repos. L'émulation attend
-pendant ce temps (jusqu'à ~35 s si le modem n'a pas de réseau). Une tentative
+la ligne Minitel, seulement quand elle est au repos (l'essai avance sans arrêter
+l'émulation, quelques images à la fois ; il est repris si la ligne est reprise). Une tentative
 par branchement du modem. La clé et le réseau s'utilisent en même temps : les
 mêmes `.dsk` (lues et écrites piste par piste), `.rom`, `.tap` (lues en flux)
 et `.sta`, à la racine du serveur. **Non essayé sur carte.**
