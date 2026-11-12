@@ -47,7 +47,7 @@ check "menu : instantané enregistré" "grep -q 'Instantané enregistré : ETAT0
 rm "$TMP/cle/TELESTRA.CFG"
 banc -c standard -U "$TMP/cle" -f 20 -M "5:uuuuuuuede" -O "$TMP/m2.txt" > /dev/null 2> "$TMP/m2_msg.txt"
 check "menu : instantané repris, STRATORIC remise en banque 7" "grep -q 'Instantané repris : ETAT0001.STA' '$TMP/m2_msg.txt' && grep -q 'Banque 7 *STRATORIC' '$TMP/m2.txt'"
-check "menu : ligne Instantanés, dernier fichier" "grep -q 'Instantanés *enregistrer ou reprendre la machine.*ETAT0001.STA' '$TMP/m2.txt'"
+check "menu : ligne Instantanés, dernier fichier" "grep -q 'Instantanés *enregistrer, reprendre.*ETAT0001.STA' '$TMP/m2.txt'"
 
 # 4. Fichier abîmé
 head -c 1000 "$TMP/at.sta" > "$TMP/cle/ABIME.STA"

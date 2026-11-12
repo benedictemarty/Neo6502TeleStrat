@@ -2031,6 +2031,55 @@ static void test_osd_menu(void) {
     osd_menu_key(&osd_m, OSD_KEY_HOME);
     osd_menu_draw(&osd_m, &osd_s);
     CHECK(osd_find(&osd_s, "en B", NULL) >= 0, "image déjà en B signalée");
+
+    // Page Réseau (TNFS, Wi-Fi, mot de passe) : bouton à droite des instantanés, hors du cycle haut / bas
+    osd_sample();
+    osd_m.cursor = OSD_ITEM_STATE;
+    osd_menu_key(&osd_m, OSD_KEY_RIGHT);
+    CHECK(osd_m.cursor == OSD_ITEM_NET, "droite depuis les instantanés : Réseau");
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(osd_find(&osd_s, "serveur TNFS", NULL) >= 0, "bouton Réseau affiché");
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    CHECK(osd_m.cursor == OSD_ITEM_MODEM, "sous Réseau : le modem");
+    osd_m.cursor = OSD_ITEM_NET;
+    osd_menu_key(&osd_m, OSD_KEY_LEFT);
+    CHECK(osd_m.cursor == OSD_ITEM_STATE, "gauche : instantanés");
+    osd_menu_key(&osd_m, OSD_KEY_RIGHT);
+    osd_menu_key(&osd_m, OSD_KEY_UP);
+    CHECK(osd_m.cursor == OSD_ITEM_BANK7 + 6, "haut depuis Réseau : banque 1");
+    osd_m.cursor = OSD_ITEM_NET;
+    CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_NET_OPEN, "Entrée : la plate-forme remplit la page");
+    osd_menu_open_net(&osd_m, "10.0.0.2:5000", "Maison", "secret");
+    CHECK(osd_m.page == OSD_PAGE_NET, "page Réseau ouverte");
+    osd_menu_draw(&osd_m, &osd_s);
+    CHECK(osd_find(&osd_s, "10.0.0.2:5000", NULL) >= 0 && osd_find(&osd_s, "Maison", NULL) >= 0 &&
+              osd_find(&osd_s, "secret", NULL) < 0 && osd_find(&osd_s, "abandonner", NULL) >= 0,
+          "page Réseau : valeurs affichées, mot de passe masqué");
+    // Recherche des réseaux : Entrée sur le champ Wi-Fi
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_NONE && osd_netcfg_scan_pending(&osd_m.netcfg),
+          "Entrée sur Wi-Fi : recherche demandée");
+    neo_wifi_ap_t ap[2] = {{"MaBox", -48, false}, {"Cafe", -70, true}};
+    osd_netcfg_set_aps(&osd_m.netcfg, ap, 2);
+    osd_menu_key(&osd_m, OSD_KEY_DOWN);
+    osd_menu_key(&osd_m, OSD_KEY_ENTER);
+    CHECK(!strcmp(osd_m.netcfg.ssid, "Cafe") && osd_m.page == OSD_PAGE_NET, "réseau choisi dans la liste");
+    // Enregistrer : serveur mal formé refusé, puis valide
+    osd_menu_open_net(&osd_m, "hote:0", "", "");
+    osd_menu_key(&osd_m, OSD_KEY_UP);
+    CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_NET, "serveur mal formé refusé");
+    osd_menu_key(&osd_m, OSD_KEY_DEL);
+    osd_menu_key(&osd_m, '9');
+    osd_menu_key(&osd_m, OSD_KEY_UP);
+    CHECK(osd_menu_key(&osd_m, OSD_KEY_ENTER).type == OSD_ACT_NET_SAVE && osd_m.page == OSD_PAGE_MAIN &&
+              !strcmp(osd_m.netcfg.server, "hote:9"),
+          "Enregistrer : action rendue, retour à la page principale");
+    char out[128];
+    CHECK(osd_netcfg_merge(&osd_m.netcfg, "a=X.DSK\nvolume=3\n", out, sizeof(out)) > 0 && strstr(out, "reseau=hote:9") &&
+              strstr(out, "a=X.DSK"),
+          "osd_netcfg_merge garde les autres lignes");
+    osd_menu_open_net(&osd_m, "", "", "");
+    CHECK(osd_menu_key(&osd_m, OSD_KEY_ESC).type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_MAIN, "Échap : abandon");
 }
 
 // Volume Réseau (v0.16.26) : choix de la source, fichiers « net:/NOM »,
@@ -2040,7 +2089,7 @@ static void test_osd_net(void) {
     osd_sample();
     osd_m.cursor = OSD_ITEM_DRIVE0;
     osd_action_t a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
-    CHECK(a.type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_vol == OSD_VOL_USB &&
+    CHECK(a.type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_vol == OSD_SRC_USB &&
               osd_m.browse_count == 3,
           "sans réseau : pas de choix de la source (%d)", osd_m.page);
     // Réseau prêt : fichiers du volume 1 à la suite de ceux de la clé
@@ -2052,7 +2101,7 @@ static void test_osd_net(void) {
     for (int i = 0; i < 3; i++) {
         strcpy(osd_m.files[5 + i].name, net[i]);
         osd_m.files[5 + i].kind = kinds[i];
-        osd_m.files[5 + i].vol = OSD_VOL_NET;
+        osd_m.files[5 + i].vol = OSD_SRC_NET;
     }
     osd_m.nfiles = 8;
     osd_m.builtin[0] = "TELEMON 2.4";
@@ -2069,13 +2118,13 @@ static void test_osd_net(void) {
     CHECK(a.type == OSD_ACT_NONE && osd_m.page == OSD_PAGE_MAIN, "Échap : retour à la page principale");
     osd_menu_key(&osd_m, OSD_KEY_ENTER);
     a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
-    CHECK(a.type == OSD_ACT_SOURCE && a.file == OSD_VOL_USB && osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_count == 3,
+    CHECK(a.type == OSD_ACT_SOURCE && a.file == OSD_SRC_USB && osd_m.page == OSD_PAGE_BROWSE && osd_m.browse_count == 3,
           "source Clé USB : les seules .dsk de la clé (%d)", osd_m.browse_count);
     osd_menu_key(&osd_m, OSD_KEY_ESC);
     osd_menu_key(&osd_m, OSD_KEY_ENTER);
     osd_menu_key(&osd_m, OSD_KEY_DOWN);
     a = osd_menu_key(&osd_m, OSD_KEY_ENTER);
-    CHECK(a.type == OSD_ACT_SOURCE && a.target == OSD_ITEM_DRIVE0 && a.file == OSD_VOL_NET && osd_m.browse_vol == OSD_VOL_NET &&
+    CHECK(a.type == OSD_ACT_SOURCE && a.target == OSD_ITEM_DRIVE0 && a.file == OSD_SRC_NET && osd_m.browse_vol == OSD_SRC_NET &&
               osd_m.browse_count == 1 && osd_m.browse_list[0] == 5,
           "source Réseau : la seule .dsk du réseau (%d)", osd_m.browse_count);
     osd_menu_draw(&osd_m, &osd_s);

@@ -35,6 +35,7 @@
 #include <stdio.h>
 
 #include "osd/osd.h"
+#include "osd/osd_netcfg.h"   // page Réseau (TNFS) commune du socle ; porte aussi OSD_KEY_* (osd_browser.h)
 
 #ifndef OSD_MENU_FILES
 #define OSD_MENU_FILES 64  // fichiers listés (64 par défaut ; platforms/rp2040/CMakeLists.txt : 40, ou 16 avec la RAM 64 Ko)
@@ -53,16 +54,12 @@ enum { OSD_FILE_DSK = 0, OSD_FILE_ROM = 1, OSD_FILE_TAP = 2, OSD_FILE_STA = 3 };
 // Contenu d'une banque
 enum { OSD_BANK_EMPTY = 0, OSD_BANK_RAM, OSD_BANK_ROM, OSD_BANK_ROM_USB, OSD_BANK_ROM_NET };
 
-// Source des fichiers (volume de neo_storage : 0 la clé, 1 le réseau)
-enum { OSD_VOL_USB = 0, OSD_VOL_NET = 1 };
+// Source des fichiers (volume de neo_storage : 0 la clé, 1 le réseau ; OSD_SRC_* pour ne pas heurter OSD_VOL_* du socle)
+enum { OSD_SRC_USB = 0, OSD_SRC_NET = 1 };
 
-enum { OSD_PAGE_MAIN = 0, OSD_PAGE_BROWSE, OSD_PAGE_SOURCE };
+enum { OSD_PAGE_MAIN = 0, OSD_PAGE_BROWSE, OSD_PAGE_SOURCE, OSD_PAGE_NET };
 
-// Touches du menu (en plus des caractères imprimables, pour le saut)
-enum {
-    OSD_KEY_UP = 0x100, OSD_KEY_DOWN, OSD_KEY_LEFT, OSD_KEY_RIGHT, OSD_KEY_ENTER, OSD_KEY_ESC, OSD_KEY_DEL,
-    OSD_KEY_PGUP, OSD_KEY_PGDN, OSD_KEY_HOME, OSD_KEY_END,
-};
+// Touches du menu : OSD_KEY_* de osd_browser.h (socle), en plus des caractères imprimables (saut)
 
 enum {
     OSD_ACT_NONE = 0,
@@ -85,6 +82,8 @@ enum {
     OSD_ACT_PROFILE,      // démarrage : file = profil, -1 : configuration de la clé
     OSD_ACT_SOURCE,       // source choisie : file = volume ; la plate-forme le relit
                           // (neo_storage_list) puis appelle osd_menu_browse
+    OSD_ACT_NET_OPEN,     // bouton Réseau : la plate-forme remplit la page (osd_menu_open_net)
+    OSD_ACT_NET_SAVE,     // page Réseau validée : menu.netcfg à écrire dans TELESTRA.CFG (osd_netcfg_merge)
 };
 
 typedef struct {
@@ -97,7 +96,7 @@ typedef struct {
     char name[OSD_NAME_LEN];  // réseau : « net:/NOM »
     uint32_t size;
     uint8_t kind;
-    uint8_t vol;  // OSD_VOL_USB, OSD_VOL_NET
+    uint8_t vol;  // OSD_SRC_USB, OSD_SRC_NET
 } osd_file_t;
 
 // Entrée de répertoire à ne pas lister : cachée, ou « ._NOM » (fichier AppleDouble
@@ -121,7 +120,8 @@ static inline bool osd_is_net(const char* name) { return !strncmp(name, OSD_NET_
 #define OSD_ITEM_RESET   17
 #define OSD_ITEM_SAVE    18
 #define OSD_ITEM_RESUME  19
-#define OSD_ITEMS        20
+#define OSD_ITEMS        20   // éléments du cycle haut / bas
+#define OSD_ITEM_NET     20   // Réseau (TNFS), à droite des instantanés : hors du cycle (gauche / droite)
 #define OSD_ITEM_BOOT    100  // page de démarrage (hors de la page principale)
 
 typedef struct {
@@ -164,6 +164,7 @@ typedef struct {
     int browse_count;
     int browse_vol;     // source du sélecteur (OSD_VOL_*)
     int source_cursor;  // page de la source : 0 clé, 1 réseau
+    osd_netcfg_t netcfg;  // page Réseau (OSD_PAGE_NET)
 } osd_menu_t;
 
 // Remise à zéro (banc PC et tests : le firmware tient `menu` en .bss, déjà à zéro)
@@ -171,6 +172,16 @@ static inline void osd_menu_init(osd_menu_t* m) {
     memset(m, 0, sizeof(*m));
     m->version = "";
     m->cursor = OSD_ITEM_RESUME;
+}
+
+// Page Réseau remplie par la plate-forme : serveur, Wi-Fi et mot de passe en cours
+static inline void osd_menu_open_net(osd_menu_t* m, const char* server, const char* ssid, const char* password) {
+    osd_netcfg_load(&m->netcfg, NULL);
+    snprintf(m->netcfg.server, sizeof(m->netcfg.server), "%s", server ? server : "");
+    snprintf(m->netcfg.ssid, sizeof(m->netcfg.ssid), "%s", ssid ? ssid : "");
+    snprintf(m->netcfg.pass, sizeof(m->netcfg.pass), "%s", password ? password : "");
+    m->netcfg.cursor = (int)strlen(m->netcfg.server);
+    m->page = OSD_PAGE_NET;
 }
 
 static inline int _osd_item_bank(int item) { return 7 - (item - OSD_ITEM_BANK7); }
@@ -194,7 +205,7 @@ static inline void _osd_open_browser(osd_menu_t* m, int item);
 
 // Page de démarrage : profils (TELESTRA.CFG « demarrage=choix »)
 static inline void osd_menu_open_boot(osd_menu_t* m) {
-    m->browse_vol = OSD_VOL_USB;
+    m->browse_vol = OSD_SRC_USB;
     _osd_open_browser(m, OSD_ITEM_BOOT);
 }
 
@@ -213,7 +224,7 @@ static inline void _osd_open_browser(osd_menu_t* m, int item) {
                          : item == OSD_ITEM_STATE ? OSD_FILE_STA
                                                   : OSD_FILE_ROM;
     m->browse_count = 0;
-    if (kind == OSD_FILE_ROM && m->browse_vol == OSD_VOL_USB)
+    if (kind == OSD_FILE_ROM && m->browse_vol == OSD_SRC_USB)
         for (int k = 0; k < OSD_BUILTINS && m->builtin[k]; k++) m->browse_list[m->browse_count++] = -2 - k;
     for (int i = 0; i < m->nfiles && m->browse_count < OSD_MENU_FILES; i++)
         if (m->files[i].kind == kind && m->files[i].vol == m->browse_vol) m->browse_list[m->browse_count++] = i;
@@ -242,7 +253,7 @@ static inline void osd_menu_browse(osd_menu_t* m, int item, int vol) {
 // sinon le sélecteur de la clé
 static inline void _osd_open_source(osd_menu_t* m, int item) {
     if (!m->net_present) {
-        osd_menu_browse(m, item, OSD_VOL_USB);
+        osd_menu_browse(m, item, OSD_SRC_USB);
         return;
     }
     const char* cur = _osd_item_is_drive(item)   ? m->drive[item]
@@ -282,7 +293,7 @@ static inline osd_action_t _osd_key_source(osd_menu_t* m, int key) {
             // Sélecteur ouvert sur la liste connue ; la plate-forme relit le volume
             a.type = OSD_ACT_SOURCE;
             a.target = m->browse_target;
-            a.file = m->source_cursor ? OSD_VOL_NET : OSD_VOL_USB;
+            a.file = m->source_cursor ? OSD_SRC_NET : OSD_SRC_USB;
             osd_menu_browse(m, m->browse_target, a.file);
             break;
         default:
@@ -355,10 +366,13 @@ static inline osd_action_t _osd_key_main(osd_menu_t* m, int key) {
     osd_action_t a = {OSD_ACT_NONE, 0, -1};
     int c = m->cursor;
     switch (key) {
-        case OSD_KEY_UP: c = (c + OSD_ITEMS - 1) % OSD_ITEMS; break;
-        case OSD_KEY_DOWN: c = (c + 1) % OSD_ITEMS; break;
+        case OSD_KEY_UP:
+            c = c == OSD_ITEM_NET ? OSD_ITEM_BANK7 + 6 : (c + OSD_ITEMS - 1) % OSD_ITEMS;
+            break;
+        case OSD_KEY_DOWN: c = c == OSD_ITEM_NET ? OSD_ITEM_MODEM : (c + 1) % OSD_ITEMS; break;
         case OSD_KEY_LEFT:
-            if (c == OSD_ITEM_MODEM) c = OSD_ITEM_PRINTER;
+            if (c == OSD_ITEM_NET) c = OSD_ITEM_STATE;
+            else if (c == OSD_ITEM_MODEM) c = OSD_ITEM_PRINTER;
             else if (c == OSD_ITEM_MOTOR) c = OSD_ITEM_TURBO;
             else if (c == OSD_ITEM_PRINTER || c == OSD_ITEM_TURBO) break;
             else if (_osd_item_is_bank(c)) c = OSD_ITEM_DRIVE0 + (c - OSD_ITEM_BANK7 < 5 ? c - OSD_ITEM_BANK7 : 4);
@@ -366,6 +380,7 @@ static inline osd_action_t _osd_key_main(osd_menu_t* m, int key) {
             break;
         case OSD_KEY_RIGHT:
             if (c <= OSD_ITEM_TAPE) c = OSD_ITEM_BANK7 + (c - OSD_ITEM_DRIVE0);
+            else if (c == OSD_ITEM_STATE) c = OSD_ITEM_NET;
             else if (c == OSD_ITEM_PRINTER) c = OSD_ITEM_MODEM;
             else if (c == OSD_ITEM_TURBO) c = OSD_ITEM_MOTOR;
             else if (c >= OSD_ITEM_RESET && c < OSD_ITEM_RESUME) c++;
@@ -386,6 +401,7 @@ static inline osd_action_t _osd_key_main(osd_menu_t* m, int key) {
             break;
         case OSD_KEY_ENTER:
             if (c <= OSD_ITEM_TAPE || _osd_item_is_bank(c) || c == OSD_ITEM_STATE) _osd_open_source(m, c);
+            else if (c == OSD_ITEM_NET) a.type = OSD_ACT_NET_OPEN;
             else if (c == OSD_ITEM_PRINTER) a.type = OSD_ACT_PRINTER;
             else if (c == OSD_ITEM_MODEM) a.type = OSD_ACT_MODEM;
             else if (c == OSD_ITEM_TURBO) a.type = OSD_ACT_TAPE_TURBO;
@@ -401,6 +417,16 @@ static inline osd_action_t _osd_key_main(osd_menu_t* m, int key) {
 }
 
 static inline osd_action_t osd_menu_key(osd_menu_t* m, int key) {
+    if (m->page == OSD_PAGE_NET) {
+        osd_action_t a = {OSD_ACT_NONE, 0, -1};
+        const osd_netcfg_result_t r = osd_netcfg_key(&m->netcfg, key);   // OSD_NETCFG_SCAN : la plate-forme cherche à l'image suivante
+        if (r == OSD_NETCFG_CANCEL) m->page = OSD_PAGE_MAIN;
+        if (r == OSD_NETCFG_SAVE) {
+            m->page = OSD_PAGE_MAIN;
+            a.type = OSD_ACT_NET_SAVE;
+        }
+        return a;
+    }
     if (m->page == OSD_PAGE_SOURCE) return _osd_key_source(m, key);
     if (m->page == OSD_PAGE_BROWSE) return _osd_key_browse(m, key);
     return _osd_key_main(m, key);
@@ -414,7 +440,7 @@ static inline int osd_state_latest(const osd_menu_t* m) {
     for (int i = 0; i < m->nfiles; i++) {
         if (m->files[i].kind != OSD_FILE_STA) continue;
         if (m->state_last[0] && !strcmp(m->files[i].name, m->state_last)) return i;
-        if (m->files[i].vol != OSD_VOL_USB) continue;
+        if (m->files[i].vol != OSD_SRC_USB) continue;
         if (best < 0 || strcmp(m->files[i].name, m->files[best].name) > 0) best = i;
     }
     return best;
@@ -559,7 +585,7 @@ static inline void _osd_draw_usb(const osd_menu_t* m, osd_surface_t* s) {
     if (m->usb_present) {
         int ndsk = 0, nrom = 0, ntap = 0, nsta = 0;
         for (int i = 0; i < m->nfiles; i++) {
-            if (m->files[i].vol != OSD_VOL_USB) continue;
+            if (m->files[i].vol != OSD_SRC_USB) continue;
             if (m->files[i].kind == OSD_FILE_DSK) ndsk++;
             else if (m->files[i].kind == OSD_FILE_TAP) ntap++;
             else if (m->files[i].kind == OSD_FILE_STA) nsta++;
@@ -589,14 +615,20 @@ static inline void _osd_draw_devices(const osd_menu_t* m, osd_surface_t* s) {
     {
         // Instantanés (Entrée : enregistrer, reprendre)
         const bool sel_s = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_STATE;
-        _osd_item_bar(s, 24, 4, 112, sel_s);
+        _osd_item_bar(s, 24, 4, 55, sel_s);
         osd_puts(s, 24, 6, "Instantanés", sel_s ? OSD_SEL_ACC : OSD_PANEL_ACC, -1);
         const uint8_t dim_s = sel_s ? OSD_SEL_DIM : OSD_PANEL_DIM;
-        const int sn = osd_puts(s, 24, 20, "enregistrer ou reprendre la machine", sel_s ? OSD_SEL : OSD_PANEL, -1);
+        const int sn = osd_puts(s, 24, 18, "enregistrer, reprendre", sel_s ? OSD_SEL : OSD_PANEL, -1);
         if (m->state_last[0]) {
             snprintf(buf, sizeof(buf), "→ %s", m->state_last);
-            osd_puts(s, 24, 21 + sn, buf, dim_s, 112 - 21 - sn);
+            osd_puts(s, 24, 19 + sn, buf, dim_s, 58 - 19 - sn);
         }
+        // Réseau (TNFS) : serveur, Wi-Fi et mot de passe (Entrée : page de réglage)
+        const bool sel_n = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_NET;
+        _osd_item_bar(s, 24, 61, 55, sel_n);
+        osd_puts(s, 24, 63, "Réseau", sel_n ? OSD_SEL_ACC : OSD_PANEL_ACC, -1);
+        osd_puts(s, 24, 70, m->net_present ? "serveur TNFS, Wi-Fi" : "serveur TNFS, Wi-Fi, mot de passe",
+                 sel_n ? OSD_SEL : OSD_PANEL, 45);
     }
     {
         const bool sel_p = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_PRINTER;
@@ -670,7 +702,9 @@ static inline void _osd_draw_footer(const osd_menu_t* m, osd_surface_t* s) {
                                        {" Échap ", "reprendre"}};
     const char* const help_browse[][2] = {{" Flèches ", "choisir"}, {" Entrée ", "valider"}, {" Lettre ", "aller à"},
                                          {" Échap ", "retour"}};
-    const char* const(*help)[2] = m->page == OSD_PAGE_MAIN ? help_main : help_browse;
+    const char* const help_net[][2] = {{" Flèches ", "champ"}, {" Entrée ", "suivant"}, {" Retour ", "effacer"},
+                                      {" Échap ", "abandonner"}};
+    const char* const(*help)[2] = m->page == OSD_PAGE_MAIN ? help_main : m->page == OSD_PAGE_NET ? help_net : help_browse;
     int c = 3;
     for (int i = 0; i < 4; i++) {
         c += osd_puts(s, 32, c, help[i][0], key, -1) + 1;
@@ -694,7 +728,7 @@ static inline void _osd_draw_browser_frame(const osd_menu_t* m, osd_surface_t* s
     else if (state) snprintf(buf, sizeof(buf), "Instantanés (reprendre : la machine revient à cet instant)");
     else if (boot) snprintf(buf, sizeof(buf), "Démarrer sur…");
     else snprintf(buf, sizeof(buf), "Cartouche pour la banque %d", _osd_item_bank(item));
-    const bool source = m->page == OSD_PAGE_SOURCE, net = !source && m->browse_vol == OSD_VOL_NET;
+    const bool source = m->page == OSD_PAGE_SOURCE, net = !source && m->browse_vol == OSD_SRC_NET;
     if (net || source) {
         const size_t l = strlen(buf);
         snprintf(buf + l, sizeof(buf) - l, net ? " — réseau" : " — source ?");
@@ -731,7 +765,7 @@ static inline void _osd_draw_file_rows(const osd_menu_t* m, osd_surface_t* s) {
     const int top = OSD_BR_TOP, left = OSD_BR_LEFT, width = OSD_BR_WIDTH;
     const int item = m->browse_target;
     const bool drive = _osd_item_is_drive(item), tape = item == OSD_ITEM_TAPE, state = item == OSD_ITEM_STATE,
-               boot = item == OSD_ITEM_BOOT, net = m->browse_vol == OSD_VOL_NET;
+               boot = item == OSD_ITEM_BOOT, net = m->browse_vol == OSD_SRC_NET;
     const int n = m->browse_count + 1;
     for (int k = 0; k < OSD_BROWSE_VISIBLE && m->browse_scroll + k < n; k++) {
         const int idx = m->browse_scroll + k, row = top + 2 + k;
@@ -808,6 +842,10 @@ static inline void osd_menu_draw(const osd_menu_t* m, osd_surface_t* s) {
     _osd_draw_actions(m, s);
     _osd_draw_footer(m, s);
     if (m->page == OSD_PAGE_MAIN) return;
+    if (m->page == OSD_PAGE_NET) {   // page Réseau, par-dessus
+        osd_netcfg_draw(s, &m->netcfg, 8, (OSD_COLS - OSD_NETCFG_COLS) / 2);
+        return;
+    }
     // Sélecteur de fichiers ou choix de la source, par-dessus
     _osd_draw_browser_frame(m, s);
     if (m->page == OSD_PAGE_SOURCE) _osd_draw_source_rows(m, s);

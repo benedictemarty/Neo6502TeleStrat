@@ -96,7 +96,7 @@ static bool _menu_pc_scan_entry(const neo_dirent_t* e, void* user) {
     const _menu_pc_scan_t* c = (const _menu_pc_scan_t*)user;
     osd_menu_t* m = c->m;
     const int vol = c->vol;
-    const char* prefix = vol == OSD_VOL_NET ? OSD_NET_PREFIX : "";
+    const char* prefix = vol == OSD_SRC_NET ? OSD_NET_PREFIX : "";
     bool dsk = _menu_pc_ext(e->name, ".dsk"), rom = _menu_pc_ext(e->name, ".rom"), tap = _menu_pc_ext(e->name, ".tap"),
          sta = _menu_pc_ext(e->name, ".sta");
     if (e->dir || (!dsk && !rom && !tap && !sta) || strlen(prefix) + strlen(e->name) >= OSD_NAME_LEN) return true;
@@ -114,7 +114,7 @@ static void menu_pc_scan(menu_pc_t* p) {
     m->nfiles = 0;
     m->net_present = neo_storage_ready(NEO_VOL_NET);
     m->net_label = p->net_label;
-    _menu_pc_scan_t c = {m, OSD_VOL_USB};
+    _menu_pc_scan_t c = {m, OSD_SRC_USB};
     m->usb_present = neo_storage_list(NEO_VOL_USB, "/", _menu_pc_scan_entry, &c);
     if (!m->usb_present) return;
     snprintf(m->usb_label, sizeof(m->usb_label), "Répertoire %s", p->dir);
@@ -127,12 +127,12 @@ static void menu_pc_scan_net(menu_pc_t* p, int item) {
     osd_menu_t* m = &p->menu;
     int n = 0;
     for (int i = 0; i < m->nfiles; i++)
-        if (m->files[i].vol == OSD_VOL_USB) m->files[n++] = m->files[i];
+        if (m->files[i].vol == OSD_SRC_USB) m->files[n++] = m->files[i];
     m->nfiles = n;
-    _menu_pc_scan_t c = {m, OSD_VOL_NET};
+    _menu_pc_scan_t c = {m, OSD_SRC_NET};
     if (!neo_storage_list(NEO_VOL_NET, "/", _menu_pc_scan_entry, &c)) osd_menu_message(m, true, "Réseau : liste illisible");
     qsort(m->files + n, (size_t)(m->nfiles - n), sizeof(m->files[0]), _menu_pc_cmp);
-    osd_menu_browse(m, item, OSD_VOL_NET);
+    osd_menu_browse(m, item, OSD_SRC_NET);
 }
 
 // Fichier de la clé, ou du réseau avec le préfixe « net:/ »
@@ -669,7 +669,7 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
             }
             break;
         case OSD_ACT_SOURCE:
-            if (a.file == OSD_VOL_NET) menu_pc_scan_net(p, a.target);
+            if (a.file == OSD_SRC_NET) menu_pc_scan_net(p, a.target);
             return false;  // sélecteur ouvert : rien d'autre à rafraîchir
         case OSD_ACT_RESUME: return true;
         default: break;

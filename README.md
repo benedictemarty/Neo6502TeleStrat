@@ -130,7 +130,13 @@ de fichiers, servi par un serveur TNFS (`tnfsd` de Spectranet / FujiNet) à
 travers le modem Wi-Fi Neo6502picowifi branché sur le port USB hôte. Le
 serveur se règle dans `TELESTRA.CFG` par `reseau=hôte` ou
 `reseau=hôte:port` (port 16384 par défaut) ; le modem rejoint le réseau
-Wi-Fi enregistré dans sa propre configuration. Au branchement du modem, le
+Wi-Fi enregistré dans sa propre configuration, ou celui de `wifi=réseau` et
+`wifi_mdp=mot de passe` de `TELESTRA.CFG`. La page **Réseau** du menu (F1,
+à droite des instantanés) règle ces trois clés : serveur, réseau Wi-Fi
+(Entrée sur le champ : liste des réseaux visibles, cherchés par le modem) et
+mot de passe (masqué) ; Enregistrer réécrit les trois lignes de
+`TELESTRA.CFG` (les autres sont gardées) et le montage est retenté à la
+fermeture du menu. Au branchement du modem, le
 firmware active au besoin son second port série « TNFS » (`AT$TNFSUSB=1`
 puis `AT+RST`, une fois : le modem redémarre et le garde), lui donne le
 serveur (`AT$TNFS="hôte",port`) et monte le volume ; le dialogue AT passe par

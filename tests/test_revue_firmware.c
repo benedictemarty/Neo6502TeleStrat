@@ -375,7 +375,7 @@ static void test_menu_lists(void) {
     for (int i = 0; i < OSD_MENU_FILES; i++) {
         snprintf(m.files[i].name, sizeof(m.files[i].name), "JEU%03d.DSK", i);
         m.files[i].kind = OSD_FILE_DSK;
-        m.files[i].vol = OSD_VOL_USB;
+        m.files[i].vol = OSD_SRC_USB;
         m.files[i].size = 360448;
     }
     m.nfiles = OSD_MENU_FILES;
@@ -449,7 +449,7 @@ static void test_menu_key_split(void) {
     CHECK(m.page == OSD_PAGE_SOURCE, "réseau prêt : choix de la source");
     a = osd_menu_key(&m, 'r');
     a = osd_menu_key(&m, OSD_KEY_ENTER);
-    CHECK(a.type == OSD_ACT_SOURCE && a.file == OSD_VOL_NET && m.page == OSD_PAGE_BROWSE && m.browse_vol == OSD_VOL_NET,
+    CHECK(a.type == OSD_ACT_SOURCE && a.file == OSD_SRC_NET && m.page == OSD_PAGE_BROWSE && m.browse_vol == OSD_SRC_NET,
           "source Réseau choisie");
 }
 

@@ -614,10 +614,10 @@ static bool usb_exists(const char *name) {
 // Une entrée de la racine ; false (fin du parcours) quand la liste est pleine
 // et qu'un fichier de plus est trouvé (menu.truncated). Ni les entrées cachées
 // ni les « ._NOM » d'AppleDouble ne sont listées (F-11).
-// user : volume (OSD_VOL_NET : nom préfixé « net:/ »)
+// user : volume (OSD_SRC_NET : nom préfixé « net:/ »)
 static bool usb_scan_entry(const neo_dirent_t *e, void *user) {
     const int vol = (int)(intptr_t)user;
-    const char *prefix = vol == OSD_VOL_NET ? OSD_NET_PREFIX : "";
+    const char *prefix = vol == OSD_SRC_NET ? OSD_NET_PREFIX : "";
     if (e->dir || osd_name_ignored(e->name, e->hidden)) return true;
     const bool dsk = neo_name_has_ext(e->name, ".dsk"), rom = neo_name_has_ext(e->name, ".rom"), tap = neo_name_has_ext(e->name, ".tap"),
                sta = neo_name_has_ext(e->name, ".sta");
@@ -652,7 +652,7 @@ static void usb_scan(void) {
     menu.nfiles = 0;
     menu.truncated = false;
     menu.usb_present =
-        msc_inquiry_complete && neo_storage_list(NEO_VOL_USB, "/", usb_scan_entry, (void *)(intptr_t)OSD_VOL_USB);
+        msc_inquiry_complete && neo_storage_list(NEO_VOL_USB, "/", usb_scan_entry, (void *)(intptr_t)OSD_SRC_USB);
     if (!menu.usb_present) return;
     files_sort(0);
     snprintf(menu.usb_label, sizeof(menu.usb_label), "Clé montée");
@@ -939,9 +939,9 @@ static void *menu_work(void) {
 #define MENU_WORK_BYTES (sizeof(state.telestrat.fb) / 2)  // une surface (12 240 octets) au moins
 _Static_assert(2 * CFG_BUF <= MENU_WORK_BYTES, "tampons de TELESTRA.CFG hors de la zone de travail");
 
-static void config_save(void) {
-    char *old = (char *)menu_work();
-    char *out = old + CFG_BUF;
+// TELESTRA.CFG de la clé lu dans old (CFG_BUF octets, terminé par 0 ; absent : vide) ; false et message si trop long
+// ou illisible (le fichier n'est alors pas réécrit)
+static bool config_read_old(char *old) {
     neo_file_t f;
     uint32_t n = 0;
     if (neo_file_open(&f, NEO_VOL_USB, "TELESTRA.CFG", NEO_READ)) {  // absent : fichier créé
@@ -951,10 +951,17 @@ static void config_save(void) {
         if (!fits || !ok) {
             if (!fits) menu_say(true, "TELESTRA.CFG fait plus de %d octets : non réécrit", CFG_BUF - 1);
             else menu_say(true, "TELESTRA.CFG illisible : non réécrit");
-            return;
+            return false;
         }
     }
     old[n] = 0;
+    return true;
+}
+
+static void config_save(void) {
+    char *old = (char *)menu_work();
+    char *out = old + CFG_BUF;
+    if (!config_read_old(old)) return;
     const char *drives[4], *banks[8];
     for (int d = 0; d < 4; d++) drives[d] = strcmp(drive_name[d], FLASH_NAME) ? drive_name[d] : NULL;
     for (int b = 0; b < 8; b++) banks[b] = pool.name[b];
@@ -969,6 +976,11 @@ static void config_save(void) {
 }
 
 static void menu_draw(void);
+
+#ifdef TELESTRAT_NET
+static void net_open(void);
+static void net_save(void);
+#endif
 
 // Piste en cache écrite si le contrôleur est au repos (le socle l'écrit déjà à
 // la fin de chaque commande d'écriture, WD1793_FLUSH_AT_END ; ceci couvre une
@@ -1313,8 +1325,12 @@ static OSD_ONLY void menu_action(osd_action_t a) {
         case OSD_ACT_LOAD_BUILTIN: act_load_builtin(a); break;
 #ifdef TELESTRAT_NET
         case OSD_ACT_SOURCE:
-            if (a.file == OSD_VOL_NET) net_scan(a.target);
+            if (a.file == OSD_SRC_NET) net_scan(a.target);
             break;
+        case OSD_ACT_NET_OPEN: net_open(); break;
+        case OSD_ACT_NET_SAVE: net_save(); break;
+#else
+        case OSD_ACT_NET_OPEN: menu_say(true, "Réseau : absent de cette version du firmware"); break;
 #endif
         case OSD_ACT_RESUME: menu_close(); return;
         default: break;
@@ -1334,6 +1350,7 @@ static OSD_ONLY int menu_key(int code) {
         case 0x1B: return OSD_KEY_ESC;
         case 0x08:
         case 0x7F: return OSD_KEY_DEL;
+        case 0x09: return OSD_KEY_TAB;
         case 0x14A: return OSD_KEY_HOME;
         case 0x14D: return OSD_KEY_END;
         case 0x14B: return OSD_KEY_PGUP;
@@ -1435,8 +1452,8 @@ static bool usb_key_present(void) {
 // l'autre volume gardés
 static void files_dropped(int vol) {
     for (int d = 0; d < 4; d++)
-        if (neo_file_is_open(&drive_file[d]) && osd_is_net(drive_name[d]) == (vol == OSD_VOL_NET)) drive_drop(d);
-    if (neo_file_is_open(&tape_file) && osd_is_net(tape_name) == (vol == OSD_VOL_NET)) tape_eject();
+        if (neo_file_is_open(&drive_file[d]) && osd_is_net(drive_name[d]) == (vol == OSD_SRC_NET)) drive_drop(d);
+    if (neo_file_is_open(&tape_file) && osd_is_net(tape_name) == (vol == OSD_SRC_NET)) tape_eject();
 }
 
 // Impression terminée et fichiers de sortie refermés (clé retirée, arrêt)
@@ -1466,7 +1483,7 @@ static void files_close_all(void) {
 static void menu_drop_net_files(void) {
     int n = 0;
     for (int i = 0; i < menu.nfiles; i++)
-        if (menu.files[i].vol == OSD_VOL_USB) menu.files[n++] = menu.files[i];
+        if (menu.files[i].vol == OSD_SRC_USB) menu.files[n++] = menu.files[i];
     menu.nfiles = n;
 }
 #endif
@@ -1475,7 +1492,7 @@ static void menu_drop_net_files(void) {
 // revient dans A), cassette éjectée ; les cartouches déjà chargées restent
 // (en RAM), les fichiers du réseau aussi
 static void usb_unplugged(void) {
-    files_dropped(OSD_VOL_USB);
+    files_dropped(OSD_SRC_USB);
     oric_tape_rec_motor_off(&state.telestrat.tape_rec);  // enregistrement interrompu
     neo_writer_close(&rec_w);
     neo_file_close(&printer_file);
@@ -1515,10 +1532,10 @@ static bool net_first_mount = true;
 static void net_scan(int item) {
     menu_drop_net_files();
     const int n = menu.nfiles;
-    if (!neo_storage_list(NEO_VOL_NET, "/", usb_scan_entry, (void *)(intptr_t)OSD_VOL_NET))
+    if (!neo_storage_list(NEO_VOL_NET, "/", usb_scan_entry, (void *)(intptr_t)OSD_SRC_NET))
         osd_menu_message(&menu, true, "Réseau : liste illisible");
     files_sort(n);
-    osd_menu_browse(&menu, item, OSD_VOL_NET);
+    osd_menu_browse(&menu, item, OSD_SRC_NET);
 }
 
 // Lecteurs du réseau de TELESTRA.CFG (a=net:/… ), dans les lecteurs vides
@@ -1533,9 +1550,11 @@ static bool net_cfg_drives(void) {
 }
 
 // Essai seulement ligne au repos : ni menu ouvert, ni prise RS232, ni appel, ni sonnerie
+static bool net_scanning;   // recherche des réseaux Wi-Fi de la page Réseau en cours (menu ouvert, émulation en pause)
+
 static bool net_can_try(void *user) {
     (void)user;
-    return !(osd_open || mux.rs232 || modem.state != HAYES_COMMAND || modem.ringing);
+    return !((osd_open && !net_scanning) || mux.rs232 || modem.state != HAYES_COMMAND || modem.ringing);
 }
 
 static void net_event(neo_net_event_t ev, void *user) {
@@ -1547,7 +1566,7 @@ static void net_event(neo_net_event_t ev, void *user) {
             printf("Réseau : port TNFS du modem activé, redémarrage du modem\n");   // nouvelle tentative à sa nouvelle énumération
             break;
         case NEO_NET_REMOVED:
-            files_dropped(OSD_VOL_NET);
+            files_dropped(OSD_SRC_NET);
             menu_drop_net_files();  // plus de fichier du réseau à choisir (F-16)
             osd_menu_message(&menu, true, "Réseau : modem retiré");
             menu_files_changed();
@@ -1581,6 +1600,63 @@ static void net_event(neo_net_event_t ev, void *user) {
             break;
         }
     }
+}
+
+// Page Réseau du panneau (osd_netcfg.h, socle) : serveur, Wi-Fi et mot de passe vont dans les lignes reseau=, wifi= et
+// wifi_mdp= de TELESTRA.CFG (les autres lignes sont gardées), puis le volume est monté de nouveau avec eux
+static void net_open(void) {
+    osd_menu_open_net(&menu, cfg_net, net.ssid, net.password);
+    menu.message[0] = 0;
+}
+
+static void net_save(void) {
+    char *old = (char *)menu_work();
+    char *out = old + CFG_BUF;
+    if (!menu.usb_present) {
+        menu_say(true, "Pas de clé USB : réglages réseau non enregistrés");
+        return;
+    }
+    if (!config_read_old(old)) return;
+    const int len = osd_netcfg_merge(&menu.netcfg, old, out, CFG_BUF);
+    if (len < 0) {
+        menu_say(true, "TELESTRA.CFG trop long une fois réécrit : non enregistré");
+        return;
+    }
+    if (!neo_file_save(NEO_VOL_USB, "TELESTRA.CFG", (const uint8_t *)out, (uint32_t)len)) {
+        menu_say(true, "TELESTRA.CFG : écriture impossible");
+        return;
+    }
+    snprintf(cfg_net, sizeof(cfg_net), "%s", menu.netcfg.server);
+    snprintf(net.ssid, sizeof net.ssid, "%s", menu.netcfg.ssid);
+    snprintf(net.password, sizeof net.password, "%s", menu.netcfg.pass);
+    files_dropped(OSD_SRC_NET);
+    menu_drop_net_files();   // les fichiers de l'ancien serveur ne sont plus là
+    neo_net_retry(&net);     // nouvelle tentative à l'image suivante, avec ces réglages
+    menu_say(false, cfg_net[0] ? "Réseau enregistré dans TELESTRA.CFG : connexion à la fermeture du menu"
+                               : "Réseau désactivé dans TELESTRA.CFG");
+}
+
+// Recherche des réseaux Wi-Fi demandée par la page Réseau : faite une image après la touche, « Recherche… » affiché
+// (le modem bloque l'émulation quelques secondes, comme un essai de montage ; elle est déjà en pause menu ouvert)
+static void net_scan_service(void) {
+    static bool armed;
+    if (!osd_netcfg_scan_pending(&menu.netcfg)) {
+        armed = false;
+        return;
+    }
+    if (!armed) {
+        armed = true;
+        return;
+    }
+    armed = false;
+    neo_wifi_ap_t ap[NEO_WIFI_AP_MAX];
+    net_scanning = true;
+    const int n = neo_net_scan(&net, ap, NEO_WIFI_AP_MAX);   // can_try refusé (ligne occupée) : -1, page « Recherche impossible »
+    net_scanning = false;
+    modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);   // ligne Minitel réinitialisée après le dialogue AT
+    if (n < 0) osd_netcfg_scan_failed(&menu.netcfg);
+    else osd_netcfg_set_aps(&menu.netcfg, ap, n);
+    menu_draw();
 }
 
 static void net_poll(void) {
@@ -1701,6 +1777,8 @@ static void config_defaults(void) {
     printer_select(OSD_PRINTER_TEXT);
 #ifdef TELESTRAT_NET
     cfg_net[0] = 0;
+    net.ssid[0] = 0;
+    net.password[0] = 0;
 #endif
     cfg_rs232_uext = false;
 }
@@ -1736,6 +1814,10 @@ static void config_line(const char *line) {
 #ifdef TELESTRAT_NET
     } else if ((v = osd_config_value(line, "reseau"))) {
         snprintf(cfg_net, sizeof(cfg_net), "%.63s", v);
+    } else if ((v = osd_config_value(line, "wifi_mdp"))) {
+        snprintf(net.password, sizeof net.password, "%.63s", v);
+    } else if ((v = osd_config_value(line, "wifi"))) {
+        snprintf(net.ssid, sizeof net.ssid, "%.32s", v);
 #endif
     } else if ((v = osd_config_value(line, "rs232"))) {
 #ifdef TELESTRAT_RS232_UART
@@ -2329,6 +2411,7 @@ int main() {
         usb_poll();
 #ifdef TELESTRAT_NET
         net_poll();
+        if (osd_open && menu.page == OSD_PAGE_NET) net_scan_service();
 #endif
         printer_service(start_time_in_micros);
         diag_keys_poll();
