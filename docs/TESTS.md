@@ -91,7 +91,7 @@ passés sur la copie locale `src/chips/w65c02cpu.h` (programme
 
 Seule la version PC utilise ce cœur. Sur la carte, c'est le vrai W65C02.
 
-## Tests unitaires — `tests/test_telestrat.c` (518 vérifications)
+## Tests unitaires — `tests/test_telestrat.c` (523 vérifications)
 
 Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reload :
 
@@ -249,7 +249,7 @@ Programme 6502 synthétique en banque 7, exécuté par le cœur W65C02S de reloa
   sur 600 écrans aléatoires : texte, HIRES, attributs série, double hauteur,
   jeu alternatif, inversion, clignotement.
 
-## Tests de démarrage — `tests/test_boot.sh` (56 vérifications)
+## Tests de démarrage — `tests/test_boot.sh` (58 vérifications)
 
 Vraies ROM (`tools/fetch_roms.py`), 300 trames (6 s émulées), 4 configurations.
 Plus (v0.16.24) la frappe du banc : lignes à parenthèses et guillemets en mode

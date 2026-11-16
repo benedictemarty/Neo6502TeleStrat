@@ -307,8 +307,10 @@ connu**. Le cas `ram64k` (celui du firmware RAM 64 Ko) reste ouvert.
 |---|---|
 | `osd_font.h` (socle) | police 8 x 8 du socle (`$(RELOAD_DIR)/src/osd/osd_font.h`) : texte en **unscii-8** de Viznut (domaine public), ASCII et Latin-1 ; filets arrondis et icônes. Le projet n'en garde plus de copie ni de générateur depuis la v0.17.0 (revue F-31 : la copie était identique). Pixels deux fois plus hauts que larges (lignes répétées par PicoDVI), comme le texte CGA |
 | `osd.h` | surface de 120 x 34 cellules (caractère, encre, fond, fond tramé, grandes lettres) ; `osd_render_line` : une ligne de tampon dans les 3 plans 1 bpp |
-| `osd_menu.h` | état, navigation (touches -> actions) et dessin : lecteurs, banques, clé, boutons, sélecteur de fichiers défilant |
-| `osd_config.h` | `.rom` dans une banque, fusion de `TELESTRA.CFG` (lignes du menu remplacées, autres gardées) |
+| `osd_menu.h` | état, navigation (touches -> actions) et dessin : lecteurs, banques, clé, boutons, sélecteur de fichiers défilant ; touche L → `OSD_ACT_LANG` |
+| `osd_config.h` | `.rom` dans une banque, fusion de `TELESTRA.CFG` (lignes du menu remplacées, autres gardées ; `langue=` écrite avec les options) ; noms des imprimantes (`osd_printer_label`) |
+| `osd_lang.h` | langue du menu (v0.19.0, US-198) : `osd_lang` (une variable par programme, fonction à variable statique), `OSD_T(fr, en)` au point d'usage, `osd_config_lang` (`langue=fr|en`) ; utilisé aussi par `rom_builtin.h` (libellés `label_en`, erreurs) et `net_status.h` |
+| `net_status.h` | ligne Réseau (v0.18.0, US-196) : fonction pure ; faits du dernier événement de `neo_net` (événement à partir de 1, `STATUS:n` du modem, port TNFS, `AT$TNFSUSB?`, hôte, port) → signes Wi-Fi et TNFS (`NET_SIGN_OK`, `_KO`, `_BUSY`) et détail ; `net_status_render` le réécrit dans la langue courante |
 
 Rendu : plein écran, 960 x 272 lignes de tampon (960 x 544 affichées), à la
 place de l'image du Telestrat, sur le cœur 1. Par cellule, l'octet du glyphe
@@ -388,6 +390,27 @@ réseau. Au premier montage du réseau, les lecteurs `net:/` de
 puis démarrage à froid si l'un ou l'autre a eu lieu ; aux montages suivants,
 les lecteurs seulement. Un lecteur réglé sur le réseau n'est pas rempli par
 la première image de la clé au montage de celle-ci.
+
+**Ligne Réseau du menu** (v0.18.0, `net_status.h`) : à chaque événement de
+`neo_net` (`NEO_NET_CONNECTING`, `_MOUNTED`, `_FAILED`, `_REMOVED`,
+`_TNFS_PORT_ENABLED`), `telestrat.c` passe à `net_status_update` les faits
+publics de `neo_net_t` : `esp.status` (dernier `STATUS:n` de `AT+CIPSTATUS`,
+remis à -1 au début de chaque essai pour ne pas garder celui d'avant),
+`relay`, `usb_val`, `server_invalid`, hôte et port. Wi-Fi OK si `STATUS:` 2, 3
+ou 4 (adresse IP) ; TNFS OK si monté. Dessin, rangée 24 : signe Wi-Fi colonne
+71, signe TNFS colonne 78, détail colonnes 84 à 116 (barre de 56 colonnes, le
+cadre est en 117). Sans serveur réglé (`reseau=` vide) : texte d'aide d'avant.
+Le journal de la console dit la même chose (« Réseau : hôte:port : détail »).
+
+**Langue du menu** (v0.19.0, `osd_lang.h`) : français par défaut ; `langue=`
+lu au démarrage (`telestrat.c`, banc `menu_pc.h`), touche L
+(`OSD_ACT_LANG` : la plate-forme bascule `osd_lang` et réécrit la ligne
+Réseau), écrit par « Enregistrer la configuration » (`osd_options_t.lang`,
+`NULL` : ligne gardée telle quelle). Les textes sont en paire au point
+d'usage (`OSD_T`), y compris les formats de `menu_say` (vérifiés par
+`format(printf)` dans les deux branches). Non traduits : `osd_netcfg.h` du
+socle (page Réseau, liste Wi-Fi), `oric_turbo_message` du socle (son
+équivalent anglais est dans `telestrat.c`), messages du banc PC, journal.
 
 **Menu** (`osd_menu.h`) : `net_present` (volume prêt) fait passer Entrée sur
 un lecteur, la cassette, une banque ou « Instantanés » par la page
@@ -743,7 +766,10 @@ RAM libre : 8,3 Ko (standard), 860 octets (RAM 64 Ko).
 > changé l'occupation de la RAM mais retire environ 100 Ko de zéros de la flash.
 > Mesure v0.17.0 (standard, `arm-none-eabi-size`) : text 408 508, data 0,
 > bss 217 956 octets ; image `telestrat.bin` 408 508 octets (508 460 avant).
-> Les marges de RAM libre sont à remesurer pour les deux variantes.
+> Mesure v0.19.0 (`arm-none-eabi-size`, marge = `__StackLimit` − `__HeapLimit`,
+> tas de 2 Ko non compris) : standard text 438 436, bss 217 028, marge
+> **2 404 octets** ; RAM 64 Ko text 331 684, bss 220 152, marge **2 896 octets**
+> (pas de `neo_net` dans cette variante).
 
 ## Cassette rapide et moteur sans relais (sprint 13)
 

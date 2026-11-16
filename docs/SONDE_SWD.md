@@ -108,6 +108,29 @@ boucle principale**, émulation en
 pause pendant le transfert (le tampon est libre), puis redessine l'écran.
 Détails : `platforms/rp2040/src/telestrat.c`, `diag_upload_poll()`.
 
+## Sonde distante RP3Sonde et capture vidéo (2026-11-16)
+
+Sans Debugprobe locale : la sonde `~/Projets/RP3Sonde` (Raspberry Pi 3, OpenOCD en
+GPIO, tunnel SSH vers les ports 3333, 4444, 6666 et 4442 du PC, `pc/tunnel.sh`).
+
+- **Flasher** : `outils/rp3s.py flasher-cible build/rp2040/telestrat.uf2 --khz 2000 --ssh
+  UTIL@IP-DU-PI` ; sans `--ssh`, OpenOCD (sur le Pi) ne voit pas l'image et répond
+  « Programming Failed ». L'adresse du Pi change : la lire dans la commande du tunnel ouvert.
+- **`tools/carte.py`** suppose la Debugprobe : pour `mesure`, `ecran` (texte), `taper`,
+  `menu`, `cle`, `relire`, remplacer sa fonction `openocd` par des envois au port Tcl
+  6666 (`rp3s.Sonde().tcl`, qui rend déjà le format `0xADR: …` de `mdw`), sans modifier
+  l'outil. Les codes `0x80` à `0x83` (flèches), `0x0D`, `0x1B`, `0x7F` (Suppr) vont au menu
+  quand il est ouvert : lire `osd_open` avant d'envoyer des touches (une bascule `menu`
+  de trop envoie les touches suivantes au Telestrat).
+- **Image** : `ecran.py` de RP3Sonde et `carte.py ecran --png` sont illisibles pour le
+  Telestrat. Une carte de capture HDMI (MacroSilicon MS2109, `/dev/video32`) donne
+  l'écran réel : `ffmpeg -f v4l2 -input_format mjpeg -video_size 1920x1080 -i
+  /dev/video32 … -vf fps=2 -update 1 flux.png`, en parallèle d'un `ffplay` pour
+  l'utilisateur (un seul programme peut ouvrir le périphérique). L'image suit l'écran
+  avec 1 à 2 s de retard ; un écran noir passager suit une ouverture du menu.
+- **Panique USB** : un écran noir durable avec les deux cœurs `halted` est
+  `panic("Data Seq Error")` de TinyUSB (US-197) ; `rp3s.py redemarrer` relance la carte.
+
 ## Référence
 
 `~/Neo6502TeleStrat/tools/carte.py` (lecture seule) : flasher, reset, écran,

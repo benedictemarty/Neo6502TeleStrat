@@ -158,7 +158,12 @@ la ligne Minitel, seulement quand elle est au repos (l'essai avance sans arrête
 l'émulation, quelques images à la fois ; il est repris si la ligne est reprise). Une tentative
 par branchement du modem. La clé et le réseau s'utilisent en même temps : les
 mêmes `.dsk` (lues et écrites piste par piste), `.rom`, `.tap` (lues en flux)
-et `.sta`, à la racine du serveur. **Non essayé sur carte.**
+et `.sta`, à la racine du serveur. **Essayé sur carte (v0.18.0, 2026-11-16)** :
+montage par le port TNFS du modem, liste du serveur dans le sélecteur, disquette du
+réseau en B lue par `DIR "B"` (catalogue du serveur) ; le premier montage après un
+redémarrage de la carte échoue, le suivant réussit (US-199, cause non établie). Pare-feu
+du PC : ouvrir le port UDP du serveur aux machines du réseau local. Non essayés sur carte :
+écriture, cartouche, cassette et instantané du réseau, `a=net:/…` au démarrage.
 
 **Menu (F1)** : disquettes des lecteurs A à D, cassette (position, moteur),
 cartouches des banques 7 à 1 (ROM intégrée, `.rom` de la clé ou contenu
@@ -173,7 +178,9 @@ le volume Réseau est monté, Entrée sur un lecteur, la cassette, une banque ou
 réseau est relue à ce moment-là. Sans réseau, le menu est celui d'avant. Un
 fichier du réseau s'affiche `net:/NOM` sur la page principale ; les ROM
 intégrées ne sont proposées qu'avec la source Clé USB ; un nouvel instantané
-s'écrit toujours sur la clé.
+s'écrit toujours sur la clé. La ligne **Réseau** de la page principale montre
+l'état du Wi-Fi et du TNFS (voir « Réseau (TNFS) ») ; la touche **L** passe le
+menu en anglais (voir « Langue du menu »).
 
 **Démarrage** : `demarrage=choix` dans `TELESTRA.CFG` ouvre, dès le montage
 de la clé, la page « Démarrer sur… » : configuration de la clé, Telestrat
