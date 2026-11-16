@@ -144,3 +144,18 @@ TELESTRA.CFG non modifié (rien enregistré).
 
 Écran vu par une capture HDMI (MS2109, `/dev/video32`, ffmpeg) : `ecran.py` / `carte.py ecran --png`
 restent illisibles pour le Telestrat ; `carte.py ecran` (texte) fonctionne.
+
+### Ligne Réseau du menu (v0.18.0 en développement, US-196, 2026-11-16)
+
+Firmware `make uf2` de l'arbre de travail (US-196), flashé par RP3Sonde en 7,8 s ; écran par la capture HDMI.
+
+| Essai | Résultat |
+|---|---|
+| F1 pendant l'essai de montage (attente d'adresse IP) | ✅ « Réseau .Wi-Fi .TNFS connexion en cours » |
+| F1 après l'échec (34 s) | ✅ « Réseau ✗Wi-Fi ✗TNFS Wi-Fi absent (STATUS:5) », signes et libellés en rouge |
+| Wi-Fi connecté, volume monté | ⏳ non vu (le modem ne se connecte pas au Wi-Fi ce jour-là) |
+
+Incident au premier démarrage après le flash : écran noir, cœurs 0 et 1 arrêtés ; cœur 0 dans `panic("Data Seq
+Error")` de TinyUSB (`hcd_rp2040_irq`, pendant `usb_scan_entry` → `f_readdir` → `disk_read`), puis `_exit`
+(`bkpt`). Défaut connu du socle (STRATEGIE-NEO6502, 1 bis) : `third_party/tinyusb` n'a pas
+`patches/tinyusb-data-seq.sh`. Redémarrage par la sonde : plus de panique en 40 s. US-197 au backlog.

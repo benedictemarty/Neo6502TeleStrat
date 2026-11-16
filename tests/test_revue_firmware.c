@@ -551,6 +551,81 @@ static void test_frame_line(void) {
 #undef VIDE
 }
 
+/*-- US-196 : signes Wi-Fi et TNFS de la ligne Réseau du menu (net_status.h) ----*/
+
+static void test_net_status(void) {
+    net_status_t st;
+    net_status_clear(&st);
+    CHECK(st.wifi == NET_SIGN_UNKNOWN && st.tnfs == NET_SIGN_UNKNOWN && !st.detail[0], "départ : aucun signe, aucun détail");
+    net_status_update(&st, NET_EV_CONNECTING, false, -1, false, 1, "h", 1);
+    CHECK(st.wifi == NET_SIGN_BUSY && st.tnfs == NET_SIGN_BUSY && strstr(st.detail, "connexion"), "essai en cours (%s)", st.detail);
+    // Relevé sur carte du 2026-11-16 : STATUS:5 tout au long de l'attente d'adresse IP
+    net_status_update(&st, NET_EV_FAILED, false, 5, false, 1, "172.22.195.246", 16385);
+    CHECK(st.wifi == NET_SIGN_KO && st.tnfs == NET_SIGN_KO && strstr(st.detail, "STATUS:5"), "STATUS:5 : Wi-Fi et TNFS non connectés (%s)", st.detail);
+    net_status_update(&st, NET_EV_FAILED, false, 0, false, 1, "h", 1);
+    CHECK(st.wifi == NET_SIGN_KO, "STATUS:0 : Wi-Fi non connecté");
+    for (int k = 2; k <= 4; k++) {
+        net_status_update(&st, NET_EV_FAILED, false, k, true, 1, "10.0.0.1", 16384);
+        CHECK(st.wifi == NET_SIGN_OK && st.tnfs == NET_SIGN_KO && strstr(st.detail, "10.0.0.1:16384 sans r"),
+              "STATUS:%d, serveur muet : Wi-Fi OK, TNFS déconnecté (%s)", k, st.detail);
+    }
+    net_status_update(&st, NET_EV_FAILED, false, 2, false, -1, "h", 1);
+    CHECK(st.wifi == NET_SIGN_OK && st.tnfs == NET_SIGN_KO && strstr(st.detail, "modem sans port TNFS"), "AT$TNFSUSB? inconnu (%s)", st.detail);
+    net_status_update(&st, NET_EV_FAILED, false, 2, false, 1, "h", 1);
+    CHECK(st.wifi == NET_SIGN_OK && strstr(st.detail, "port TNFS du modem absent"), "port TNFS non monté (%s)", st.detail);
+    net_status_update(&st, NET_EV_FAILED, false, -1, false, 1, "h", 1);
+    CHECK(st.wifi == NET_SIGN_UNKNOWN && st.tnfs == NET_SIGN_KO && strstr(st.detail, "modem sans r"), "aucun STATUS : modem sans réponse (%s)", st.detail);
+    net_status_update(&st, NET_EV_FAILED, true, 2, true, 1, "h", 1);
+    CHECK(st.wifi == NET_SIGN_UNKNOWN && strstr(st.detail, "serveur invalide"), "reseau= invalide (%s)", st.detail);
+    net_status_update(&st, NET_EV_MOUNTED, false, 2, true, 1, "srv", 16384);
+    CHECK(st.wifi == NET_SIGN_OK && st.tnfs == NET_SIGN_OK && !strcmp(st.detail, "srv:16384"), "monté : Wi-Fi et TNFS connectés (%s)", st.detail);
+    net_status_update(&st, NET_EV_PORT_ENABLED, false, 2, false, 0, "h", 1);
+    CHECK(st.wifi == NET_SIGN_OK && st.tnfs == NET_SIGN_BUSY && strstr(st.detail, "port TNFS"), "port TNFS activé : TNFS en cours (%s)", st.detail);
+    net_status_update(&st, NET_EV_REMOVED, false, 2, true, 1, "h", 1);
+    CHECK(st.wifi == NET_SIGN_UNKNOWN && st.tnfs == NET_SIGN_KO && strstr(st.detail, "modem retir"), "modem retiré : TNFS déconnecté (%s)", st.detail);
+    // Hôte le plus long de neo_net_t (47 caractères) : détail tronqué, terminé
+    char big[48];
+    memset(big, 'x', 47);
+    big[47] = 0;
+    net_status_update(&st, NET_EV_MOUNTED, false, 2, true, 1, big, 65535);
+    CHECK(strlen(st.detail) == sizeof st.detail - 1, "hôte de 47 caractères : détail tronqué");
+    net_status_update(&st, NET_EV_MOUNTED, false, 2, true, 1, NULL, 1);
+    CHECK(!strcmp(st.detail, "?:1"), "hôte absent : « ? »");
+
+    // Dessin (rangée 24) : signe du Wi-Fi en colonne 70, du TNFS en 77, détail en 83 ; sans état, aide d'avant
+    static osd_menu_t m;
+    static osd_surface_t surf;
+    osd_menu_init(&m);
+    m.version = "v0";
+    osd_menu_draw(&m, &surf);
+    CHECK(surface_has(&surf, "serveur TNFS, Wi-Fi, mot de passe"), "aucun essai : texte d'aide de la ligne Réseau");
+    m.net_status = &st;
+    net_status_update(&st, NET_EV_FAILED, false, 5, false, 1, "h", 1);
+    osd_menu_draw(&m, &surf);
+    CHECK(surf.ch[24][70] == OSD_CROSS && surf.attr[24][70] == OSD_PANEL_ERR && surf.ch[24][77] == OSD_CROSS &&
+              surface_has(&surf, "Wi-Fi ~TNFS Wi-Fi absent (STATUS:5)"),
+          "Wi-Fi absent : deux croix rouges et le détail");
+    net_status_update(&st, NET_EV_FAILED, false, 2, true, 1, "172.22.195.246", 16385);
+    osd_menu_draw(&m, &surf);
+    CHECK(surf.ch[24][70] == OSD_DOT && surf.attr[24][70] == OSD_PANEL_OK && surf.ch[24][77] == OSD_CROSS &&
+              surf.attr[24][77] == OSD_PANEL_ERR && surface_has(&surf, "172.22.195.246:16385 sans r"),
+          "serveur muet : Wi-Fi vert, TNFS rouge, détail entier (33 colonnes)");
+    net_status_update(&st, NET_EV_MOUNTED, false, 2, true, 1, "srv", 16384);
+    osd_menu_draw(&m, &surf);
+    CHECK(surf.ch[24][70] == OSD_DOT && surf.ch[24][77] == OSD_DOT && surf.attr[24][77] == OSD_PANEL_OK &&
+              surface_has(&surf, "TNFS srv:16384"),
+          "monté : deux points verts");
+    m.cursor = OSD_ITEM_NET;
+    osd_menu_draw(&m, &surf);
+    CHECK(surf.attr[24][77] == OSD_ATTR(OSD_GREEN, OSD_BLUE), "ligne choisie : points verts sur la barre");
+    net_status_update(&st, NET_EV_CONNECTING, false, -1, false, 1, "h", 1);
+    osd_menu_draw(&m, &surf);
+    CHECK(surf.ch[24][70] == '.' && surf.ch[24][77] == '.' && surface_has(&surf, "connexion en cours"), "essai en cours : points atténués");
+    net_status_clear(&st);
+    osd_menu_draw(&m, &surf);
+    CHECK(surface_has(&surf, "serveur TNFS, Wi-Fi"), "réglages changés (état effacé) : texte d'aide");
+}
+
 int main(void) {
     test_frame_line();
     test_config_merge_long();
@@ -564,6 +639,7 @@ int main(void) {
     test_name_ignored();
     test_menu_lists();
     test_menu_key_split();
+    test_net_status();
     printf("test_revue_firmware : %d/%d vérifications réussies\n", checks - failures, checks);
     return failures ? 1 : 0;
 }

@@ -9,7 +9,7 @@ le **vrai W65C02S** du Neo6502 exécute TELEMON, le **RP2040** sert la mémoire
 AY-3-8912, Microdisc intégré, ACIA 6551, vidéo ULA en DVI). Livré en
 `telestrat.uf2`, compatible avec le multi-boot du firmware Neo6502.
 
-**Version courante : voir `VERSION` (0.17.0, revue de code `docs/CRITIQUE.md`). Mesures ci-dessous : 0.4.1, validé sur carte.** Sur une vraie Olimex Neo6502 (recette
+**Version courante : voir `VERSION` (0.18.0, revue de code `docs/CRITIQUE.md`). Mesures ci-dessous : 0.4.1, validé sur carte.** Sur une vraie Olimex Neo6502 (recette
 par sonde SWD, `tools/carte.py`) : TELEMON 2.4, STRATSED, HYPER-BASIC et le menu
 démarrent ; `PRINT 6*7` et `DIR` fonctionnent ; le 65C02 tourne à **1,000 MHz**,
 cœur 0 chargé à 45-62 % (76 % au pire pendant un DIR), cœur 1 à 35 µs par
@@ -136,7 +136,12 @@ Wi-Fi enregistré dans sa propre configuration, ou celui de `wifi=réseau` et
 (Entrée sur le champ : liste des réseaux visibles, cherchés par le modem) et
 mot de passe (masqué) ; Enregistrer réécrit les trois lignes de
 `TELESTRA.CFG` (les autres sont gardées) et le montage est retenté à la
-fermeture du menu. Au branchement du modem, le
+fermeture du menu. Sur la page principale, la ligne **Réseau** montre l'état
+du dernier essai : un signe pour le **Wi-Fi** (point vert : le modem a une
+adresse IP ; croix rouge : non connecté) et un pour le **TNFS** (point vert :
+volume monté ; croix rouge : déconnecté ; point atténué : essai en cours),
+suivis du détail (serveur monté, `Wi-Fi absent (STATUS:5)`, `hôte:port sans
+réponse`, `modem sans port TNFS`, `modem retiré`…). Au branchement du modem, le
 firmware active au besoin son second port série « TNFS » (`AT$TNFSUSB=1`
 puis `AT+RST`, une fois : le modem redémarre et le garde), lui donne le
 serveur (`AT$TNFS="hôte",port`) et monte le volume ; le dialogue AT passe par

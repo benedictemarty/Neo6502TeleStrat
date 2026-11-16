@@ -362,6 +362,13 @@ supposé. Chaque US cite les identifiants de `CRITIQUE.md` qu'elle ferme.
 | US-195 | NMI détourné (capture / restitution des registres) repris de la brique du socle `devices/w65_regs.h` (`w65_snoop_t`, `w65_snoop_cycle`), socle `socle-2026-11-11-15` ; décision de bmarty | ✅ `make test` entier (test_telestrat 509, test_revue_noyau 120 dont N-09 pile qui reboucle, test_state 7, replay 3/3) ; firmware compilé ; ⏳ carte : F2 / F3 (instantané) à refaire |
 | US-194 | Documentation : README (version), ARCHITECTURE, TESTS à jour ; licences des ROM | N-19, N-20, N-27, F-27, F-28 | ✅ ARCHITECTURE (instantané v5, tailles), TESTS, ROMS (provenance, droits non établis), README, VERSION 0.17.0 |
 
+## Sprint 6 — v0.18.0 — « Réseau lisible dans F1 » (2026-11-16)
+
+| US | Histoire | Critère | État |
+|---|---|---|---|
+| US-196 | Ligne Réseau du menu F1 : signe du Wi-Fi (adresse IP du modem ou non) et du TNFS (monté, déconnecté, en cours) avec le détail du dernier essai ; demande de bmarty après l'essai sur carte du 2026-11-16 (Wi-Fi absent, STATUS:5, visible seulement par la sonde) | `src/osd/net_status.h` (pur), `osd_menu.h`, `telestrat.c` ; `test_revue_firmware` (contre-épreuve) | ✅ `make test` entier (test_revue_firmware 97/97, test_tnfs 12/12 sur un autre port) ; ✅ carte : « .Wi-Fi .TNFS connexion en cours », puis « ✗Wi-Fi ✗TNFS Wi-Fi absent (STATUS:5) » ; ⏳ carte : Wi-Fi connecté, volume monté |
+| US-197 | Panique TinyUSB « Data Seq Error » pendant une lecture de la clé (vue sur carte le 2026-11-16, `usb_scan_entry` → `f_readdir` → `hcd_rp2040_irq`) : appliquer `patches/tinyusb-data-seq.sh` du socle à `third_party/tinyusb` et la reprise Bulk-Only (STRATEGIE-NEO6502 du socle, 1 bis) | plus de panique ; lecture de la clé reprise | à faire (à décider) |
+
 ## Plus tard
 
 - Essai et réglage sur carte (temps de bus, son, DVI, accès USB, modem).

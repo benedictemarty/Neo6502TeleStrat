@@ -36,6 +36,7 @@
 
 #include "osd/osd.h"
 #include "osd/osd_netcfg.h"   // page Réseau (TNFS) commune du socle ; porte aussi OSD_KEY_* (osd_browser.h)
+#include "osd/net_status.h"   // signes Wi-Fi et TNFS de la ligne Réseau (NET_SIGN_*)
 
 #ifndef OSD_MENU_FILES
 #define OSD_MENU_FILES 64  // fichiers listés (64 par défaut ; platforms/rp2040/CMakeLists.txt : 40, ou 16 avec la RAM 64 Ko)
@@ -147,6 +148,7 @@ typedef struct {
     char usb_label[OSD_NAME_LEN];
     bool net_present;             // volume Réseau prêt : choix de la source proposé
     const char* net_label;        // serveur (NULL : non affiché)
+    const net_status_t* net_status;  // signes Wi-Fi et TNFS de la ligne Réseau (net_status.h) ; NULL ou sans détail : aide
     osd_file_t files[OSD_MENU_FILES];
     int nfiles;
     bool truncated;               // liste incomplète : OSD_MENU_FILES atteint (la plate-forme le lève à chaque relecture)
@@ -627,8 +629,25 @@ static inline void _osd_draw_devices(const osd_menu_t* m, osd_surface_t* s) {
         const bool sel_n = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_NET;
         _osd_item_bar(s, 24, 61, 55, sel_n);
         osd_puts(s, 24, 63, "Réseau", sel_n ? OSD_SEL_ACC : OSD_PANEL_ACC, -1);
-        osd_puts(s, 24, 70, m->net_present ? "serveur TNFS, Wi-Fi" : "serveur TNFS, Wi-Fi, mot de passe",
-                 sel_n ? OSD_SEL : OSD_PANEL, 45);
+        if (m->net_status && m->net_status->detail[0]) {
+            // « ●Wi-Fi ●TNFS détail » : point vert (connecté), croix rouge (non connecté), point atténué (en cours)
+            const uint8_t ok_n = sel_n ? OSD_ATTR(OSD_GREEN, OSD_BLUE) : OSD_PANEL_OK;
+            const uint8_t ko_n = sel_n ? OSD_ATTR(OSD_RED, OSD_BLUE) : OSD_PANEL_ERR;
+            const uint8_t dim_n = sel_n ? OSD_SEL_DIM : OSD_PANEL_DIM, txt_n = sel_n ? OSD_SEL : OSD_PANEL;
+            const int8_t sign[2] = {m->net_status->wifi, m->net_status->tnfs};
+            static const char* const what[2] = {"Wi-Fi", "TNFS"};
+            for (int k = 0; k < 2; k++) {
+                const int col = k ? 77 : 70;
+                if (sign[k] == NET_SIGN_OK) osd_putc(s, 24, col, OSD_DOT, ok_n);
+                else if (sign[k] == NET_SIGN_KO) osd_putc(s, 24, col, OSD_CROSS, ko_n);
+                else if (sign[k] == NET_SIGN_BUSY) osd_putc(s, 24, col, '.', dim_n);
+                osd_puts(s, 24, col + 1, what[k], sign[k] == NET_SIGN_OK ? ok_n : sign[k] == NET_SIGN_KO ? ko_n : dim_n, -1);
+            }
+            osd_puts(s, 24, 83, m->net_status->detail, txt_n, 33);
+        } else {
+            osd_puts(s, 24, 70, m->net_present ? "serveur TNFS, Wi-Fi" : "serveur TNFS, Wi-Fi, mot de passe",
+                     sel_n ? OSD_SEL : OSD_PANEL, 45);
+        }
     }
     {
         const bool sel_p = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_PRINTER;

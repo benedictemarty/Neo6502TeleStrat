@@ -391,6 +391,17 @@ la RS232 *prolongée* en pleine communication (TELEMON ne bascule que par RESET 
 `SOUT` : le RESET ne laisse la RS232 qu'une trame ; la bascule longue reste couverte
 par `test_mux_switch` en unitaire) ; le menu `modem=non` avec `-H`.
 
+## Ligne Réseau du menu (Wi-Fi, TNFS) — `test_net_status` de `tests/test_revue_firmware.c` (US-196)
+
+`src/osd/net_status.h` (fonction pure) et son dessin par `osd_menu_draw` : 17 cas d'événements (essai en
+cours, `STATUS:0` et `STATUS:5` → Wi-Fi non connecté, `STATUS:2` à `4` avec serveur muet → Wi-Fi OK et TNFS
+déconnecté, modem sans port TNFS, port non monté, modem muet, `reseau=` invalide, monté, port activé, modem
+retiré, hôte de 47 caractères, hôte absent) ; dessin de la rangée 24 : croix rouges, point vert / croix rouge,
+deux points verts (attributs sur fond et sur la barre de sélection), points atténués pendant l'essai, aide
+quand l'état est effacé. Contre-épreuve : signe TNFS décalé d'une colonne → 5 échecs. Le relevé sur carte du
+2026-11-16 (`docs/ESSAIS_CARTE.md`) donne les deux premiers états réels ; **non couvert** : le montage réussi
+sur carte (Wi-Fi du modem absent ce jour-là).
+
 ## Menu et clé USB — `tests/test_menu.sh` (14 vérifications)
 
 Un répertoire tient lieu de clé (`-U`) : `STRATSED.DSK`, `hyperbas.rom`,

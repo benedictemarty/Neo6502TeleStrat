@@ -583,6 +583,7 @@ static void menu_publish(osd_surface_t *surf) {
 #ifdef TELESTRAT_NET
 static char cfg_net[64];    // TELESTRA.CFG reseau= (volume Réseau, plus bas)
 static char net_label[64];  // serveur monté (menu)
+static net_status_t net_status;  // ligne Réseau du menu : signes Wi-Fi et TNFS, détail (US-196)
 static void net_scan(int item);
 #endif
 // Cassette (.tap de la clé) et son bandeau, incrusté sous l'image pendant que
@@ -865,6 +866,7 @@ static void menu_refresh(void) {
     menu.net_present = neo_storage_ready(NEO_VOL_NET);
 #ifdef TELESTRAT_NET
     menu.net_label = net_label;
+    menu.net_status = cfg_net[0] ? &net_status : NULL;   // pas de serveur réglé : texte d'aide
 #endif
     menu.tape_turbo = tape_turbo;
     menu.tape_motor_always = tape_motor_always;
@@ -1526,6 +1528,10 @@ static void usb_unplugged(void) {
 // ici seulement les réactions de la machine à ses événements
 static neo_net_t net;            // volume NEO_VOL_NET (net.tnfs), prêt quand monté
 static bool net_first_mount = true;
+// État du dernier événement pour la ligne Réseau du menu (signes Wi-Fi et TNFS, US-196)
+static void net_state_set(int ev) {
+    net_status_update(&net_status, ev, net.server_invalid, net.esp.status, net.relay, net.usb_val, net.host, net.port);
+}
 
 // Source Réseau choisie dans le menu : ses fichiers relus à la suite de ceux
 // de la clé, puis le sélecteur rouvert
@@ -1561,8 +1567,11 @@ static void net_event(neo_net_event_t ev, void *user) {
     (void)user;
     switch (ev) {
         case NEO_NET_CONNECTING:
+            net.esp.status = -1;   // STATUS:n de cette tentative seulement (net_status.h)
+            net_state_set(NET_EV_CONNECTING);
             break;
         case NEO_NET_TNFS_PORT_ENABLED:
+            net_state_set(NET_EV_PORT_ENABLED);
             printf("Réseau : port TNFS du modem activé, redémarrage du modem\n");   // nouvelle tentative à sa nouvelle énumération
             break;
         case NEO_NET_REMOVED:
@@ -1571,17 +1580,20 @@ static void net_event(neo_net_event_t ev, void *user) {
             osd_menu_message(&menu, true, "Réseau : modem retiré");
             menu_files_changed();
             printf("Réseau : modem retiré\n");
+            net_state_set(NET_EV_REMOVED);
             break;
         case NEO_NET_FAILED:
+            net_state_set(NET_EV_FAILED);
             if (net.server_invalid) {
                 printf("TELESTRA.CFG : reseau=%s invalide\n", cfg_net);
                 break;
             }
             // Ligne Minitel réinitialisée (ATE0V1, ATS0=0… après le dialogue AT)
             modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
-            printf("Réseau : %s:%u injoignable\n", net.host, (unsigned)net.port);
+            printf("Réseau : %s:%u : %s\n", net.host, (unsigned)net.port, net_status.detail);
             break;
         case NEO_NET_MOUNTED: {
+            net_state_set(NET_EV_MOUNTED);
             modem_mux_attach(&mux, modem_write, NULL, cfg_dial, cfg_listen);
             printf("Réseau : %s:%u monté\n", net.host, (unsigned)net.port);
             snprintf(net_label, sizeof(net_label), "%s:%u", net.host, (unsigned)net.port);
@@ -1632,6 +1644,7 @@ static void net_save(void) {
     files_dropped(OSD_SRC_NET);
     menu_drop_net_files();   // les fichiers de l'ancien serveur ne sont plus là
     neo_net_retry(&net);     // nouvelle tentative à l'image suivante, avec ces réglages
+    net_status_clear(&net_status);   // l'état de l'ancien essai ne vaut plus pour ces réglages
     menu_say(false, cfg_net[0] ? "Réseau enregistré dans TELESTRA.CFG : connexion à la fermeture du menu"
                                : "Réseau désactivé dans TELESTRA.CFG");
 }
