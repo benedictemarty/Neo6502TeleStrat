@@ -119,3 +119,20 @@ Firmware : la file de touches de diagnostic accepte `0xFE` (FUNCT maintenue pour
 | P-02 : page Vidéotex de 1 167 octets (> file de 512) | ✅ page entière à l'écran, `rx.lost` = 0 (une seule page, rafale réseau local) |
 | Octets du Telestrat vers le serveur : `BONJOUR` + ENVOI (`$13 $41`) | ✅ reçus dans l'ordre |
 | P-16 (PRO2/PRO3), E4 (`rs232=uext`), E5 (modem muet), E6 (ACIA) | non faits |
+
+## Relevé du 2026-11-16 (v0.17.0 publiée, tag `v0.17.0`, par RP3Sonde)
+
+Firmware `telestrat.uf2` du paquet Prophet `firmware/telestrat` (sha256 `ba134f75…`, `make uf2` de `be1cf9d`)
+flashé et vérifié en 7,9 s à 2000 kHz (`rp3s.py flasher-cible … --ssh` : sans `--ssh`, OpenOCD du Pi ne
+voit pas l'image et répond « Programming Failed »). `tools/carte.py` utilisé à travers le port Tcl du Pi
+(adaptateur hors dépôt qui remplace sa fonction `openocd`).
+
+| Essai | Résultat |
+|---|---|
+| Démarrage | ✅ TELEMON 2.4, STRATSED 2.0c, HYPER-BASIC 2.0b, TELEMATIC 2.0b, TELE-ASS 1.0a, « 1- HYPER-BASIC / 2- TELE-ASS », 44 Ko libres |
+| Clé USB | ✅ montée, lecteur A : STRATSED.DSK |
+| Affichage | ✅ 502 trames en 10 s, cœur 1 : 44 µs par ligne (max 47), 0 ligne rouge |
+| 65C02 | menu ouvert (`osd_open` = 1) au moment de la mesure : 65C02 arrêté (normal), cadence non mesurée |
+
+Non faits : page Réseau et recherche Wi-Fi non bloquante (socle -24, -26), qui demandent le modem et la
+lecture de l'écran du menu (`ecran.py` / `carte.py ecran --png` toujours illisibles).
