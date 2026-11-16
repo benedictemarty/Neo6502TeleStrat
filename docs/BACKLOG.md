@@ -292,7 +292,7 @@ tard ; modèles : Epson FX-80 (ESC/P) et Oric MCP-40.
 
 | Id | Récit | État |
 |---|---|---|
-| US-181 | Fichiers du réseau (TNFS) à côté de la clé : choix de la source dans le menu (décision de bmarty), `net:/` dans TELESTRA.CFG et les instantanés, `reseau=hôte[:port]`, banc `-N` ; firmware standard par le second port USB du modem Neo6502picowifi (pas en RAM 64 Ko) | ✅ `make test` (510 + `test_tnfs` 12/12 contre tnfsd) ; trois variantes ; charge 59 / 67 % ; ⏳ 5 essais sur carte (docs/TESTS.md) |
+| US-181 | Fichiers du réseau (TNFS) à côté de la clé : choix de la source dans le menu (décision de bmarty), `net:/` dans TELESTRA.CFG et les instantanés, `reseau=hôte[:port]`, banc `-N` ; firmware standard par le second port USB du modem Neo6502picowifi (pas en RAM 64 Ko) | ✅ `make test` (510 + `test_tnfs` 12/12 contre tnfsd) ; trois variantes ; charge 59 / 67 % ; ✅ carte 2026-11-16 (v0.18.0) : montage par le port TNFS du modem, liste du réseau dans le sélecteur, `net:/NETTEST.DSK` en B lu par `DIR "B"` (catalogue du serveur, 14 datagrammes) ; ⏳ écriture, cartouche et cassette du réseau, `a=net:/` de TELESTRA.CFG au démarrage, retrait du modem |
 
 ## v0.16.27 — modem : plus d'attente dans l'émulation ✅ compilé (2026-10-01)
 
@@ -366,7 +366,7 @@ supposé. Chaque US cite les identifiants de `CRITIQUE.md` qu'elle ferme.
 
 | US | Histoire | Critère | État |
 |---|---|---|---|
-| US-196 | Ligne Réseau du menu F1 : signe du Wi-Fi (adresse IP du modem ou non) et du TNFS (monté, déconnecté, en cours) avec le détail du dernier essai ; demande de bmarty après l'essai sur carte du 2026-11-16 (Wi-Fi absent, STATUS:5, visible seulement par la sonde) | `src/osd/net_status.h` (pur), `osd_menu.h`, `telestrat.c` ; `test_revue_firmware` (contre-épreuve) | ✅ `make test` entier (test_revue_firmware 97/97, test_tnfs 12/12 sur un autre port) ; ✅ carte : « .Wi-Fi .TNFS connexion en cours », puis « ✗Wi-Fi ✗TNFS Wi-Fi absent (STATUS:5) » ; ⏳ carte : Wi-Fi connecté, volume monté |
+| US-196 | Ligne Réseau du menu F1 : signe du Wi-Fi (adresse IP du modem ou non) et du TNFS (monté, déconnecté, en cours) avec le détail du dernier essai ; demande de bmarty après l'essai sur carte du 2026-11-16 (Wi-Fi absent, STATUS:5, visible seulement par la sonde) | `src/osd/net_status.h` (pur), `osd_menu.h`, `telestrat.c` ; `test_revue_firmware` (contre-épreuve) | ✅ `make test` entier (test_revue_firmware 97/97, test_tnfs 12/12 sur un autre port) ; ✅ carte : « .Wi-Fi .TNFS connexion en cours », puis « ✗Wi-Fi ✗TNFS Wi-Fi absent (STATUS:5) », « ●Wi-Fi ✗TNFS hôte:port sans réponse » (pare-feu du PC), « ●Wi-Fi ●TNFS 172.22.195.246:16385 » (monté) |
 | US-197 | Panique TinyUSB « Data Seq Error » pendant une lecture de la clé (vue sur carte le 2026-11-16, `usb_scan_entry` → `f_readdir` → `hcd_rp2040_irq`) : appliquer `patches/tinyusb-data-seq.sh` du socle à `third_party/tinyusb` et la reprise Bulk-Only (STRATEGIE-NEO6502 du socle, 1 bis) | plus de panique ; lecture de la clé reprise | à faire (à décider) |
 
 ## Plus tard

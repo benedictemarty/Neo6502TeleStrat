@@ -399,8 +399,8 @@ déconnecté, modem sans port TNFS, port non monté, modem muet, `reseau=` inval
 retiré, hôte de 47 caractères, hôte absent) ; dessin de la rangée 24 : croix rouges, point vert / croix rouge,
 deux points verts (attributs sur fond et sur la barre de sélection), points atténués pendant l'essai, aide
 quand l'état est effacé. Contre-épreuve : signe TNFS décalé d'une colonne → 5 échecs. Le relevé sur carte du
-2026-11-16 (`docs/ESSAIS_CARTE.md`) donne les deux premiers états réels ; **non couvert** : le montage réussi
-sur carte (Wi-Fi du modem absent ce jour-là).
+2026-11-16 (`docs/ESSAIS_CARTE.md`) donne les deux premiers états réels ; les trois états réels (Wi-Fi absent, serveur muet,
+monté) ont été vus sur carte le même jour.
 
 ## Menu et clé USB — `tests/test_menu.sh` (14 vérifications)
 
@@ -740,7 +740,7 @@ cette page.
 | 12 | clé seule | imprimante vers `IMPRIM.TXT` ; menu imprimante/modem activé ou coupé (`impression=`, `modem=`) | US-90, US-110, US-111 |
 | 13 | modem USB | PicoWiFiModemUSB : ligne Hayes, RS232 partagée avec la prise Minitel (PA4), modem sur carte | US-23, US-52, US-45, US-169 |
 | 14 | UEXT | prise RS232 sur l'UART0 de l'UEXT (`rs232=uext`) | US-51 |
-| 15 | modem Neo6502picowifi | fichiers du réseau TNFS : 5 essais (`AT$TNFSUSB=1`, puis `AT+RST`) | US-181 |
+| 15 | modem Neo6502picowifi | fichiers du réseau TNFS : 5 essais (`AT$TNFSUSB=1`, puis `AT+RST`) ; ✅ 2026-11-16 : montage et lecture d'une disquette du réseau (docs/ESSAIS_CARTE.md) | US-181 |
 | 16 | matériel d'origine | MCP-40 ou CGP-115 (pointillés) ; banque 5 vide sur un vrai Telestrat | US-121, US-102 |
 
 Sans objet : US-35 (rendu sur le cœur 1, pas nécessaire : cœur 0 à 45-62 %).

@@ -153,9 +153,29 @@ Firmware `make uf2` de l'arbre de travail (US-196), flashé par RP3Sonde en 7,8 
 |---|---|
 | F1 pendant l'essai de montage (attente d'adresse IP) | ✅ « Réseau .Wi-Fi .TNFS connexion en cours » |
 | F1 après l'échec (34 s) | ✅ « Réseau ✗Wi-Fi ✗TNFS Wi-Fi absent (STATUS:5) », signes et libellés en rouge |
-| Wi-Fi connecté, volume monté | ⏳ non vu (le modem ne se connecte pas au Wi-Fi ce jour-là) |
+| Wi-Fi connecté, volume monté | ✅ vu ensuite (v0.18.0, ci-dessous) |
 
 Incident au premier démarrage après le flash : écran noir, cœurs 0 et 1 arrêtés ; cœur 0 dans `panic("Data Seq
 Error")` de TinyUSB (`hcd_rp2040_irq`, pendant `usb_scan_entry` → `f_readdir` → `disk_read`), puis `_exit`
 (`bkpt`). Défaut connu du socle (STRATEGIE-NEO6502, 1 bis) : `third_party/tinyusb` n'a pas
 `patches/tinyusb-data-seq.sh`. Redémarrage par la sonde : plus de panique en 40 s. US-197 au backlog.
+
+### TNFS sur carte (v0.18.0, 2026-11-16, soir)
+
+Serveur : `tnfsd` (Spectranet) recompilé dans le scratchpad sur le port **16385** (16384 pris par une autre
+session), racine avec `NETTEST.DSK` (copie de `~/oriclib/games/dsk/STRATSED.DSK`) ; `TELESTRA.CFG` :
+`reseau=172.22.195.246:16385` (page Réseau, Enregistrer). Modem : `172.22.195.149`.
+
+| Essai | Résultat |
+|---|---|
+| Wi-Fi du modem | ✅ `STATUS:2` (le modem a rejoint le réseau entre-temps) ; port TNFS du modem utilisé (`relay` = 1) |
+| Premier montage | ❌ 5 MOUNT sans réponse ; F1 : « ●Wi-Fi ✗TNFS 172.22.195.246:16385 sans réponse ». Cause : **pare-feu du PC** (`ufw`, entrée `DROP`) : la même requête MOUNT envoyée depuis le Pi (même Wi-Fi) restait sans réponse, depuis le PC elle avait sa réponse. Règle ajoutée par bmarty : `ufw allow from 172.22.195.0/24 to any port 16385 proto udp` |
+| Montage après la règle | ✅ `tnfsd` : « Session started at: / » (172.22.195.149) ; F1 : « ●Wi-Fi ●TNFS 172.22.195.246:16385 », panneau de la clé « ● Réseau » |
+| Sélecteur du lecteur B | ✅ source Clé USB / Réseau, liste du serveur « NETTEST.DSK 1001 Ko », « ✓ Lecteur B : net:/NETTEST.DSK » ; `tnfsd` : « File mounted: /NETTEST.DSK » |
+| Même image en A et en B | ✅ refusée : « image refusée (MFM_DISK, déjà en place ?) » |
+| `DIR "A"` (clé) | 92 fichiers, 2229 secteurs libres ; **0** datagramme TNFS |
+| `DIR "B"` (réseau) | ✅ **88 fichiers, 2237 secteurs libres** (sans CARTE, RETOUR, SOCLE, BUSOK .COM de la clé) ; **14** datagrammes TNFS (`net.dgram.sent`) |
+
+Syntaxe (index HYPER-BASIC, oric.free.fr) : `DIR "B"` ; `DIR B` et `DIR B:` donnent « Attention: expression
+alphanumérique ». Non essayés : écriture sur la disquette du réseau, cartouche et cassette du réseau,
+`a=net:/…` au démarrage, retrait du modem.
