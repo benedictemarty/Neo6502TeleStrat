@@ -396,7 +396,7 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
         }
         if ((v = osd_config_value(line, "modem"))) p->modem_on = osd_config_yes(v, true);
         if ((v = osd_config_value(line, "cassette_rapide"))) p->tape_turbo = osd_config_yes(v, p->tape_turbo);
-        if ((v = osd_config_value(line, "langue"))) osd_lang = (uint8_t)osd_config_lang(v, osd_lang);
+        if ((v = osd_config_value(line, "langue"))) osd_lang_set(osd_lang_parse(v, osd_lang()));
         if ((v = osd_config_value(line, "profil")) && p->user_n < ROM_USER_PROFILES)
             rom_user_profile_label(v, p->user_label[p->user_n++], ROM_USER_LABEL);
         if ((v = osd_config_value(line, "demarrage"))) snprintf(boot, sizeof(boot), "%s", v);
@@ -444,7 +444,7 @@ static void menu_pc_save(menu_pc_t* p) {
     for (int b = 0; b < 8; b++) banks[b] = p->pool.name[b];
     static char out[16384];
     const osd_options_t opt = {p->printer_on, p->printer_type, p->modem_on, p->tape_turbo, p->tape_motor_always, -1,
-                               osd_lang_key(osd_lang)};
+                               osd_lang_code(osd_lang())};
     size_t n = osd_config_merge_ex(old, drives, banks, &opt, out, sizeof(out));
     free(old);
     if (n == 0) {  // tampon trop petit : rien n'est écrit (jamais un fichier vide annoncé réussi)
@@ -674,7 +674,7 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
             if (a.file == OSD_SRC_NET) menu_pc_scan_net(p, a.target);
             return false;  // sélecteur ouvert : rien d'autre à rafraîchir
         case OSD_ACT_LANG:
-            osd_lang = osd_lang == OSD_LANG_EN ? OSD_LANG_FR : OSD_LANG_EN;
+            osd_lang_set(osd_lang() == OSD_LANG_EN ? OSD_LANG_FR : OSD_LANG_EN);
             osd_menu_message(m, false, OSD_T("Menu en français (Enregistrer la configuration : le garder)",
                                              "Menu in English (Save the configuration: keep it)"));
             break;

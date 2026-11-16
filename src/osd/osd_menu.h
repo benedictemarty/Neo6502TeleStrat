@@ -37,7 +37,7 @@
 #include "osd/osd.h"
 #include "osd/osd_netcfg.h"   // page Réseau (TNFS) commune du socle ; porte aussi OSD_KEY_* (osd_browser.h)
 #include "osd/net_status.h"   // signes Wi-Fi et TNFS de la ligne Réseau (NET_SIGN_*)
-#include "osd/osd_lang.h"     // langue du menu (OSD_T), touche L
+#include "osd/osd_lang.h"     // langue du menu (OSD_T), touche L : brique du socle (socle-2026-11-11-28)
 
 #ifndef OSD_MENU_FILES
 #define OSD_MENU_FILES 64  // fichiers listés (64 par défaut ; platforms/rp2040/CMakeLists.txt : 40, ou 16 avec la RAM 64 Ko)

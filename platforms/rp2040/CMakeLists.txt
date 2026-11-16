@@ -30,6 +30,21 @@ if (NOT EXISTS ${TELESTRAT_TINYUSB_DIR}/src/tusb.h)
     message(FATAL_ERROR "TinyUSB absent : git submodule update --init third_party/tinyusb")
 endif()
 set(PICO_TINYUSB_PATH ${TELESTRAT_TINYUSB_DIR})
+# US-197 : sans correctif, une erreur de séquence de données de l'hôte RP2040 pendant une lecture de
+# la clé arrête la carte (panic("Data Seq Error"), vu sur carte au démarrage, lecture du répertoire).
+# Le socle corrige sa propre copie de TinyUSB ; celle du projet reçoit le même script (idempotent,
+# copie de travail du sous-module) : transfert en échec au lieu du panic, reprise Bulk-Only par
+# msc_app.c du socle. Réappliqué si un `git submodule update` remet les fichiers d'origine.
+execute_process(COMMAND sh ${RELOAD_RP2040}/patches/tinyusb-data-seq.sh ${TELESTRAT_TINYUSB_DIR}
+                RESULT_VARIABLE telestrat_tinyusb_patch_rc)
+if (NOT telestrat_tinyusb_patch_rc EQUAL 0)
+    message(FATAL_ERROR "TinyUSB du projet : échec de patches/tinyusb-data-seq.sh du socle")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    ${TELESTRAT_TINYUSB_DIR}/src/portable/raspberrypi/rp2040/hcd_rp2040.c
+    ${TELESTRAT_TINYUSB_DIR}/src/class/msc/msc_host.c
+    ${TELESTRAT_TINYUSB_DIR}/src/class/msc/msc_host.h
+    ${RELOAD_RP2040}/patches/tinyusb-data-seq.sh)
 set(PICO_BOARD olimex_neo6502)
 
 include(${RELOAD_RP2040}/pico_sdk_import.cmake)

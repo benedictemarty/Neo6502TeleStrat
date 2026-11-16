@@ -193,3 +193,12 @@ alphanumérique ». Non essayés : écriture sur la disquette du réseau, cartou
 
 Non essayés sur carte : `langue=en` lu au démarrage, écrit par « Save the configuration » (couverts par
 `test_menu_lang`) ; bandeaux de la cassette et du volume en anglais.
+
+### v0.19.1 (socle -28, TinyUSB corrigé), 2026-11-17
+
+| Essai | Résultat |
+|---|---|
+| Firmware v0.19.1 avant correctif TinyUSB | ❌ deux démarrages de suite figés (`panic("Data Seq Error")`, lecture du répertoire de la clé au démarrage) |
+| Après correctif (`tinyusb-data-seq.sh` appliqué à `third_party/tinyusb`), 6 démarrages de suite (flash puis 5 `redemarrer`) | ✅ 6 en marche ; au premier, `hcd_rp2040_data_seq_errors` = 1 (erreur rattrapée au lieu de la panique), 0 ensuite |
+| Page Réseau en anglais (socle) | ✅ « Network (TNFS) », Server, Wi-Fi, Password, Save, aides en anglais |
+| Premier montage TNFS après le flash | ✗ « no answer » (US-199, inchangé) |

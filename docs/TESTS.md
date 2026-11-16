@@ -410,7 +410,7 @@ menu d'avant ; en anglais : page principale remplie, cinq sélecteurs, profils e
 (clé, réseau), liste tronquée, choix de la source — chaque page dessinée est parcourue à la recherche de
 **mots français** (liste de radicaux) ; pied entier sans chevauchement (« F1: open this menu », « L: français ») ;
 ligne Réseau réécrite à la bascule (`net_status_render`), détail entier et « Network » séparé de son signe ;
-état à zéro sans texte ; bandeaux cassette (« Playing », « Recording », octets) et volume (« Muted ») ; erreurs
+état à zéro sans texte ; v0.19.1 (brique du socle) : `osd_lang_parse`, `osd_config_lang` sur le texte entier, page Réseau du socle sans mot français, message de la cassette rapide du socle ; bandeaux cassette (« Playing », « Recording », octets) et volume (« Muted ») ; erreurs
 des profils. Contre-épreuve : « Cartouches » non traduit → 9 échecs.
 
 ## Menu et clé USB — `tests/test_menu.sh` (14 vérifications)

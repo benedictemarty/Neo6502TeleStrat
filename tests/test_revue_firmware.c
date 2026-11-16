@@ -27,6 +27,7 @@
 #include "devices/hayes_line.h"
 #include "devices/modem_mux.h"
 #include "devices/drive_set.h"
+#include "devices/oric_tape_turbo.h"
 #include "devices/byte_fifo.h"
 #include "devices/printer_fx80.h"
 #include "devices/plotter_mcp40.h"
@@ -657,11 +658,17 @@ static void row_text(const osd_row_t* r, char* out) {
 
 static void test_menu_lang(void) {
     // langue= : valeurs reconnues, défaut gardé sinon
-    CHECK(osd_config_lang("en", 0) == OSD_LANG_EN && osd_config_lang("english", 0) == OSD_LANG_EN &&
-              osd_config_lang("anglais", 0) == OSD_LANG_EN && osd_config_lang("fr", 1) == OSD_LANG_FR &&
-              osd_config_lang("francais", 1) == OSD_LANG_FR && osd_config_lang("de", 1) == 1 && osd_config_lang(NULL, 0) == 0,
-          "langue= : fr / en reconnus, autre valeur : défaut");
-    CHECK(!strcmp(osd_lang_key(OSD_LANG_EN), "en") && !strcmp(osd_lang_key(OSD_LANG_FR), "fr"), "clés écrites : fr, en");
+    // Brique osd_lang.h du socle (socle-2026-11-11-28, US-200) : valeur d'une ligne (osd_lang_parse, comme
+    // telestrat.c et menu_pc.h) et texte entier de la configuration (osd_config_lang)
+    CHECK(osd_lang_parse("en", 0) == OSD_LANG_EN && osd_lang_parse("english", 0) == OSD_LANG_EN &&
+              osd_lang_parse("anglais", 0) == OSD_LANG_EN && osd_lang_parse("fr", 1) == OSD_LANG_FR &&
+              osd_lang_parse("francais", 1) == OSD_LANG_FR && osd_lang_parse("EN", 0) == OSD_LANG_EN &&
+              osd_lang_parse("de", 1) == 1 && osd_lang_parse(NULL, 0) == 0,
+          "langue= : fr / en reconnus (casse indifférente), autre valeur : défaut");
+    CHECK(osd_config_lang("modem=oui\nlangue=en\n", OSD_LANG_FR) == OSD_LANG_EN && osd_config_lang("modem=oui\n", OSD_LANG_EN) == OSD_LANG_EN,
+          "osd_config_lang : clé lue dans TELESTRA.CFG, absente : défaut");
+    CHECK(!strcmp(osd_lang_code(OSD_LANG_EN), "en") && !strcmp(osd_lang_code(OSD_LANG_FR), "fr") && !strcmp(osd_lang_key(), "langue"),
+          "valeurs écrites : fr, en ; clé « langue »");
     // Écrite par « Enregistrer la configuration » (l'ancienne ligne remplacée) ; NULL : ligne gardée
     {
         static char out[1024];
@@ -686,7 +693,7 @@ static void test_menu_lang(void) {
     CHECK(m.page == OSD_PAGE_BROWSE && osd_menu_key(&m, 'L').type == OSD_ACT_NONE, "sélecteur : L ne change pas la langue");
 
     // Français (défaut) : le menu d'avant
-    osd_lang = OSD_LANG_FR;
+    osd_lang_set(OSD_LANG_FR);
     osd_menu_init(&m);
     m.version = "v0";
     osd_menu_draw(&m, &surf);
@@ -694,7 +701,7 @@ static void test_menu_lang(void) {
           "français : textes d'avant, aide « L : English »");
 
     // Anglais : page principale remplie (clé, réseau, imprimante, cassette, message, instantané)
-    osd_lang = OSD_LANG_EN;
+    osd_lang_set(OSD_LANG_EN);
     osd_menu_init(&m);
     m.version = "v0";
     m.usb_present = true;
@@ -767,13 +774,23 @@ static void test_menu_lang(void) {
     CHECK(surface_has(&surf, "source?") && surface_has(&surf, "Network") && !surface_french(&surf, &w),
           "anglais : choix de la source (« %s »)", w);
 
+    // Page Réseau (osd_netcfg.h du socle, traduite depuis socle-2026-11-11-28)
+    osd_menu_open_net(&m, "srv", "AP", "pw");
+    osd_menu_draw(&m, &surf);
+    CHECK(surface_has(&surf, "Network (TNFS)") && surface_has(&surf, "Server") && surface_has(&surf, "Password") &&
+              surface_has(&surf, "Save") && !surface_french(&surf, &w),
+          "anglais : page Réseau du socle traduite (« %s »)", w);
+    m.page = OSD_PAGE_MAIN;
+    // Message de la cassette rapide (oric_turbo_message du socle)
+    CHECK(!strcmp(oric_turbo_message(false, false), "Tape: real speed"), "anglais : message de la cassette rapide (socle)");
+
     // Ligne Réseau : réécrite dans la langue courante
     net_status_t st;
     net_status_clear(&st);
-    osd_lang = OSD_LANG_FR;
+    osd_lang_set(OSD_LANG_FR);
     net_status_update(&st, NET_EV_FAILED, false, 5, false, 1, "h", 1);
     CHECK(strstr(st.detail, "Wi-Fi absent"), "français : « Wi-Fi absent »");
-    osd_lang = OSD_LANG_EN;
+    osd_lang_set(OSD_LANG_EN);
     net_status_render(&st);
     CHECK(!strcmp(st.detail, "no Wi-Fi (STATUS:5)") && st.wifi == NET_SIGN_KO, "anglais : « %s » après bascule", st.detail);
     net_status_update(&st, NET_EV_FAILED, false, 2, true, 1, "172.22.195.246", 16385);
@@ -804,7 +821,7 @@ static void test_menu_lang(void) {
     // Erreurs des ROM et profils
     const char* err = "";
     CHECK(!rom_profile_check(NULL, 99, &err) && !strcmp(err, "unknown profile"), "anglais : erreur de profil (%s)", err);
-    osd_lang = OSD_LANG_FR;
+    osd_lang_set(OSD_LANG_FR);
     CHECK(!rom_profile_check(NULL, 99, &err) && !strcmp(err, "profil inconnu"), "français : erreur de profil (%s)", err);
     CHECK(!strcmp(osd_printer_label(0), "Texte") && !strcmp(rom_profile_menu_label(2), rom_profiles[2].label),
           "français : libellés d'avant");

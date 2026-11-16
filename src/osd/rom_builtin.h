@@ -13,7 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "osd/osd_lang.h"   // libellés et erreurs dans la langue du menu (OSD_T)
+#include "osd/osd_lang.h"   // libellés et erreurs dans la langue du menu (OSD_T, brique du socle)
 
 typedef struct {
     const char* id;     // TELESTRA.CFG

@@ -309,7 +309,7 @@ connu**. Le cas `ram64k` (celui du firmware RAM 64 Ko) reste ouvert.
 | `osd.h` | surface de 120 x 34 cellules (caractère, encre, fond, fond tramé, grandes lettres) ; `osd_render_line` : une ligne de tampon dans les 3 plans 1 bpp |
 | `osd_menu.h` | état, navigation (touches -> actions) et dessin : lecteurs, banques, clé, boutons, sélecteur de fichiers défilant ; touche L → `OSD_ACT_LANG` |
 | `osd_config.h` | `.rom` dans une banque, fusion de `TELESTRA.CFG` (lignes du menu remplacées, autres gardées ; `langue=` écrite avec les options) ; noms des imprimantes (`osd_printer_label`) |
-| `osd_lang.h` | langue du menu (v0.19.0, US-198) : `osd_lang` (une variable par programme, fonction à variable statique), `OSD_T(fr, en)` au point d'usage, `osd_config_lang` (`langue=fr|en`) ; utilisé aussi par `rom_builtin.h` (libellés `label_en`, erreurs) et `net_status.h` |
+| `osd_lang.h` (socle) | langue du menu, brique du socle depuis `socle-2026-11-11-28` (US-200 ; copie du projet en v0.19.0) : `osd_lang()` / `osd_lang_set()`, `OSD_T(fr, en)` au point d'usage, `osd_lang_parse` (valeur de `langue=`), `osd_config_lang` (texte entier), `osd_lang_code` ; utilisé par `osd_menu.h`, `rom_builtin.h` (libellés `label_en`, erreurs), `osd_config.h`, `net_status.h`, et dans le socle par `osd_netcfg.h` et `oric_turbo_message` |
 | `net_status.h` | ligne Réseau (v0.18.0, US-196) : fonction pure ; faits du dernier événement de `neo_net` (événement à partir de 1, `STATUS:n` du modem, port TNFS, `AT$TNFSUSB?`, hôte, port) → signes Wi-Fi et TNFS (`NET_SIGN_OK`, `_KO`, `_BUSY`) et détail ; `net_status_render` le réécrit dans la langue courante |
 
 Rendu : plein écran, 960 x 272 lignes de tampon (960 x 544 affichées), à la
@@ -402,15 +402,17 @@ ou 4 (adresse IP) ; TNFS OK si monté. Dessin, rangée 24 : signe Wi-Fi colonne
 cadre est en 117). Sans serveur réglé (`reseau=` vide) : texte d'aide d'avant.
 Le journal de la console dit la même chose (« Réseau : hôte:port : détail »).
 
-**Langue du menu** (v0.19.0, `osd_lang.h`) : français par défaut ; `langue=`
-lu au démarrage (`telestrat.c`, banc `menu_pc.h`), touche L
-(`OSD_ACT_LANG` : la plate-forme bascule `osd_lang` et réécrit la ligne
-Réseau), écrit par « Enregistrer la configuration » (`osd_options_t.lang`,
+**Langue du menu** (v0.19.0 ; brique `osd_lang.h` du socle depuis v0.19.1) :
+français par défaut ; `langue=` lu au démarrage (`osd_lang_parse`,
+`telestrat.c`, banc `menu_pc.h`), touche L (`OSD_ACT_LANG` : la plate-forme
+bascule par `osd_lang_set` et réécrit la ligne Réseau), écrit par
+« Enregistrer la configuration » (`osd_options_t.lang` = `osd_lang_code`,
 `NULL` : ligne gardée telle quelle). Les textes sont en paire au point
 d'usage (`OSD_T`), y compris les formats de `menu_say` (vérifiés par
-`format(printf)` dans les deux branches). Non traduits : `osd_netcfg.h` du
-socle (page Réseau, liste Wi-Fi), `oric_turbo_message` du socle (son
-équivalent anglais est dans `telestrat.c`), messages du banc PC, journal.
+`format(printf)` dans les deux branches). Traduits par le socle : page
+Réseau et liste Wi-Fi (`osd_netcfg.h` ; une erreur de la page reste dans la
+langue où elle a été posée), `osd_vol_label`, `oric_turbo_message`. Non
+traduits : messages du banc PC, journal.
 
 **Menu** (`osd_menu.h`) : `net_present` (volume prêt) fait passer Entrée sur
 un lecteur, la cassette, une banque ou « Instantanés » par la page
@@ -769,7 +771,17 @@ RAM libre : 8,3 Ko (standard), 860 octets (RAM 64 Ko).
 > Mesure v0.19.0 (`arm-none-eabi-size`, marge = `__StackLimit` − `__HeapLimit`,
 > tas de 2 Ko non compris) : standard text 438 436, bss 217 028, marge
 > **2 404 octets** ; RAM 64 Ko text 331 684, bss 220 152, marge **2 896 octets**
-> (pas de `neo_net` dans cette variante).
+> (pas de `neo_net` dans cette variante). v0.19.1 (socle `-28`, TinyUSB corrigé) :
+> standard text 441 004, bss 217 052, marge **2 380 octets**.
+
+**TinyUSB du projet corrigé** (v0.19.1, US-197) : `platforms/rp2040/CMakeLists.txt`
+applique à `third_party/tinyusb` (0.21.0) le script `patches/tinyusb-data-seq.sh`
+du socle à chaque configuration (idempotent ; copie de travail du sous-module,
+réappliqué après un `git submodule update`) : une erreur de séquence de données
+de l'hôte RP2040 termine le transfert en échec au lieu de `panic("Data Seq
+Error")`, et `msc_app.c` du socle fait la reprise Bulk-Only puis réessaie
+(compteur `hcd_rp2040_data_seq_errors`). Avant : carte figée, souvent au
+premier démarrage après un flash, pendant la lecture du répertoire de la clé.
 
 ## Cassette rapide et moteur sans relais (sprint 13)
 

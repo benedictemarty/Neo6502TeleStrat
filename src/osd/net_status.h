@@ -12,7 +12,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "osd/osd_lang.h"   // détail dans la langue du menu (OSD_T)
+#include "osd/osd_lang.h"   // détail dans la langue du menu (OSD_T, brique du socle)
 
 enum {
     NET_SIGN_UNKNOWN = 0,
@@ -48,7 +48,7 @@ static inline void net_status_clear(net_status_t* s) {
     s->ev = 0;
 }
 
-// Signes et détail recalculés à partir des faits gardés, dans la langue du menu (osd_lang.h)
+// Signes et détail recalculés à partir des faits gardés, dans la langue du menu (osd_lang.h du socle)
 static inline void net_status_render(net_status_t* s) {
     const bool ip = s->esp_status >= 2 && s->esp_status <= 4;
     char* d = s->detail;

@@ -41,7 +41,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "osd/osd_lang.h"   // osd_printer_label, « langue= » (US-198)
+#include "osd/osd_lang.h"   // brique du socle (socle-2026-11-11-28) : osd_printer_label, « langue= » (US-198, US-200)
 
 #define OSD_BANK_BYTES 0x4000
 
@@ -159,7 +159,7 @@ typedef struct {
     bool tape_turbo;         // cassette_rapide=oui|non
     bool tape_motor_always;  // cassette_moteur=toujours|relais
     int volume;              // volume=0…8 (-1 : ligne existante gardée telle quelle)
-    const char* lang;        // langue=fr|en du menu (osd_lang_key) ; NULL : ligne existante gardée telle quelle
+    const char* lang;        // langue=fr|en du menu (osd_lang_code) ; NULL : ligne existante gardée telle quelle
 } osd_options_t;
 
 // Volume d'une valeur « volume= » (0 à max), -1 si invalide (comme oric_config_volume de reload)

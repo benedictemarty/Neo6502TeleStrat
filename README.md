@@ -9,7 +9,7 @@ le **vrai W65C02S** du Neo6502 exécute TELEMON, le **RP2040** sert la mémoire
 AY-3-8912, Microdisc intégré, ACIA 6551, vidéo ULA en DVI). Livré en
 `telestrat.uf2`, compatible avec le multi-boot du firmware Neo6502.
 
-**Version courante : voir `VERSION` (0.19.0, revue de code `docs/CRITIQUE.md`). Mesures ci-dessous : 0.4.1, validé sur carte.** Sur une vraie Olimex Neo6502 (recette
+**Version courante : voir `VERSION` (0.19.1, revue de code `docs/CRITIQUE.md`). Mesures ci-dessous : 0.4.1, validé sur carte.** Sur une vraie Olimex Neo6502 (recette
 par sonde SWD, `tools/carte.py`) : TELEMON 2.4, STRATSED, HYPER-BASIC et le menu
 démarrent ; `PRINT 6*7` et `DIR` fonctionnent ; le 65C02 tourne à **1,000 MHz**,
 cœur 0 chargé à 45-62 % (76 % au pire pendant un DIR), cœur 1 à 35 µs par
@@ -115,9 +115,10 @@ principale, la touche **L** bascule d'une langue à l'autre (aide « L : English
 en bas à droite) ; « Enregistrer la configuration » la garde dans
 `TELESTRA.CFG` (`langue=en` ou `langue=fr`). Sont traduits : la page
 principale, les sélecteurs, les messages, la ligne Réseau, les libellés des
-ROM et profils intégrés, les bandeaux de la cassette et du volume. Restent en
-français : la page **Réseau** et la liste des réseaux Wi-Fi (communes aux
-firmwares du socle), les messages du banc PC et le journal de la console.
+ROM et profils intégrés, les bandeaux de la cassette et du volume, et, depuis
+la v0.19.1 (brique `osd_lang.h` du socle `socle-2026-11-11-28`), la page
+**Réseau** et la liste des réseaux Wi-Fi. Restent en français : les messages du
+banc PC et le journal de la console.
 
 **Clé USB** : stockage de masse (FAT12/16/32 ou exFAT, noms longs), lu par
 le RP2040 ; le Telestrat ne la voit pas directement mais par ce qu'on y prend

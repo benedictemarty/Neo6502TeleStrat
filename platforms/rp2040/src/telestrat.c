@@ -968,7 +968,7 @@ static void config_save(void) {
     for (int d = 0; d < 4; d++) drives[d] = strcmp(drive_name[d], FLASH_NAME) ? drive_name[d] : NULL;
     for (int b = 0; b < 8; b++) banks[b] = pool.name[b];
     const osd_options_t opt = {printer_enabled, printer_type, modem_enabled, tape_turbo, tape_motor_always, audio_volume_level(),
-                               osd_lang_key(osd_lang)};
+                               osd_lang_code(osd_lang())};
     const size_t len = osd_config_merge_ex(old, drives, banks, &opt, out, CFG_BUF);
     if (!len) {
         menu_say(true, "%s", OSD_T("TELESTRA.CFG trop long une fois réécrit : non enregistré", "TELESTRA.CFG too long once rewritten: not saved"));
@@ -1314,15 +1314,7 @@ static OSD_ONLY void menu_action(osd_action_t a) {
         case OSD_ACT_STATE_LOAD: act_state_load(a); break;
         case OSD_ACT_TAPE_TURBO:
             tape_turbo = !tape_turbo;
-            {
-                const bool found = tape_options_apply();
-                // oric_turbo_message (socle) est en français : son équivalent anglais ici
-                osd_menu_message(&menu, false,
-                                 OSD_T(oric_turbo_message(tape_turbo, found),
-                                       !tape_turbo ? "Tape: real speed"
-                                       : found     ? "Fast tape: BASIC 1.1 CLOAD is instant"
-                                                   : "Fast tape (no BASIC 1.1 in a bank for now)"));
-            }
+            osd_menu_message(&menu, false, oric_turbo_message(tape_turbo, tape_options_apply()));   // traduit par le socle
             break;
         case OSD_ACT_TAPE_MOTOR:
             tape_motor_always = !tape_motor_always;
@@ -1347,7 +1339,7 @@ static OSD_ONLY void menu_action(osd_action_t a) {
         case OSD_ACT_NET_OPEN: menu_say(true, "%s", OSD_T("Réseau : absent de cette version du firmware", "Network: not in this firmware version")); break;
 #endif
         case OSD_ACT_LANG:
-            osd_lang = osd_lang == OSD_LANG_EN ? OSD_LANG_FR : OSD_LANG_EN;
+            osd_lang_set(osd_lang() == OSD_LANG_EN ? OSD_LANG_FR : OSD_LANG_EN);
 #ifdef TELESTRAT_NET
             net_status_render(&net_status);   // ligne Réseau dans la nouvelle langue
 #endif
@@ -1845,7 +1837,7 @@ static void config_line(const char *line) {
     } else if ((v = osd_config_value(line, "cassette_moteur"))) {
         tape_motor_always = !strcmp(v, "toujours");
     } else if ((v = osd_config_value(line, "langue"))) {
-        osd_lang = (uint8_t)osd_config_lang(v, osd_lang);
+        osd_lang_set(osd_lang_parse(v, osd_lang()));
     } else if ((v = osd_config_value(line, "volume"))) {
         const int level = osd_config_volume(v, HID_VOLUME_MAX);
         if (level >= 0) audio_set_volume((uint8_t)level, false);
