@@ -295,22 +295,22 @@ static int menu_pc_tape_options(menu_pc_t* p, telestrat_t* sys) {
 static void menu_pc_refresh(menu_pc_t* p, telestrat_t* sys) {
     osd_menu_t* m = &p->menu;
     m->printer_on = p->printer_on;
-    m->printer_model = osd_printer_names[p->printer_type];
+    m->printer_model = osd_printer_label(p->printer_type);
     const char* pf = p->printer_type != OSD_PRINTER_TEXT ? (p->printer_last ? p->printer_last : "")
                      : p->printer_file                  ? p->printer_file
                                                         : "";
     const char* base = strrchr(pf, '/');
     snprintf(m->printer_file, sizeof(m->printer_file), "%s", base ? base + 1 : pf);
     m->modem_on = p->modem_on;
-    m->modem_state = p->line_present ? "ligne TCP (banc)" : "absent";
+    m->modem_state = p->line_present ? OSD_T("ligne TCP (banc)", "TCP line (bench)") : OSD_T("absent", "absent");
     m->tape_turbo = p->tape_turbo;
     m->tape_motor_always = p->tape_motor_always;
     snprintf(m->tape, sizeof(m->tape), "%s", sys->tape.inserted ? p->tape_name : "");
     m->tape_percent = oric_tape_percent(&sys->tape);
     m->tape_motor = sys->tape.motor && sys->tape.inserted;
-    for (int k = 0; k < ROM_BUILTINS && k < OSD_BUILTINS; k++) m->builtin[k] = rom_builtins[k].label;
+    for (int k = 0; k < ROM_BUILTINS && k < OSD_BUILTINS; k++) m->builtin[k] = rom_builtin_menu_label(k);
     for (int k = 0; k < OSD_PROFILES; k++) m->profile[k] = NULL;
-    for (int k = 0; k < ROM_PROFILES && k < OSD_PROFILES; k++) m->profile[k] = rom_profiles[k].label;
+    for (int k = 0; k < ROM_PROFILES && k < OSD_PROFILES; k++) m->profile[k] = rom_profile_menu_label(k);
     for (int k = 0; k < p->user_n && ROM_PROFILES + k < OSD_PROFILES; k++) m->profile[ROM_PROFILES + k] = p->user_label[k];
     for (int d = 0; d < 4; d++) {
         snprintf(m->drive[d], sizeof(m->drive[d]), "%s", p->disk_name[d]);
@@ -396,6 +396,7 @@ static void menu_pc_init(menu_pc_t* p, telestrat_t* sys, const char* dir, const 
         }
         if ((v = osd_config_value(line, "modem"))) p->modem_on = osd_config_yes(v, true);
         if ((v = osd_config_value(line, "cassette_rapide"))) p->tape_turbo = osd_config_yes(v, p->tape_turbo);
+        if ((v = osd_config_value(line, "langue"))) osd_lang = (uint8_t)osd_config_lang(v, osd_lang);
         if ((v = osd_config_value(line, "profil")) && p->user_n < ROM_USER_PROFILES)
             rom_user_profile_label(v, p->user_label[p->user_n++], ROM_USER_LABEL);
         if ((v = osd_config_value(line, "demarrage"))) snprintf(boot, sizeof(boot), "%s", v);
@@ -442,7 +443,8 @@ static void menu_pc_save(menu_pc_t* p) {
     for (int d = 0; d < 4; d++) drives[d] = p->disk_name[d];
     for (int b = 0; b < 8; b++) banks[b] = p->pool.name[b];
     static char out[16384];
-    const osd_options_t opt = {p->printer_on, p->printer_type, p->modem_on, p->tape_turbo, p->tape_motor_always, -1};
+    const osd_options_t opt = {p->printer_on, p->printer_type, p->modem_on, p->tape_turbo, p->tape_motor_always, -1,
+                               osd_lang_key(osd_lang)};
     size_t n = osd_config_merge_ex(old, drives, banks, &opt, out, sizeof(out));
     free(old);
     if (n == 0) {  // tampon trop petit : rien n'est écrit (jamais un fichier vide annoncé réussi)
@@ -671,6 +673,11 @@ static bool menu_pc_action(menu_pc_t* p, telestrat_t* sys, osd_action_t a) {
         case OSD_ACT_SOURCE:
             if (a.file == OSD_SRC_NET) menu_pc_scan_net(p, a.target);
             return false;  // sélecteur ouvert : rien d'autre à rafraîchir
+        case OSD_ACT_LANG:
+            osd_lang = osd_lang == OSD_LANG_EN ? OSD_LANG_FR : OSD_LANG_EN;
+            osd_menu_message(m, false, OSD_T("Menu en français (Enregistrer la configuration : le garder)",
+                                             "Menu in English (Save the configuration: keep it)"));
+            break;
         case OSD_ACT_RESUME: return true;
         default: break;
     }

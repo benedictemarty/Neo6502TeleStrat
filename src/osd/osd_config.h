@@ -41,6 +41,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "osd/osd_lang.h"   // osd_printer_label, « langue= » (US-198)
+
 #define OSD_BANK_BYTES 0x4000
 
 // Taille acceptée pour une image .rom
@@ -125,6 +127,10 @@ static inline bool osd_config_line(osd_config_read_t read, void* ctx, uint32_t s
 enum { OSD_PRINTER_TEXT = 0, OSD_PRINTER_FX80, OSD_PRINTER_MCP40, OSD_PRINTER_TYPES };
 static const char* const osd_printer_keys[OSD_PRINTER_TYPES] = {"texte", "fx80", "mcp40"};
 static const char* const osd_printer_names[OSD_PRINTER_TYPES] = {"Texte", "Epson FX-80", "Traceur MCP-40"};
+static const char* const osd_printer_names_en[OSD_PRINTER_TYPES] = {"Text", "Epson FX-80", "MCP-40 plotter"};
+
+// Nom de l'imprimante t dans la langue du menu (osd_lang.h)
+static inline const char* osd_printer_label(int t) { return OSD_T(osd_printer_names[t], osd_printer_names_en[t]); }
 
 static inline int osd_printer_type(const char* value, int dflt) {
     for (int i = 0; value && i < OSD_PRINTER_TYPES; i++)
@@ -153,6 +159,7 @@ typedef struct {
     bool tape_turbo;         // cassette_rapide=oui|non
     bool tape_motor_always;  // cassette_moteur=toujours|relais
     int volume;              // volume=0…8 (-1 : ligne existante gardée telle quelle)
+    const char* lang;        // langue=fr|en du menu (osd_lang_key) ; NULL : ligne existante gardée telle quelle
 } osd_options_t;
 
 // Volume d'une valeur « volume= » (0 à max), -1 si invalide (comme oric_config_volume de reload)
@@ -168,6 +175,7 @@ static inline int osd_config_volume(const char* v, int max) {
 static inline bool _osd_config_owned(const char* line, const osd_options_t* opt) {
     const bool options = opt != NULL;
     if (opt && opt->volume >= 0 && osd_config_value(line, "volume")) return true;
+    if (opt && opt->lang && osd_config_value(line, "langue")) return true;
     static const char* const keys[] = {"a", "b", "c", "d", "bank1", "bank2", "bank3", "bank4", "bank5", "bank6", "bank7"};
     static const char* const opts[] = {"impression", "imprimante_type", "modem", "cassette_rapide", "cassette_moteur"};
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
@@ -245,6 +253,10 @@ static inline size_t osd_config_merge_ex(const char* old, const char* const driv
         _OSD_APPEND(opt->tape_motor_always ? "cassette_moteur=toujours\n" : "cassette_moteur=relais\n");
         if (opt->volume >= 0) {
             snprintf(line, sizeof(line), "volume=%d\n", opt->volume);
+            _OSD_APPEND(line);
+        }
+        if (opt->lang) {
+            snprintf(line, sizeof(line), "langue=%.8s\n", opt->lang);
             _OSD_APPEND(line);
         }
     }

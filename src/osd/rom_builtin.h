@@ -13,9 +13,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "osd/osd_lang.h"   // libellés et erreurs dans la langue du menu (OSD_T)
+
 typedef struct {
     const char* id;     // TELESTRA.CFG
-    const char* label;  // menu (choix d'une cartouche)
+    const char* label;  // menu (choix d'une cartouche) ; reconnu aussi par rom_builtin_find
+    const char* label_en;  // le même en anglais (osd_lang.h)
     const char* name;   // panneau des cartouches (court)
     const uint8_t* rom; // 16 Ko en flash
     // Cartouche complète : autres banques chargées avec celle-ci (banque 0 : fin)
@@ -30,7 +33,7 @@ typedef struct {
 // cassettes. ORIC BASIC 1.1 seul en banque 7 : mode Atmos simple (cassettes).
 #ifdef TELESTRAT_ROMS_CLE
 // Version slot du firmware : aucune cartouche en flash (elles viennent de la clé)
-static const rom_builtin_t rom_builtins[] = {{NULL, NULL, NULL, NULL, {{0, NULL}, {0, NULL}}}};
+static const rom_builtin_t rom_builtins[] = {{NULL, NULL, NULL, NULL, NULL, {{0, NULL}, {0, NULL}}}};
 #define ROM_BUILTINS 0
 #else
 // Une cartouche absente à la génération (tools/fetch_roms.py : TELESTRAT_HAS_<NOM>
@@ -38,16 +41,17 @@ static const rom_builtin_t rom_builtins[] = {{NULL, NULL, NULL, NULL, {{0, NULL}
 // dernière entrée est une sentinelle (un tableau vide n'existe pas en C).
 static const rom_builtin_t rom_builtins[] = {
 #if TELESTRAT_HAS_STRATORIC && TELESTRAT_HAS_ATMOS && TELESTRAT_HAS_BASIC10
-    {"@stratoric", "STRATORIC 4.0 (+ BASIC 1.1 en 6, 1.0 en 5)", "STRATORIC 4.0", telestrat_stratoric,
+    {"@stratoric", "STRATORIC 4.0 (+ BASIC 1.1 en 6, 1.0 en 5)", "STRATORIC 4.0 (+ BASIC 1.1 in 6, 1.0 in 5)", "STRATORIC 4.0",
+     telestrat_stratoric,
      {{6, "@atmos"}, {5, "@basic10"}}},
 #endif
 #if TELESTRAT_HAS_ATMOS
-    {"@atmos", "ORIC BASIC 1.1 (Atmos)", "ORIC BASIC 1.1", telestrat_atmos, {{0, NULL}, {0, NULL}}},
+    {"@atmos", "ORIC BASIC 1.1 (Atmos)", "ORIC BASIC 1.1 (Atmos)", "ORIC BASIC 1.1", telestrat_atmos, {{0, NULL}, {0, NULL}}},
 #endif
 #if TELESTRAT_HAS_BASIC10
-    {"@basic10", "ORIC BASIC 1.0 (Oric-1)", "ORIC BASIC 1.0", telestrat_basic10, {{0, NULL}, {0, NULL}}},
+    {"@basic10", "ORIC BASIC 1.0 (Oric-1)", "ORIC BASIC 1.0 (Oric-1)", "ORIC BASIC 1.0", telestrat_basic10, {{0, NULL}, {0, NULL}}},
 #endif
-    {NULL, NULL, NULL, NULL, {{0, NULL}, {0, NULL}}},
+    {NULL, NULL, NULL, NULL, NULL, {{0, NULL}, {0, NULL}}},
 };
 #define ROM_BUILTINS ((int)(sizeof(rom_builtins) / sizeof(rom_builtins[0])) - 1)
 #endif
@@ -59,19 +63,25 @@ static inline const rom_builtin_t* rom_builtin_find(const char* name) {
     return NULL;
 }
 
+// Libellé de la ROM intégrée i dans la liste du menu, dans sa langue
+static inline const char* rom_builtin_menu_label(int i) { return OSD_T(rom_builtins[i].label, rom_builtins[i].label_en); }
+
 // Profils de démarrage (TELESTRA.CFG « demarrage=choix » : proposés au
 // démarrage ; « demarrage=ID » : appliqué) : banques 1-7 d'origine, puis la
 // cartouche complète de la banque 7 (bank7 vide : Telestrat d'origine)
 typedef struct {
     const char* id;
     const char* label;
+    const char* label_en;  // le même en anglais (osd_lang.h)
     const char* bank7;
 } rom_profile_t;
 
 static const rom_profile_t rom_profiles[] = {
-    {"telestrat", "Telestrat : TELEMON 2.4, HYPER-BASIC, TELE-ASS, TELEMATIC", ""},
-    {"stratoric", "STRATORIC : mode Atmos, disquettes SEDORIC, cassettes", "@stratoric"},
-    {"atmos", "ORIC BASIC 1.1 : mode Atmos simple, cassettes", "@atmos"},
+    {"telestrat", "Telestrat : TELEMON 2.4, HYPER-BASIC, TELE-ASS, TELEMATIC",
+     "Telestrat: TELEMON 2.4, HYPER-BASIC, TELE-ASS, TELEMATIC", ""},
+    {"stratoric", "STRATORIC : mode Atmos, disquettes SEDORIC, cassettes", "STRATORIC: Atmos mode, SEDORIC disks, tapes",
+     "@stratoric"},
+    {"atmos", "ORIC BASIC 1.1 : mode Atmos simple, cassettes", "ORIC BASIC 1.1: plain Atmos mode, tapes", "@atmos"},
 };
 #define ROM_PROFILES ((int)(sizeof(rom_profiles) / sizeof(rom_profiles[0])))
 
@@ -81,13 +91,18 @@ static inline int rom_profile_find(const char* id) {
     return -1;
 }
 
+// Libellé du profil intégré i dans la liste du menu, dans sa langue
+static inline const char* rom_profile_menu_label(int i) { return OSD_T(rom_profiles[i].label, rom_profiles[i].label_en); }
+
 // Nom du contenu d'une banque tenu par le pool (cartouche de la clé ou ROM intégrée)
 static inline const char* rom_builtin_label(const char* pool_name) {
     const rom_builtin_t* b = pool_name[0] == '@' ? rom_builtin_find(pool_name) : NULL;
     return b ? b->name : pool_name;
 }
 
-#define ROM_ERR_NO_BUILTIN "ROM intégrée absente de ce firmware (version slot : cartouches sur la clé)"
+#define ROM_ERR_NO_BUILTIN                                                              \
+    OSD_T("ROM intégrée absente de ce firmware (version slot : cartouches sur la clé)", \
+          "built-in ROM missing from this firmware (slot version: cartridges on the key)")
 
 static inline bool _rom_pool_load_one(rom_pool_t* p, telestrat_t* sys, int bank, const rom_builtin_t* b,
                                       const char** err) {
@@ -123,8 +138,10 @@ static inline bool _rom_pool_fits(const rom_pool_t* p, uint32_t mask, bool fresh
         if (fresh ? !p->builtin[b] : rom_pool_slot_of(p, b) < 0) need++;
     }
     if (need > avail) {
-        *err = fresh ? "plus de place : pas d'emplacement de banque pour toutes les cartouches du profil"
-                     : "plus de place : rendre une cartouche de la clé à son contenu d'origine";
+        *err = fresh ? OSD_T("plus de place : pas d'emplacement de banque pour toutes les cartouches du profil",
+                             "no room: not enough bank slots for all the cartridges of the profile")
+                     : OSD_T("plus de place : rendre une cartouche de la clé à son contenu d'origine",
+                             "no room: give a cartridge of the key back its original contents");
         return false;
     }
     return true;
@@ -136,7 +153,7 @@ static inline bool _rom_pool_fits(const rom_pool_t* p, uint32_t mask, bool fresh
 static inline bool rom_pool_load_builtin(rom_pool_t* p, telestrat_t* sys, int bank, const rom_builtin_t* b,
                                          const char** err) {
     if (bank < 1 || bank > 7) {
-        *err = "banque invalide";
+        *err = OSD_T("banque invalide", "invalid bank");
         return false;
     }
     if (!_rom_pool_fits(p, _rom_builtin_banks(bank, b), false, err)) return false;
@@ -160,7 +177,7 @@ static inline bool rom_load_named(rom_pool_t* p, telestrat_t* sys, int bank, con
     if (name[0] != '@') return load(ctx, bank, name, err);
     const rom_builtin_t* rb = rom_builtin_find(name);
     if (!rb) {
-        *err = "ROM intégrée inconnue";
+        *err = OSD_T("ROM intégrée inconnue", "unknown built-in ROM");
         return false;
     }
     return rom_pool_load_builtin(p, sys, bank, rb, err);
@@ -225,7 +242,7 @@ static inline bool rom_user_profile_check(const rom_pool_t* p, const char* v, ro
         if (name[0] == '@') {
             const rom_builtin_t* rb = rom_builtin_find(name);
             if (!rb) {
-                *err = "ROM intégrée inconnue";
+                *err = OSD_T("ROM intégrée inconnue", "unknown built-in ROM");
                 return false;
             }
             mask |= _rom_builtin_banks(b, rb);
@@ -233,19 +250,19 @@ static inline bool rom_user_profile_check(const rom_pool_t* p, const char* v, ro
         }
         size_t size = 0;
         if (probe && !probe(ctx, name, &size)) {
-            snprintf(_rom_err_buf, sizeof(_rom_err_buf), "%.60s : fichier illisible", name);
+            snprintf(_rom_err_buf, sizeof(_rom_err_buf), OSD_T("%.60s : fichier illisible", "%.60s: unreadable file"), name);
             *err = _rom_err_buf;
             return false;
         }
         if (probe && !osd_rom_size_ok(size)) {
-            snprintf(_rom_err_buf, sizeof(_rom_err_buf), "%.40s : taille invalide (16, 8, 4, 2 ou 1 Ko)", name);
+            snprintf(_rom_err_buf, sizeof(_rom_err_buf), OSD_T("%.40s : taille invalide (16, 8, 4, 2 ou 1 Ko)", "%.40s: invalid size (16, 8, 4, 2 or 1 KB)"), name);
             *err = _rom_err_buf;
             return false;
         }
         mask |= 1u << b;
     }
     if (r < 0) {
-        *err = "élément de profil trop long (63 caractères au plus)";
+        *err = OSD_T("élément de profil trop long (63 caractères au plus)", "profile item too long (63 characters at most)");
         return false;
     }
     return _rom_pool_fits(p, mask, true, err);
@@ -269,7 +286,7 @@ static inline bool rom_user_profile_apply(rom_pool_t* p, telestrat_t* sys, const
 // Vérification préalable d'un profil intégré (voir rom_user_profile_check)
 static inline bool rom_profile_check(const rom_pool_t* p, int profile, const char** err) {
     if (profile < 0 || profile >= ROM_PROFILES) {
-        *err = "profil inconnu";
+        *err = OSD_T("profil inconnu", "unknown profile");
         return false;
     }
     const char* id = rom_profiles[profile].bank7;

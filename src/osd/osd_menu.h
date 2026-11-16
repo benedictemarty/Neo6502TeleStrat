@@ -37,6 +37,7 @@
 #include "osd/osd.h"
 #include "osd/osd_netcfg.h"   // page Réseau (TNFS) commune du socle ; porte aussi OSD_KEY_* (osd_browser.h)
 #include "osd/net_status.h"   // signes Wi-Fi et TNFS de la ligne Réseau (NET_SIGN_*)
+#include "osd/osd_lang.h"     // langue du menu (OSD_T), touche L
 
 #ifndef OSD_MENU_FILES
 #define OSD_MENU_FILES 64  // fichiers listés (64 par défaut ; platforms/rp2040/CMakeLists.txt : 40, ou 16 avec la RAM 64 Ko)
@@ -85,6 +86,7 @@ enum {
                           // (neo_storage_list) puis appelle osd_menu_browse
     OSD_ACT_NET_OPEN,     // bouton Réseau : la plate-forme remplit la page (osd_menu_open_net)
     OSD_ACT_NET_SAVE,     // page Réseau validée : menu.netcfg à écrire dans TELESTRA.CFG (osd_netcfg_merge)
+    OSD_ACT_LANG,         // touche L de la page principale : la plate-forme bascule osd_lang (français / anglais)
 };
 
 typedef struct {
@@ -390,6 +392,8 @@ static inline osd_action_t _osd_key_main(osd_menu_t* m, int key) {
         case OSD_KEY_HOME: c = 0; break;
         case OSD_KEY_END: c = OSD_ITEMS - 1; break;
         case OSD_KEY_ESC: a.type = OSD_ACT_RESUME; break;
+        case 'L':
+        case 'l': a.type = OSD_ACT_LANG; break;   // langue du menu (osd_lang.h)
         case OSD_KEY_DEL:
             if (_osd_item_is_drive(c)) {
                 a.type = OSD_ACT_EJECT;
@@ -515,7 +519,7 @@ static inline void _osd_draw_header(const osd_menu_t* m, osd_surface_t* s) {
 // Disquettes et cassette
 static inline void _osd_draw_media(const osd_menu_t* m, osd_surface_t* s) {
     char buf[96];
-    _osd_panel(s, 5, 2, 12, 56, OSD_FLOP_L, "Disquettes");
+    _osd_panel(s, 5, 2, 12, 56, OSD_FLOP_L, OSD_T("Disquettes", "Floppy disks"));
     for (int d = 0; d < 4; d++) {
         const int row = 7 + 2 * d;
         const bool sel = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_DRIVE0 + d;
@@ -527,13 +531,13 @@ static inline void _osd_draw_media(const osd_menu_t* m, osd_surface_t* s) {
             osd_puts(s, row, 9, m->drive[d], base, 32);
             if (m->drive_ro[d]) {
                 osd_putc(s, row, 44, OSD_LOCK, sel ? OSD_ATTR(OSD_RED, OSD_BLUE) : OSD_PANEL_ERR);
-                osd_puts(s, row, 46, "protégée", dim, -1);
+                osd_puts(s, row, 46, OSD_T("protégée", "read-only"), dim, -1);
             } else {
                 osd_putc(s, row, 44, OSD_DOT, sel ? OSD_ATTR(OSD_GREEN, OSD_BLUE) : OSD_PANEL_OK);
-                osd_puts(s, row, 46, "écriture", dim, -1);
+                osd_puts(s, row, 46, OSD_T("écriture", "writable"), dim, -1);
             }
         } else {
-            osd_puts(s, row, 9, "— vide —", dim, -1);
+            osd_puts(s, row, 9, OSD_T("— vide —", "— empty —"), dim, -1);
         }
     }
     {
@@ -552,7 +556,7 @@ static inline void _osd_draw_media(const osd_menu_t* m, osd_surface_t* s) {
             // Barre de position : 6 cellules
             for (int i = 0; i < 6; i++) osd_putc(s, row, 49 + i, i * 100 / 6 < m->tape_percent ? OSD_FULL : OSD_SHADE, dim);
         } else {
-            osd_puts(s, row, 9, "— pas de cassette —", dim, -1);
+            osd_puts(s, row, 9, OSD_T("— pas de cassette —", "— no tape —"), dim, -1);
         }
     }
 
@@ -561,17 +565,17 @@ static inline void _osd_draw_media(const osd_menu_t* m, osd_surface_t* s) {
 // Cartouches (banques 7 à 1)
 static inline void _osd_draw_banks(const osd_menu_t* m, osd_surface_t* s) {
     char buf[96];
-    _osd_panel(s, 5, 61, 17, 57, OSD_CART_L, "Cartouches");
-    static const char* const origin[5] = {"", "RAM", "ROM", "clé USB", "réseau"};
+    _osd_panel(s, 5, 61, 17, 57, OSD_CART_L, OSD_T("Cartouches", "Cartridges"));
+    const char* const origin[5] = {"", "RAM", "ROM", OSD_T("clé USB", "USB key"), OSD_T("réseau", "network")};
     for (int i = 0; i < 7; i++) {
         const int bank = 7 - i, row = 7 + 2 * i;
         const bool sel = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_BANK7 + i;
         _osd_item_bar(s, row, 63, 53, sel);
         const uint8_t base = sel ? OSD_SEL : OSD_PANEL, dim = sel ? OSD_SEL_DIM : OSD_PANEL_DIM;
-        snprintf(buf, sizeof(buf), "Banque %d", bank);
+        snprintf(buf, sizeof(buf), OSD_T("Banque %d", "Bank %d"), bank);
         osd_puts(s, row, 65, buf, sel ? OSD_SEL_ACC : OSD_PANEL_ACC, -1);
         if (m->bank_kind[bank] == OSD_BANK_EMPTY) {
-            osd_puts(s, row, 76, "— vide —", dim, -1);
+            osd_puts(s, row, 76, OSD_T("— vide —", "— empty —"), dim, -1);
         } else {
             osd_puts(s, row, 76, m->bank[bank], base, 28);
             osd_puts(s, row, 106, origin[m->bank_kind[bank]], dim, -1);
@@ -583,7 +587,7 @@ static inline void _osd_draw_banks(const osd_menu_t* m, osd_surface_t* s) {
 // Clé USB et volume Réseau
 static inline void _osd_draw_usb(const osd_menu_t* m, osd_surface_t* s) {
     char buf[96];
-    _osd_panel(s, 18, 2, 4, 56, OSD_USB_L, "Clé USB");
+    _osd_panel(s, 18, 2, 4, 56, OSD_USB_L, OSD_T("Clé USB", "USB key"));
     if (m->usb_present) {
         int ndsk = 0, nrom = 0, ntap = 0, nsta = 0;
         for (int i = 0; i < m->nfiles; i++) {
@@ -593,18 +597,19 @@ static inline void _osd_draw_usb(const osd_menu_t* m, osd_surface_t* s) {
             else if (m->files[i].kind == OSD_FILE_STA) nsta++;
             else nrom++;
         }
-        osd_puts(s, 19, 5, m->usb_label[0] ? m->usb_label : "Clé montée", OSD_PANEL, m->net_present ? 24 : 50);
+        osd_puts(s, 19, 5, m->usb_label[0] ? m->usb_label : OSD_T("Clé montée", "Key mounted"), OSD_PANEL, m->net_present ? 24 : 50);
         snprintf(buf, sizeof(buf), "%d .dsk   %d .tap   %d .rom   %d .sta%s", ndsk, ntap, nrom, nsta,
-                 m->truncated ? "   (liste tronquée)" : "");
+                 m->truncated ? OSD_T("   (liste tronquée)", "   (list truncated)") : "");
         osd_puts(s, 20, 5, buf, OSD_PANEL_DIM, -1);
     } else {
-        osd_puts(s, 19, 5, "Aucune clé", OSD_PANEL, -1);
-        osd_puts(s, 20, 5, "Brancher une clé FAT : .dsk, .tap, .rom, .sta à la racine", OSD_PANEL_DIM, -1);
+        osd_puts(s, 19, 5, OSD_T("Aucune clé", "No key"), OSD_PANEL, -1);
+        osd_puts(s, 20, 5, OSD_T("Brancher une clé FAT : .dsk, .tap, .rom, .sta à la racine", "Plug in a FAT key: .dsk, .tap, .rom, .sta at its root"),
+                 OSD_PANEL_DIM, -1);
     }
     // Volume Réseau prêt : sur la ligne de la clé (son libellé écourté)
     if (m->net_present) {
         osd_putc(s, 19, 30, OSD_DOT, OSD_PANEL_OK);
-        const int nl = osd_puts(s, 19, 32, "Réseau", OSD_PANEL_ACC, -1);
+        const int nl = osd_puts(s, 19, 32, OSD_T("Réseau", "Network"), OSD_PANEL_ACC, -1);
         if (m->net_label) osd_puts(s, 19, 33 + nl, m->net_label, OSD_PANEL_DIM, 55 - 33 - nl);
     }
 
@@ -613,22 +618,22 @@ static inline void _osd_draw_usb(const osd_menu_t* m, osd_surface_t* s) {
 // Périphériques : instantanés, imprimante, modem, cassette (Entrée : activer / couper)
 static inline void _osd_draw_devices(const osd_menu_t* m, osd_surface_t* s) {
     char buf[96];
-    _osd_panel(s, 23, 2, 5, 116, 0, "Périphériques");
+    _osd_panel(s, 23, 2, 5, 116, 0, OSD_T("Périphériques", "Devices"));
     {
         // Instantanés (Entrée : enregistrer, reprendre)
         const bool sel_s = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_STATE;
         _osd_item_bar(s, 24, 4, 55, sel_s);
-        osd_puts(s, 24, 6, "Instantanés", sel_s ? OSD_SEL_ACC : OSD_PANEL_ACC, -1);
+        osd_puts(s, 24, 6, OSD_T("Instantanés", "Snapshots"), sel_s ? OSD_SEL_ACC : OSD_PANEL_ACC, -1);
         const uint8_t dim_s = sel_s ? OSD_SEL_DIM : OSD_PANEL_DIM;
-        const int sn = osd_puts(s, 24, 18, "enregistrer, reprendre", sel_s ? OSD_SEL : OSD_PANEL, -1);
+        const int sn = osd_puts(s, 24, 18, OSD_T("enregistrer, reprendre", "save, restore"), sel_s ? OSD_SEL : OSD_PANEL, -1);
         if (m->state_last[0]) {
             snprintf(buf, sizeof(buf), "→ %s", m->state_last);
             osd_puts(s, 24, 19 + sn, buf, dim_s, 58 - 19 - sn);
         }
         // Réseau (TNFS) : serveur, Wi-Fi et mot de passe (Entrée : page de réglage)
         const bool sel_n = m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_NET;
-        _osd_item_bar(s, 24, 61, 55, sel_n);
-        osd_puts(s, 24, 63, "Réseau", sel_n ? OSD_SEL_ACC : OSD_PANEL_ACC, -1);
+        _osd_item_bar(s, 24, 61, 56, sel_n);   // jusqu'à la colonne 116 (cadre en 117) : détail de 33 colonnes
+        osd_puts(s, 24, 63, OSD_T("Réseau", "Network"), sel_n ? OSD_SEL_ACC : OSD_PANEL_ACC, -1);
         if (m->net_status && m->net_status->detail[0]) {
             // « ●Wi-Fi ●TNFS détail » : point vert (connecté), croix rouge (non connecté), point atténué (en cours)
             const uint8_t ok_n = sel_n ? OSD_ATTR(OSD_GREEN, OSD_BLUE) : OSD_PANEL_OK;
@@ -637,16 +642,17 @@ static inline void _osd_draw_devices(const osd_menu_t* m, osd_surface_t* s) {
             const int8_t sign[2] = {m->net_status->wifi, m->net_status->tnfs};
             static const char* const what[2] = {"Wi-Fi", "TNFS"};
             for (int k = 0; k < 2; k++) {
-                const int col = k ? 77 : 70;
+                const int col = k ? 78 : 71;   // une colonne après « Network » (7 lettres)
                 if (sign[k] == NET_SIGN_OK) osd_putc(s, 24, col, OSD_DOT, ok_n);
                 else if (sign[k] == NET_SIGN_KO) osd_putc(s, 24, col, OSD_CROSS, ko_n);
                 else if (sign[k] == NET_SIGN_BUSY) osd_putc(s, 24, col, '.', dim_n);
                 osd_puts(s, 24, col + 1, what[k], sign[k] == NET_SIGN_OK ? ok_n : sign[k] == NET_SIGN_KO ? ko_n : dim_n, -1);
             }
-            osd_puts(s, 24, 83, m->net_status->detail, txt_n, 33);
+            osd_puts(s, 24, 84, m->net_status->detail, txt_n, 33);
         } else {
-            osd_puts(s, 24, 70, m->net_present ? "serveur TNFS, Wi-Fi" : "serveur TNFS, Wi-Fi, mot de passe",
-                     sel_n ? OSD_SEL : OSD_PANEL, 45);
+            osd_puts(s, 24, 71, m->net_present ? OSD_T("serveur TNFS, Wi-Fi", "TNFS server, Wi-Fi")
+                                               : OSD_T("serveur TNFS, Wi-Fi, mot de passe", "TNFS server, Wi-Fi, password"),
+                     sel_n ? OSD_SEL : OSD_PANEL, 44);
         }
     }
     {
@@ -660,9 +666,9 @@ static inline void _osd_draw_devices(const osd_menu_t* m, osd_surface_t* s) {
         const uint8_t off_p = sel_p ? OSD_ATTR(OSD_RED, OSD_BLUE) : OSD_PANEL_ERR;
         const uint8_t on_m = sel_m ? OSD_ATTR(OSD_GREEN, OSD_BLUE) : OSD_PANEL_OK;
         const uint8_t off_m = sel_m ? OSD_ATTR(OSD_RED, OSD_BLUE) : OSD_PANEL_ERR;
-        osd_puts(s, 25, 6, "Imprimante", acc_p, -1);
+        osd_puts(s, 25, 6, OSD_T("Imprimante", "Printer"), acc_p, -1);
         osd_putc(s, 25, 18, m->printer_on ? OSD_DOT : OSD_CROSS, m->printer_on ? on_p : off_p);
-        const char* pstate = !m->printer_on ? "coupée" : m->printer_model ? m->printer_model : "activée";
+        const char* pstate = !m->printer_on ? OSD_T("coupée", "off") : m->printer_model ? m->printer_model : OSD_T("activée", "on");
         const int pn = osd_puts(s, 25, 20, pstate, m->printer_on ? on_p : off_p, -1);
         if (m->printer_on && m->printer_file[0]) {
             snprintf(buf, sizeof(buf), "→ %s", m->printer_file);
@@ -670,7 +676,7 @@ static inline void _osd_draw_devices(const osd_menu_t* m, osd_surface_t* s) {
         }
         osd_puts(s, 25, 63, "Modem", acc_m, -1);
         osd_putc(s, 25, 70, m->modem_on ? OSD_DOT : OSD_CROSS, m->modem_on ? on_m : off_m);
-        osd_puts(s, 25, 72, m->modem_on ? "activé" : "coupé", m->modem_on ? on_m : off_m, -1);
+        osd_puts(s, 25, 72, m->modem_on ? OSD_T("activé", "on") : OSD_T("coupé", "off"), m->modem_on ? on_m : off_m, -1);
         if (m->modem_state) {
             snprintf(buf, sizeof(buf), "PicoWiFiModemUSB : %s", m->modem_state);
             osd_puts(s, 25, 80, buf, dim_m, 35);
@@ -685,14 +691,14 @@ static inline void _osd_draw_devices(const osd_menu_t* m, osd_surface_t* s) {
         const uint8_t on_t = sel_t ? OSD_ATTR(OSD_GREEN, OSD_BLUE) : OSD_PANEL_OK;
         const uint8_t off_t = sel_t ? OSD_ATTR(OSD_RED, OSD_BLUE) : OSD_PANEL_ERR;
         const uint8_t on_o = sel_o ? OSD_ATTR(OSD_GREEN, OSD_BLUE) : OSD_PANEL_OK;
-        osd_puts(s, 26, 6, "Cassette", acc_t, -1);
+        osd_puts(s, 26, 6, OSD_T("Cassette", "Tape"), acc_t, -1);
         osd_putc(s, 26, 18, m->tape_turbo ? OSD_DOT : OSD_CROSS, m->tape_turbo ? on_t : off_t);
-        osd_puts(s, 26, 20, m->tape_turbo ? "rapide" : "vitesse réelle", m->tape_turbo ? on_t : off_t, -1);
-        if (m->tape_turbo) osd_puts(s, 26, 28, "(CLOAD du BASIC 1.1)", dim_t, -1);
-        osd_puts(s, 26, 63, "Moteur", acc_o, -1);
+        osd_puts(s, 26, 20, m->tape_turbo ? OSD_T("rapide", "fast") : OSD_T("vitesse réelle", "real speed"), m->tape_turbo ? on_t : off_t, -1);
+        if (m->tape_turbo) osd_puts(s, 26, 28, OSD_T("(CLOAD du BASIC 1.1)", "(BASIC 1.1 CLOAD)"), dim_t, -1);
+        osd_puts(s, 26, 63, OSD_T("Moteur", "Motor"), acc_o, -1);
         osd_putc(s, 26, 70, OSD_DOT, on_o);
-        osd_puts(s, 26, 72, m->tape_motor_always ? "toujours en marche" : "relais (PB6)", on_o, -1);
-        if (m->tape_motor_always) osd_puts(s, 26, 91, "câble sans relais", dim_o, -1);
+        osd_puts(s, 26, 72, m->tape_motor_always ? OSD_T("toujours en marche", "always on") : OSD_T("relais (PB6)", "relay (PB6)"), on_o, -1);
+        if (m->tape_motor_always) osd_puts(s, 26, 91, OSD_T("câble sans relais", "cable without relay"), dim_o, -1);
     }
 
 }
@@ -700,7 +706,8 @@ static inline void _osd_draw_devices(const osd_menu_t* m, osd_surface_t* s) {
 // Boutons d'action et message
 static inline void _osd_draw_actions(const osd_menu_t* m, osd_surface_t* s) {
     const int btn_row = 29;
-    const char* const labels[3] = {"Redémarrer (RESET)", "Enregistrer la configuration", "Reprendre"};
+    const char* const labels[3] = {OSD_T("Redémarrer (RESET)", "Restart (RESET)"),
+                                   OSD_T("Enregistrer la configuration", "Save the configuration"), OSD_T("Reprendre", "Resume")};
     const int cols[3] = {2, 40, 82}, widths[3] = {34, 38, 36};
     for (int i = 0; i < 3; i++)
         _osd_button(s, btn_row, cols[i], widths[i], labels[i], m->page == OSD_PAGE_MAIN && m->cursor == OSD_ITEM_RESET + i);
@@ -717,19 +724,28 @@ static inline void _osd_draw_actions(const osd_menu_t* m, osd_surface_t* s) {
 static inline void _osd_draw_footer(const osd_menu_t* m, osd_surface_t* s) {
     osd_fill(s, 32, 0, 2, OSD_COLS, OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER));
     const uint8_t key = OSD_ATTR(OSD_BLACK, OSD_CYAN), txt = OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER);
-    const char* const help_main[][2] = {{" Flèches ", "choisir"}, {" Entrée ", "ouvrir, activer"}, {" Suppr ", "éjecter, d'origine"},
-                                       {" Échap ", "reprendre"}};
-    const char* const help_browse[][2] = {{" Flèches ", "choisir"}, {" Entrée ", "valider"}, {" Lettre ", "aller à"},
-                                         {" Échap ", "retour"}};
-    const char* const help_net[][2] = {{" Flèches ", "champ"}, {" Entrée ", "suivant"}, {" Retour ", "effacer"},
-                                      {" Échap ", "abandonner"}};
+    const char* const help_main[][2] = {{OSD_T(" Flèches ", " Arrows "), OSD_T("choisir", "select")},
+                                       {OSD_T(" Entrée ", " Enter "), OSD_T("ouvrir, activer", "open, toggle")},
+                                       {OSD_T(" Suppr ", " Del "), OSD_T("éjecter, d'origine", "eject, original")},
+                                       {OSD_T(" Échap ", " Esc "), OSD_T("reprendre", "resume")}};
+    const char* const help_browse[][2] = {{OSD_T(" Flèches ", " Arrows "), OSD_T("choisir", "select")},
+                                         {OSD_T(" Entrée ", " Enter "), OSD_T("valider", "confirm")},
+                                         {OSD_T(" Lettre ", " Letter "), OSD_T("aller à", "jump to")},
+                                         {OSD_T(" Échap ", " Esc "), OSD_T("retour", "back")}};
+    const char* const help_net[][2] = {{OSD_T(" Flèches ", " Arrows "), OSD_T("champ", "field")},
+                                      {OSD_T(" Entrée ", " Enter "), OSD_T("suivant", "next")},
+                                      {OSD_T(" Retour ", " Backspace "), OSD_T("effacer", "erase")},
+                                      {OSD_T(" Échap ", " Esc "), OSD_T("abandonner", "cancel")}};
     const char* const(*help)[2] = m->page == OSD_PAGE_MAIN ? help_main : m->page == OSD_PAGE_NET ? help_net : help_browse;
     int c = 3;
     for (int i = 0; i < 4; i++) {
         c += osd_puts(s, 32, c, help[i][0], key, -1) + 1;
         c += osd_puts(s, 32, c, help[i][1], txt, -1) + 3;
     }
-    osd_puts(s, 32, OSD_COLS - 22, "F1 : ouvrir ce menu", OSD_ATTR(OSD_CYAN, OSD_BLUE | OSD_DITHER), -1);
+    osd_puts(s, 32, OSD_COLS - 22, OSD_T("F1 : ouvrir ce menu", "F1: open this menu"), OSD_ATTR(OSD_CYAN, OSD_BLUE | OSD_DITHER), -1);
+    // Langue (page principale) : la touche L bascule français / anglais
+    if (m->page == OSD_PAGE_MAIN)
+        osd_puts(s, 33, OSD_COLS - 22, OSD_T("L : English", "L: français"), OSD_ATTR(OSD_CYAN, OSD_BLUE | OSD_DITHER), -1);
 }
 
 // Cadre du sélecteur de fichiers ou du choix de la source, par-dessus la page
@@ -742,15 +758,15 @@ static inline void _osd_draw_browser_frame(const osd_menu_t* m, osd_surface_t* s
     const int item = m->browse_target;
     const bool drive = _osd_item_is_drive(item), tape = item == OSD_ITEM_TAPE, state = item == OSD_ITEM_STATE,
                boot = item == OSD_ITEM_BOOT;
-    if (drive) snprintf(buf, sizeof(buf), "Disquette pour le lecteur %c", 'A' + item);
-    else if (tape) snprintf(buf, sizeof(buf), "Cassette (la même : rembobinée)");
-    else if (state) snprintf(buf, sizeof(buf), "Instantanés (reprendre : la machine revient à cet instant)");
-    else if (boot) snprintf(buf, sizeof(buf), "Démarrer sur…");
-    else snprintf(buf, sizeof(buf), "Cartouche pour la banque %d", _osd_item_bank(item));
+    if (drive) snprintf(buf, sizeof(buf), OSD_T("Disquette pour le lecteur %c", "Floppy disk for drive %c"), 'A' + item);
+    else if (tape) snprintf(buf, sizeof(buf), "%s", OSD_T("Cassette (la même : rembobinée)", "Tape (the same one: rewound)"));
+    else if (state) snprintf(buf, sizeof(buf), "%s", OSD_T("Instantanés (reprendre : la machine revient à cet instant)", "Snapshots (restore: the machine goes back to that moment)"));
+    else if (boot) snprintf(buf, sizeof(buf), "%s", OSD_T("Démarrer sur…", "Start with…"));
+    else snprintf(buf, sizeof(buf), OSD_T("Cartouche pour la banque %d", "Cartridge for bank %d"), _osd_item_bank(item));
     const bool source = m->page == OSD_PAGE_SOURCE, net = !source && m->browse_vol == OSD_SRC_NET;
     if (net || source) {
         const size_t l = strlen(buf);
-        snprintf(buf + l, sizeof(buf) - l, net ? " — réseau" : " — source ?");
+        snprintf(buf + l, sizeof(buf) - l, "%s", net ? OSD_T(" — réseau", " — network") : OSD_T(" — source ?", " — source?"));
     }
     const int top = OSD_BR_TOP, left = OSD_BR_LEFT, width = OSD_BR_WIDTH, height = source ? 6 : OSD_BROWSE_VISIBLE + 4;
     osd_fill(s, top + 1, left + 2, height, width, OSD_ATTR(OSD_WHITE, OSD_BLUE | OSD_DITHER));  // ombre
@@ -773,8 +789,11 @@ static inline void _osd_draw_source_rows(const osd_menu_t* m, osd_surface_t* s) 
         const uint8_t base = sel ? OSD_ATTR(OSD_BLACK, OSD_CYAN) : OSD_ATTR(OSD_WHITE, OSD_BLACK);
         const uint8_t dim = sel ? OSD_ATTR(OSD_BLUE, OSD_CYAN) : OSD_ATTR(OSD_CYAN, OSD_BLACK);
         osd_fill(s, row, left + 2, 1, width - 5, base);
-        osd_puts(s, row, left + 4, k ? "Réseau" : "Clé USB", base, -1);
-        const char* info = k ? m->net_label : m->usb_present ? m->usb_label : "aucune clé";
+        osd_puts(s, row, left + 4, k ? OSD_T("Réseau", "Network") : OSD_T("Clé USB", "USB key"), base, -1);
+        const char* info = k ? m->net_label
+                           : !m->usb_present ? OSD_T("aucune clé", "no key")
+                           : m->usb_label[0] ? m->usb_label
+                                             : OSD_T("Clé montée", "Key mounted");
         if (info) osd_puts(s, row, left + 16, info, dim, width - 22);
     }
 }
@@ -794,11 +813,11 @@ static inline void _osd_draw_file_rows(const osd_menu_t* m, osd_surface_t* s) {
         osd_fill(s, row, left + 2, 1, width - 5, base);
         if (idx == 0) {
             osd_puts(s, row, left + 4,
-                     drive   ? "Éjecter la disquette"
-                     : tape  ? "Éjecter la cassette"
-                     : state ? "Enregistrer un nouvel instantané (ETATnnnn.STA)"
-                     : boot  ? "Configuration de la clé (TELESTRA.CFG)"
-                             : "Contenu d'origine de la banque",
+                     drive   ? OSD_T("Éjecter la disquette", "Eject the disk")
+                     : tape  ? OSD_T("Éjecter la cassette", "Eject the tape")
+                     : state ? OSD_T("Enregistrer un nouvel instantané (ETATnnnn.STA)", "Save a new snapshot (ETATnnnn.STA)")
+                     : boot  ? OSD_T("Configuration de la clé (TELESTRA.CFG)", "Configuration of the key (TELESTRA.CFG)")
+                             : OSD_T("Contenu d'origine de la banque", "Original contents of the bank"),
                      dim,
                      -1);
             continue;
@@ -810,7 +829,7 @@ static inline void _osd_draw_file_rows(const osd_menu_t* m, osd_surface_t* s) {
         }
         if (entry < 0) {  // ROM intégrée
             osd_puts(s, row, left + 4, m->builtin[-2 - entry], base, 50);
-            osd_puts(s, row, left + width - 13, "intégrée", dim, -1);
+            osd_puts(s, row, left + width - 13, OSD_T("intégrée", "built-in"), dim, -1);
             continue;
         }
         const osd_file_t* f = &m->files[entry];
@@ -822,24 +841,24 @@ static inline void _osd_draw_file_rows(const osd_menu_t* m, osd_surface_t* s) {
         for (int d = 0; drive && d < 4; d++) {
             if (d == item - OSD_ITEM_DRIVE0 || strcmp(m->drive[d], f->name)) continue;
             char tag[8];
-            snprintf(tag, sizeof(tag), "en %c", 'A' + d);
+            snprintf(tag, sizeof(tag), OSD_T("en %c", "in %c"), 'A' + d);
             osd_puts(s, row, left + width - 18, tag, sel ? OSD_ATTR(OSD_RED, OSD_CYAN) : OSD_ATTR(OSD_YELLOW, OSD_BLACK), -1);
         }
     }
     if (m->browse_count == 0)
         osd_puts(s, top + 4, left + 4,
-                 net     ? (drive ? "Aucune image .dsk sur le réseau"
-                            : tape ? "Aucune cassette .tap sur le réseau"
-                                   : "Aucun fichier de ce type sur le réseau")
-                 : drive ? "Aucune image .dsk sur la clé"
-                 : tape  ? "Aucune cassette .tap sur la clé"
-                 : state ? "Aucun instantané .sta sur la clé"
-                         : "Aucune image .rom sur la clé",
+                 net     ? (drive ? OSD_T("Aucune image .dsk sur le réseau", "No .dsk image on the network")
+                            : tape ? OSD_T("Aucune cassette .tap sur le réseau", "No .tap tape on the network")
+                                   : OSD_T("Aucun fichier de ce type sur le réseau", "No file of this type on the network"))
+                 : drive ? OSD_T("Aucune image .dsk sur la clé", "No .dsk image on the key")
+                 : tape  ? OSD_T("Aucune cassette .tap sur la clé", "No .tap tape on the key")
+                 : state ? OSD_T("Aucun instantané .sta sur la clé", "No .sta snapshot on the key")
+                         : OSD_T("Aucune image .rom sur la clé", "No .rom image on the key"),
                  OSD_ATTR(OSD_RED, OSD_BLACK), -1);
     // Liste incomplète : le fichier cherché peut manquer
     if (m->truncated) {
         char note[48];
-        snprintf(note, sizeof(note), "Liste tronquée : %d fichiers au plus", OSD_MENU_FILES);
+        snprintf(note, sizeof(note), OSD_T("Liste tronquée : %d fichiers au plus", "List truncated: %d files at most"), OSD_MENU_FILES);
         osd_puts(s, top + OSD_BROWSE_VISIBLE + 2, left + 4, note, OSD_ATTR(OSD_YELLOW, OSD_BLACK), -1);
     }
     // Barre de défilement
@@ -883,13 +902,14 @@ static inline void osd_tape_banner_ex(osd_row_t* r, const char* label, const cha
     r->ch[18] = OSD_TAPE_L;
     r->ch[19] = OSD_TAPE_R;
     r->attr[18] = r->attr[19] = acc;
-    osd_row_puts(r, 21, label, acc);
+    // label : « Lecture » ou « Écriture » (repères des appelants), affiché dans la langue du menu
+    osd_row_puts(r, 21, label[0] == 'L' ? OSD_T("Lecture", "Playing") : OSD_T("Écriture", "Recording"), acc);
     char buf[64];
     snprintf(buf, sizeof(buf), "%.34s", name);
     osd_row_puts(r, 30, buf, base);
     const int bar = 66, cells = 30;
     if (percent < 0) {
-        snprintf(buf, sizeof(buf), "%lu octets", (unsigned long)bytes);
+        snprintf(buf, sizeof(buf), OSD_T("%lu octets", "%lu bytes"), (unsigned long)bytes);
         osd_row_puts(r, bar, buf, acc);
         return;
     }
@@ -914,7 +934,7 @@ static inline void osd_volume_banner(osd_row_t* r, int level, int max, bool mute
     if (muted) {
         r->ch[30] = OSD_CROSS;
         r->attr[30] = OSD_ATTR(OSD_RED, OSD_BLUE | OSD_DITHER);
-        osd_row_puts(r, 32, "Son coupé", base);
+        osd_row_puts(r, 32, OSD_T("Son coupé", "Muted"), base);
         return;
     }
     for (int i = 0; i < max; i++) {

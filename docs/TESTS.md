@@ -402,6 +402,17 @@ quand l'état est effacé. Contre-épreuve : signe TNFS décalé d'une colonne �
 2026-11-16 (`docs/ESSAIS_CARTE.md`) donne les deux premiers états réels ; les trois états réels (Wi-Fi absent, serveur muet,
 monté) ont été vus sur carte le même jour.
 
+## Menu en anglais — `test_menu_lang` de `tests/test_revue_firmware.c` (US-198)
+
+`langue=` (valeurs reconnues, défaut gardé), écriture par `osd_config_merge_ex` (ligne remplacée, `NULL` :
+gardée) ; touche L (`OSD_ACT_LANG` sur la page principale, saut à la lettre dans un sélecteur) ; en français, le
+menu d'avant ; en anglais : page principale remplie, cinq sélecteurs, profils et ROM intégrées, listes vides
+(clé, réseau), liste tronquée, choix de la source — chaque page dessinée est parcourue à la recherche de
+**mots français** (liste de radicaux) ; pied entier sans chevauchement (« F1: open this menu », « L: français ») ;
+ligne Réseau réécrite à la bascule (`net_status_render`), détail entier et « Network » séparé de son signe ;
+état à zéro sans texte ; bandeaux cassette (« Playing », « Recording », octets) et volume (« Muted ») ; erreurs
+des profils. Contre-épreuve : « Cartouches » non traduit → 9 échecs.
+
 ## Menu et clé USB — `tests/test_menu.sh` (14 vérifications)
 
 Un répertoire tient lieu de clé (`-U`) : `STRATSED.DSK`, `hyperbas.rom`,

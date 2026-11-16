@@ -179,3 +179,17 @@ session), racine avec `NETTEST.DSK` (copie de `~/oriclib/games/dsk/STRATSED.DSK`
 Syntaxe (index HYPER-BASIC, oric.free.fr) : `DIR "B"` ; `DIR B` et `DIR B:` donnent « Attention: expression
 alphanumérique ». Non essayés : écriture sur la disquette du réseau, cartouche et cassette du réseau,
 `a=net:/…` au démarrage, retrait du modem.
+
+### Menu en anglais (v0.19.0, US-198, 2026-11-16)
+
+| Essai | Résultat |
+|---|---|
+| F1, touche L | ✅ « Menu in English (Save the configuration: keep it) » ; L de nouveau : « Menu en français… » |
+| Page principale en anglais | ✅ Floppy disks, Cartridges, Bank 7…, USB key / Key mounted, Devices, Snapshots, Printer, Tape fast (BASIC 1.1 CLOAD), Motor relay (PB6), Modem on / ready, Restart (RESET), Save the configuration, Resume ; pied « Arrows select … Esc resume », « F1: open this menu », « L: français » |
+| Ligne Réseau | ✅ « Network ●Wi-Fi ✗TNFS 172.22.195.246:16385 no answer » (premier essai après le flash, voir US-199) ; en français, détail entier « …16385 sans réponse » (barre élargie d'une colonne) |
+| Message d'action | ✅ « Drive A: STRATSED.DSK » |
+| Page Réseau | en français (socle), pied en anglais « Arrows field, Enter next, Backspace erase, Esc cancel » |
+| Second essai de montage (Enregistrer de la page Réseau) | ✅ session du modem sur `tnfsd` (22:34:45) |
+
+Non essayés sur carte : `langue=en` lu au démarrage, écrit par « Save the configuration » (couverts par
+`test_menu_lang`) ; bandeaux de la cassette et du volume en anglais.
