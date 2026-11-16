@@ -132,7 +132,15 @@ voit pas l'image et répond « Programming Failed »). `tools/carte.py` utilisé
 | Démarrage | ✅ TELEMON 2.4, STRATSED 2.0c, HYPER-BASIC 2.0b, TELEMATIC 2.0b, TELE-ASS 1.0a, « 1- HYPER-BASIC / 2- TELE-ASS », 44 Ko libres |
 | Clé USB | ✅ montée, lecteur A : STRATSED.DSK |
 | Affichage | ✅ 502 trames en 10 s, cœur 1 : 44 µs par ligne (max 47), 0 ligne rouge |
-| 65C02 | menu ouvert (`osd_open` = 1) au moment de la mesure : 65C02 arrêté (normal), cadence non mesurée |
+| 65C02 | ✅ 1,004 MHz, cœur 0 à 57 % (11,3 ms par trame, 11,5 au pire), cœur 1 à 31 µs par ligne (max 35) |
+| Menu (F1 par la sonde) | ✅ page principale, « Neo6502 v0.17.0 », modem « PicoWiFiModemUSB : prêt » |
+| Page Réseau (socle -24) | ✅ s'ouvre par Réseau + Entrée : Serveur (vide), Wi-Fi (réseau de TELESTRA.CFG), mot de passe masqué |
+| Recherche Wi-Fi (socle -26) | ✅ Entrée sur Wi-Fi : liste « Réseaux Wi-Fi » (2 réseaux, WPA, niveau en dBm) en moins de 1 s ; pendant la recherche, 26 à 29 trames par 0,53 s (≈ 50/s, pas d'arrêt de l'affichage), 0 ligne rouge |
+| Retour | ✅ Échap ×3 (liste, page sans enregistrer, menu) : HYPER-BASIC reprend, `PRINT 6*7` → 42 |
 
-Non faits : page Réseau et recherche Wi-Fi non bloquante (socle -24, -26), qui demandent le modem et la
-lecture de l'écran du menu (`ecran.py` / `carte.py ecran --png` toujours illisibles).
+À voir : sous la liste des réseaux, la ligne d'aide « Wi-Fi : Entrée = … » de la page Réseau paraît recouverte
+d'une barre de couleur (capture vidéo, non analysé). Recherche lente (réseau absent, modem lent) non essayée ;
+TELESTRA.CFG non modifié (rien enregistré).
+
+Écran vu par une capture HDMI (MS2109, `/dev/video32`, ffmpeg) : `ecran.py` / `carte.py ecran --png`
+restent illisibles pour le Telestrat ; `carte.py ecran` (texte) fonctionne.
